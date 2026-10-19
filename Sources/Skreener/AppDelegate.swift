@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Open / pin existing images
 
-    @objc private func openFile() {
+    @MainActor @objc private func openFile() {
         NSApp.activate(ignoringOtherApps: true)
         if let img = ImageSource.pickFile() { EditorWindowController(image: img).present() }
     }
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EditorWindowController(image: img).present()
     }
 
-    @objc private func pinFile() {
+    @MainActor @objc private func pinFile() {
         NSApp.activate(ignoringOtherApps: true)
         if let img = ImageSource.pickFile() { PinnedScreenshotController.pin(img) }
     }
@@ -131,7 +131,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func captureWindow() {
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             let wins = await CaptureService.onScreenWindows()
             overlay.begin(mode: .window, windows: wins) { [weak self] sel in self?.handle(sel) }
         }
