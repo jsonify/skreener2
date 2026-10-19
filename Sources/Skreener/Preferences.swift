@@ -42,6 +42,11 @@ enum Preferences {
         get { d.object(forKey: "annotationShadow") as? Bool ?? true }
         set { d.set(newValue, forKey: "annotationShadow") }
     }
+    /// Open each screenshot straight in the editor instead of the Quick Access thumbnail.
+    static var openEditorAfterCapture: Bool {
+        get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }
+        set { d.set(newValue, forKey: "openEditorAfterCapture") }
+    }
     /// Self-timer countdown in seconds (3, 5 or 10).
     static var selfTimerSeconds: Int {
         get { [3, 5, 10].contains(d.integer(forKey: "selfTimerSeconds")) ? d.integer(forKey: "selfTimerSeconds") : 5 }

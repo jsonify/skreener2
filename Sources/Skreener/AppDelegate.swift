@@ -324,6 +324,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         CaptureHistory.add(image)
         if Preferences.copyToClipboard { Output.copy(image) }
         if Preferences.autoSave { Output.save(image) }
+        // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
+        if Preferences.openEditorAfterCapture {
+            EditorWindowController(image: image).present()
+            return
+        }
         let qa = QuickAccessController(image: image)
         qa.onAnnotate = { EditorWindowController(image: $0).present() }
         qa.onPin = { PinnedScreenshotController.pin($0) }
