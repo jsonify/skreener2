@@ -8,7 +8,7 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 - Area selection: crosshair + pixel magnifier, arrow keys nudge the pointer (Shift = 10 pt), hold Space to move the selection, optional frozen screen
 - Window capture options: shadow, transparent or white background, padding
 - Quick Access thumbnail: copy, save, edit, dismiss
-- Annotation editor (CleanShot-style unified toolbar, 990×750 minimum window, zoom-to-fit canvas, Drag Me export): arrow, rectangle, ellipse, line, pen, text, pixelate, color. Annotations stay editable: select, move, resize by handles, delete (⌫), double-click text to edit, recolor; undo/redo (⌘Z / ⇧⌘Z); tool keys V A R O L P T X; mouse wheel zooms
+- Annotation editor (CleanShot-style unified toolbar, 990×750 minimum window, zoom-to-fit canvas, Drag Me export): arrow, rectangle, ellipse, line, pen, text (typed in place on the image), pixelate. A contextual attributes bar shows the options for the current tool or selection: color, stroke width, font, size, bold, pixel size. Annotations stay editable: select, move, resize by handles, delete (⌫), double-click text to edit, recolor; undo/redo (⌘Z / ⇧⌘Z); tool keys V A R O L P T X; mouse wheel zooms
 - Capture Text (OCR, ⌃⇧2): on-device Vision text recognition copied to clipboard
 - Self-timer fullscreen capture (3/5/10 s) from the menu
 - Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close)

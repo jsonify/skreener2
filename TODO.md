@@ -41,8 +41,10 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Select/move/resize/delete existing annotations (object model, not baked pixels); double-click text to edit; recolor selection; arrow-key nudge — L
 - [~] Undo/redo of every edit (⌘Z / ⇧⌘Z), keyboard shortcuts per tool (V A R O L P T X) — S
 - [~] Mouse-wheel zoom around the pointer (trackpad still pans; ⌘+scroll and pinch zoom) — S
+- [~] Inline text editing on the canvas (type in place, live preview; Esc / ⌘Return / click outside to finish) — S
+- [~] Contextual attributes bar: color for all tools, stroke width (shapes/pen), font/size/bold (text), pixel size (pixelate); applies to the selection or to new annotations — M
 - [ ] Numbered step counter, highlighter, blur (gaussian), spotlight — M
-- [ ] Line, rounded rectangle, arrow styles, stroke width — M
+- [ ] Line, rounded rectangle, arrow styles (stroke width now in the attributes bar) — M
 - [ ] Crop & rotate — M
 - [ ] Background tool (gradient/solid, padding, corner radius, shadow) — M
 - [ ] Redact: auto-detect emails/text via OCR — M

@@ -84,8 +84,7 @@ private extension NSToolbarItem.Identifier {
     static let toolsItem = NSToolbarItem.Identifier("skreener.tools")
     static let undoItem = NSToolbarItem.Identifier("skreener.undo")
     static let redoItem = NSToolbarItem.Identifier("skreener.redo")
-    static let colorItem = NSToolbarItem.Identifier("skreener.color")
-    static let strokeItem = NSToolbarItem.Identifier("skreener.stroke")
+    static let attributesItem = NSToolbarItem.Identifier("skreener.attributes")
     static let saveAsItem = NSToolbarItem.Identifier("skreener.saveAs")
 }
 
@@ -120,7 +119,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private let scroll = ZoomingScrollView()
     private let zoomButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private var toolGroup: NSToolbarItemGroup?
-    private var colorWell: NSColorWell?
+    // Contextual attributes bar: only the controls that apply to the current tool or selection are shown.
+    private let attributesBar = NSStackView()
+    private let colorWell = NSColorWell(style: .minimal)
+    private let strokePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let boldButton = NSButton()
+    private let pixelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private static let fontChoices = [("System", ""), ("Helvetica Neue", "Helvetica Neue"), ("Avenir Next", "Avenir Next"),
+                                      ("Georgia", "Georgia"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
+                                      ("Chalkboard SE", "Chalkboard SE")]
     private var fitMode = true
 
     init(image: NSImage) {
@@ -162,9 +171,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         }
         scroll.onZoom = { [weak self] in self?.fitMode = false; self?.refreshZoomLabel() }
         canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
-        canvas.onSelectionChange = { [weak self] a in
-            if let a { self?.colorWell?.color = a.color }
-        }
+        canvas.onContextChange = { [weak self] tool, style in self?.refreshAttributes(tool, style) }
+        buildAttributesBar()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -289,7 +297,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .colorItem, .strokeItem, .undoItem, .redoItem, .flexibleSpace, .saveAsItem]
+        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .attributesItem, .undoItem, .redoItem, .flexibleSpace, .saveAsItem]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
@@ -307,7 +315,6 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         case .cropItem: return placeholder("crop", "Crop")
         case .addImageItem: return placeholder("plus.rectangle.on.rectangle", "Add Image")
         case .mockupItem: return placeholder("photo", "Background")
-        case .strokeItem: return placeholder("lineweight", "Stroke")
         case .undoItem:
             let item = NSToolbarItem(itemIdentifier: id)
             item.image = symbol("arrow.uturn.backward", "Undo"); item.label = "Undo"; item.toolTip = "Undo"
@@ -334,16 +341,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             group.label = "Tools"
             toolGroup = group
             return group
-        case .colorItem:
-            let well = NSColorWell(style: .minimal)
-            well.color = canvas.color
-            well.target = self; well.action = #selector(colorChanged(_:))
-            colorWell = well
-            well.translatesAutoresizingMaskIntoConstraints = false
-            well.widthAnchor.constraint(equalToConstant: 32).isActive = true
-            well.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        case .attributesItem:
             let item = NSToolbarItem(itemIdentifier: id)
-            item.view = well; item.label = "Color"; item.toolTip = "Color"
+            item.view = attributesBar; item.label = "Style"
             return item
         case .saveAsItem:
             let b = NSButton(title: "Save as…", target: self, action: #selector(saveIt))
@@ -360,6 +360,73 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
+    // MARK: Attributes bar
+
+    private func buildAttributesBar() {
+        attributesBar.orientation = .horizontal
+        attributesBar.spacing = 6
+
+        colorWell.target = self; colorWell.action = #selector(colorChanged(_:)); colorWell.toolTip = "Color"
+        colorWell.translatesAutoresizingMaskIntoConstraints = false
+        colorWell.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        colorWell.heightAnchor.constraint(equalToConstant: 28).isActive = true
+
+        func setUp(_ popup: NSPopUpButton, _ tip: String, _ choices: [(String, Int)], _ action: Selector) {
+            popup.bezelStyle = .texturedRounded
+            popup.toolTip = tip
+            popup.target = self; popup.action = action
+            for (title, tag) in choices { popup.addItem(withTitle: title); popup.lastItem?.tag = tag }
+        }
+        setUp(strokePopup, "Stroke width", [1, 2, 3, 5, 8, 12].map { ("\($0) pt", $0) }, #selector(strokePicked(_:)))
+        setUp(sizePopup, "Font size", [12, 14, 16, 18, 22, 28, 32, 40, 48, 64, 72].map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
+        setUp(pixelPopup, "Pixel size", [("Fine", 6), ("Medium", 10), ("Coarse", 18), ("Heavy", 28)], #selector(pixelPicked(_:)))
+        setUp(fontPopup, "Font", [], #selector(fontPicked(_:)))
+        for (title, name) in Self.fontChoices {
+            fontPopup.addItem(withTitle: title)
+            fontPopup.lastItem?.representedObject = name
+            if let f = NSFont(name: name, size: 13) {
+                fontPopup.lastItem?.attributedTitle = NSAttributedString(string: title, attributes: [.font: f])
+            }
+        }
+
+        boldButton.image = symbol("bold", "Bold")
+        boldButton.setButtonType(.pushOnPushOff)
+        boldButton.bezelStyle = .texturedRounded
+        boldButton.imagePosition = .imageOnly
+        boldButton.toolTip = "Bold"
+        boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
+
+        [colorWell, strokePopup, fontPopup, sizePopup, boldButton, pixelPopup].forEach(attributesBar.addArrangedSubview)
+        refreshAttributes(canvas.contextTool, canvas.contextStyle)
+    }
+
+    /// Shows the controls for `tool` and loads them with `style`.
+    private func refreshAttributes(_ tool: Tool, _ style: Style) {
+        strokePopup.isHidden = !tool.usesStroke
+        [fontPopup, sizePopup, boldButton].forEach { $0.isHidden = tool != .text }
+        pixelPopup.isHidden = tool != .pixelate
+        colorWell.isHidden = tool == .pixelate
+
+        colorWell.color = style.color
+        strokePopup.selectItem(withTag: Int(style.lineWidth))
+        sizePopup.selectItem(withTag: Int(style.fontSize))
+        pixelPopup.selectItem(withTag: Int(style.pixelSize))
+        if let i = fontPopup.itemArray.firstIndex(where: { $0.representedObject as? String == style.fontName }) {
+            fontPopup.selectItem(at: i)
+        }
+        boldButton.state = style.bold ? .on : .off
+    }
+
+    @objc private func colorChanged(_ w: NSColorWell) { canvas.updateStyle { $0.color = w.color } }
+    @objc private func strokePicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.lineWidth = CGFloat(p.selectedTag()) } }
+    @objc private func sizePicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.fontSize = CGFloat(p.selectedTag()) } }
+    @objc private func pixelPicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.pixelSize = CGFloat(p.selectedTag()) } }
+    @objc private func fontPicked(_ p: NSPopUpButton) {
+        let name = p.selectedItem?.representedObject as? String ?? ""
+        canvas.updateStyle { $0.fontName = name }
+    }
+    @objc private func boldToggled(_ b: NSButton) { canvas.updateStyle { $0.bold = b.state == .on } }
+
     // MARK: Actions
 
     @objc private func toolChanged() {
@@ -370,7 +437,6 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private func selectToolButton(_ t: Tool) {
         if let i = toolButtons.firstIndex(where: { $0.tool == t }) { toolGroup?.selectedIndex = i }
     }
-    @objc private func colorChanged(_ w: NSColorWell) { canvas.applyColor(w.color) }
     @objc private func copyIt() { Output.copy(canvas.flattened()) }
     @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
