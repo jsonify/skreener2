@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Centers the document view when it is smaller than the viewport (works with scroll-view magnification).
 private final class CenteredClipView: NSClipView {
@@ -95,23 +96,25 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
 
 /// CleanShot-style editor: unified titlebar toolbar, centered zoomable canvas, footer with zoom / Drag Me / actions.
 /// The window never gets smaller than `minimumSize`.
-final class EditorWindowController: NSWindowController, NSToolbarDelegate {
+final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate {
     static let minimumSize = NSSize(width: 990, height: 750)
     static var live: [EditorWindowController] = []
+    /// Set by the app: lets the user pick an area on screen and hands back the capture (nil if cancelled).
+    static var captureArea: ((@escaping (NSImage?) -> Void) -> Void)?
 
-    /// Toolbar tool buttons in display order. `tool == nil` entries are placeholders for tools that are not built yet.
-    private let toolButtons: [(symbol: String, label: String, tool: Tool?)] = [
-        ("cursorarrow", "Select", .select),
-        ("rectangle", "Rectangle", .rect),
-        ("rectangle.fill", "Filled Rectangle", nil),
-        ("circle", "Ellipse", .ellipse),
-        ("line.diagonal", "Line", .line),
-        ("arrow.up.right", "Arrow", .arrow),
-        ("textformat", "Text", .text),
-        ("checkerboard.rectangle", "Pixelate", .pixelate),
-        ("1.circle.fill", "Counter", nil),
-        ("pencil.tip", "Pen", .pen),
-        ("highlighter", "Highlighter", nil),
+    /// Toolbar tool buttons in display order.
+    private let toolButtons: [(symbol: String, tool: Tool)] = [
+        ("cursorarrow", .select),
+        ("rectangle", .rect),
+        ("rectangle.fill", .filledRect),
+        ("circle", .ellipse),
+        ("line.diagonal", .line),
+        ("arrow.up.right", .arrow),
+        ("textformat", .text),
+        ("checkerboard.rectangle", .pixelate),
+        ("1.circle.fill", .counter),
+        ("pencil.tip", .pen),
+        ("highlighter", .highlighter),
     ]
 
     private let image: NSImage
@@ -130,6 +133,20 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let boldButton = NSButton()
     private let pixelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let arrangeButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    /// Add Image → From Capture History; filled in each time it opens.
+    private let historyMenu = NSMenu(title: "From Capture History")
+    // Crop and Background replace the tool options in the same strip while they are active.
+    private enum StripMode { case tools, crop, background }
+    private var stripMode = StripMode.tools {
+        didSet { refreshStrip() }
+    }
+    private let cropBar = NSStackView()
+    private let backgroundBar = NSStackView()
+    private let fillPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let paddingPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let cornerPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let bgShadowBox = NSButton(checkboxWithTitle: "Shadow", target: nil, action: nil)
     private static let fontChoices = [("System", ""), ("Helvetica Neue", "Helvetica Neue"), ("Avenir Next", "Avenir Next"),
                                       ("Georgia", "Georgia"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
                                       ("Chalkboard SE", "Chalkboard SE")]
@@ -176,8 +193,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         canvas.onExtentChange = { [weak self] old in self?.canvasExtentChanged(from: old) }
         scroll.onZoom = { [weak self] in self?.fitMode = false; self?.refreshZoomLabel() }
         canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
-        canvas.onContextChange = { [weak self] tool, style in self?.refreshAttributes(tool, style) }
+        canvas.onContextChange = { [weak self] _, _ in self?.contextChanged() }
+        canvas.onCropModeChange = { [weak self] on in self?.stripMode = on ? .crop : .tools }
+        canvas.onBackgroundChange = { [weak self] in if self?.stripMode == .background { self?.refreshStrip() } }
         buildAttributesBar()
+        buildCropBar()
+        buildBackgroundBar()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -244,7 +265,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         attributesTitle.textColor = .secondaryLabelColor
         attributesHint.font = .systemFont(ofSize: 12)
         attributesHint.textColor = .tertiaryLabelColor
-        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint])
+        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint, cropBar, backgroundBar])
         row.spacing = 12
         row.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox(); line.boxType = .separator
@@ -351,16 +372,22 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        func placeholder(_ sym: String, _ label: String) -> NSToolbarItem {
+        func button(_ sym: String, _ label: String, _ tip: String, _ action: Selector) -> NSToolbarItem {
             let item = NSToolbarItem(itemIdentifier: id)
-            item.image = symbol(sym, label); item.label = label; item.toolTip = "\(label) (coming soon)"
-            item.isBordered = true; item.isEnabled = false
+            item.image = symbol(sym, label); item.label = label; item.toolTip = tip
+            item.isBordered = true; item.target = self; item.action = action
             return item
         }
         switch id {
-        case .cropItem: return placeholder("crop", "Crop")
-        case .addImageItem: return placeholder("plus.rectangle.on.rectangle", "Add Image")
-        case .mockupItem: return placeholder("photo", "Background")
+        case .cropItem: return button("crop", "Crop", "Crop (C)", #selector(cropIt))
+        case .addImageItem:
+            let item = NSMenuToolbarItem(itemIdentifier: id)
+            item.image = symbol("plus.rectangle.on.rectangle", "Add Image"); item.label = "Add Image"
+            item.toolTip = "Add an image from a new capture, the capture history, a file or the clipboard"
+            item.showsIndicator = true
+            item.menu = buildAddImageMenu()
+            return item
+        case .mockupItem: return button("photo", "Background", "Background", #selector(backgroundIt))
         case .undoItem:
             let item = NSToolbarItem(itemIdentifier: id)
             item.image = symbol("arrow.uturn.backward", "Undo"); item.label = "Undo"; item.toolTip = "Undo"
@@ -374,14 +401,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             return item
         case .toolsItem:
             let group = NSToolbarItemGroup(itemIdentifier: id,
-                                           images: toolButtons.map { symbol($0.symbol, $0.label) },
+                                           images: toolButtons.map { symbol($0.symbol, $0.tool.name) },
                                            selectionMode: .selectOne,
-                                           labels: toolButtons.map(\.label),
+                                           labels: toolButtons.map(\.tool.name),
                                            target: self, action: #selector(toolChanged))
             for (i, b) in toolButtons.enumerated() where i < group.subitems.count {
                 let key = Tool.shortcuts.first { $0.value == b.tool }.map { " (\($0.key.uppercased()))" } ?? ""
-                group.subitems[i].toolTip = b.tool == nil ? "\(b.label) (coming soon)" : b.label + key
-                group.subitems[i].isEnabled = b.tool != nil
+                group.subitems[i].toolTip = b.tool.name + key
             }
             group.selectedIndex = toolButtons.firstIndex { $0.tool == canvas.tool } ?? 0
             group.label = "Tools"
@@ -445,20 +471,126 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         boldButton.toolTip = "Bold"
         boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
 
-        [colorWell, strokePopup, fontPopup, sizePopup, boldButton, pixelPopup].forEach(attributesBar.addArrangedSubview)
-        refreshAttributes(canvas.contextTool, canvas.contextStyle)
+        arrangeButton.bezelStyle = .texturedRounded
+        arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
+        arrangeButton.addItem(withTitle: "Arrange")
+        arrangeButton.lastItem?.image = symbol("square.3.layers.3d", "Arrange")
+        // Shortcuts live in the Arrange menu bar menu; repeating them here would fire twice.
+        for (title, action, _, _) in CanvasView.arrangeCommands {
+            arrangeButton.addItem(withTitle: title)
+            arrangeButton.lastItem?.action = action
+            arrangeButton.lastItem?.target = canvas
+        }
+
+        [colorWell, strokePopup, fontPopup, sizePopup, boldButton, pixelPopup, arrangeButton].forEach(attributesBar.addArrangedSubview)
+        refreshStrip()
+    }
+
+    private func buildCropBar() {
+        let hint = NSTextField(labelWithString: "Drag the corners or draw a new area · Return to apply · Esc to cancel")
+        hint.font = .systemFont(ofSize: 12)
+        hint.textColor = .tertiaryLabelColor
+        let reset = NSButton(title: "Reset", target: self, action: #selector(cropReset))
+        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cropCancel))
+        let apply = NSButton(title: "Apply", target: self, action: #selector(cropApply))
+        apply.bezelColor = .controlAccentColor
+        [reset, cancel, apply].forEach { $0.bezelStyle = .texturedRounded }
+        [hint, reset, cancel, apply].forEach(cropBar.addArrangedSubview)
+        cropBar.spacing = 8
+        cropBar.isHidden = true
+    }
+
+    private func buildBackgroundBar() {
+        fillPopup.bezelStyle = .texturedRounded
+        fillPopup.toolTip = "Fill"
+        fillPopup.target = self; fillPopup.action = #selector(backgroundChanged)
+        fillPopup.autoenablesItems = false
+        fillPopup.addItem(withTitle: "None"); fillPopup.lastItem?.tag = -1
+        for (i, preset) in Background.presets.enumerated() {
+            fillPopup.addItem(withTitle: preset.name)
+            fillPopup.lastItem?.tag = i
+            fillPopup.lastItem?.image = NSImage(size: NSSize(width: 26, height: 14), flipped: false) { r in
+                let clip = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+                clip.addClip()
+                Background.draw(fill: i, in: r)
+                NSColor.separatorColor.setStroke(); clip.stroke()
+                return true
+            }
+        }
+        fillPopup.menu?.addItem(.separator())
+        fillPopup.addItem(withTitle: "Desktop Wallpaper")
+        fillPopup.lastItem?.tag = Background.wallpaperFill
+        refreshWallpaperItem()
+        for (popup, tip, choices) in [(paddingPopup, "Padding", [16, 32, 48, 64, 96, 128]), (cornerPopup, "Corner radius", [0, 6, 10, 16, 24])] {
+            popup.bezelStyle = .texturedRounded
+            popup.toolTip = tip
+            popup.target = self; popup.action = #selector(backgroundChanged)
+            for v in choices { popup.addItem(withTitle: "\(tip == "Padding" ? "Padding" : "Corners") \(v) pt"); popup.lastItem?.tag = v }
+        }
+        bgShadowBox.target = self; bgShadowBox.action = #selector(backgroundChanged)
+        [fillPopup, paddingPopup, cornerPopup, bgShadowBox].forEach(backgroundBar.addArrangedSubview)
+        backgroundBar.spacing = 8
+        backgroundBar.isHidden = true
+    }
+
+    /// The wallpaper can change while the editor is open, so its swatch is redrawn whenever the options show.
+    private func refreshWallpaperItem() {
+        guard let item = fillPopup.menu?.items.first(where: { $0.tag == Background.wallpaperFill }) else { return }
+        let available = Background.wallpaper != nil
+        item.isEnabled = available
+        item.title = available ? "Desktop Wallpaper" : "Desktop Wallpaper (unavailable)"
+        item.toolTip = available ? nil : "The current wallpaper is not a still image (for example a dynamic or aerial wallpaper)."
+        item.image = nil
+        guard available else { return }
+        item.image = NSImage(size: NSSize(width: 26, height: 14), flipped: false) { r in
+            let clip = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+            clip.addClip()
+            Background.draw(fill: Background.wallpaperFill, in: r)
+            NSColor.separatorColor.setStroke(); clip.stroke()
+            return true
+        }
+    }
+
+    private func contextChanged() {
+        // Clicking an annotation or picking a tool leaves the background options.
+        if stripMode == .background { stripMode = .tools } else { refreshStrip() }
+    }
+
+    private func refreshStrip() {
+        attributesBar.isHidden = stripMode != .tools
+        cropBar.isHidden = stripMode != .crop
+        backgroundBar.isHidden = stripMode != .background
+        switch stripMode {
+        case .tools:
+            refreshAttributes(canvas.contextTool, canvas.contextStyle)
+        case .crop:
+            attributesTitle.stringValue = "Crop"
+            attributesTitle.isHidden = false; attributesHint.isHidden = true
+        case .background:
+            attributesTitle.stringValue = "Background"
+            attributesTitle.isHidden = false; attributesHint.isHidden = true
+            refreshWallpaperItem()
+            let bg = canvas.background
+            fillPopup.selectItem(withTag: bg?.fill ?? -1)
+            paddingPopup.selectItem(withTag: Int(bg?.padding ?? Background().padding))
+            cornerPopup.selectItem(withTag: Int(bg?.cornerRadius ?? Background().cornerRadius))
+            bgShadowBox.state = bg?.shadow ?? true ? .on : .off
+            [paddingPopup, cornerPopup, bgShadowBox].forEach { $0.isEnabled = bg != nil }
+        }
     }
 
     /// Shows the controls for `tool` and loads them with `style`.
     private func refreshAttributes(_ tool: Tool, _ style: Style) {
         // `.select` here means nothing is selected: there is no style to edit.
-        attributesTitle.stringValue = toolButtons.first { $0.tool == tool }?.label ?? ""
+        attributesTitle.stringValue = tool.name
         attributesTitle.isHidden = tool == .select
         attributesHint.isHidden = tool != .select
-        colorWell.isHidden = tool == .select || tool == .pixelate
+        colorWell.isHidden = [.select, .pixelate, .image].contains(tool)
         strokePopup.isHidden = !tool.usesStroke
-        [fontPopup, sizePopup, boldButton].forEach { $0.isHidden = tool != .text }
+        [fontPopup, boldButton].forEach { $0.isHidden = tool != .text }
+        sizePopup.isHidden = tool != .text && tool != .counter
         pixelPopup.isHidden = tool != .pixelate
+        arrangeButton.isHidden = !canvas.hasSelection
 
         colorWell.color = style.color
         strokePopup.selectItem(withTag: Int(style.lineWidth))
@@ -483,8 +615,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: Actions
 
     @objc private func toolChanged() {
-        guard let i = toolGroup?.selectedIndex, toolButtons.indices.contains(i), let t = toolButtons[i].tool else { return }
-        canvas.tool = t
+        guard let i = toolGroup?.selectedIndex, toolButtons.indices.contains(i) else { return }
+        canvas.applyCrop()
+        canvas.tool = toolButtons[i].tool
+        if stripMode == .background { stripMode = .tools }
         window?.makeFirstResponder(canvas)
     }
     private func selectToolButton(_ t: Tool) {
@@ -498,5 +632,99 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
+    @objc private func cropIt() {
+        if canvas.isCropping { canvas.applyCrop() } else { canvas.beginCrop() }
+        window?.makeFirstResponder(canvas)
+    }
+    @objc private func cropApply() { canvas.applyCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func cropCancel() { canvas.cancelCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func cropReset() { canvas.resetCrop(); window?.makeFirstResponder(canvas) }
+    @MainActor @objc private func addImageFromFile() {
+        guard let w = window else { return }
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.image]
+        p.beginSheetModal(for: w) { [weak self] r in
+            guard r == .OK, let url = p.url, let img = NSImage(contentsOf: url) else { return }
+            self?.canvas.insertImage(img)
+        }
+    }
+    @objc private func addImageFromHistory(_ item: NSMenuItem) {
+        guard let url = item.representedObject as? URL, let img = NSImage(contentsOf: url) else { NSSound.beep(); return }
+        canvas.insertImage(img)
+    }
+    @objc private func addImageFromClipboard() { canvas.paste(nil) }
+    /// Hides this editor, lets the user pick an area, then adds the capture to the canvas.
+    @objc private func addImageFromCapture() {
+        guard let capture = Self.captureArea, let w = window else { return }
+        w.orderOut(nil)
+        capture { [weak self] img in
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            if let img { self?.canvas.insertImage(img) }
+        }
+    }
+
+    private func buildAddImageMenu() -> NSMenu {
+        let m = NSMenu()
+        for (title, sym, sel) in [("Capture Area…", "camera.viewfinder", #selector(addImageFromCapture)),
+                                  ("Open File…", "folder", #selector(addImageFromFile)),
+                                  ("Paste from Clipboard", "doc.on.clipboard", #selector(addImageFromClipboard))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            i.target = self
+            i.image = symbol(sym, title)
+            m.addItem(i)
+        }
+        let history = NSMenuItem(title: "From Capture History", action: nil, keyEquivalent: "")
+        history.image = symbol("clock.arrow.circlepath", "Capture History")
+        historyMenu.delegate = self
+        history.submenu = historyMenu
+        m.insertItem(history, at: 1)
+        return m
+    }
+
+    /// Fills Add Image → From Capture History with the newest captures, as thumbnails.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === historyMenu else { return }
+        menu.removeAllItems()
+        let entries = CaptureHistory.entries().prefix(20)
+        if entries.isEmpty {
+            let none = NSMenuItem(title: "No captures yet", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+            return
+        }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        for e in entries {
+            let i = NSMenuItem(title: f.localizedString(for: e.date, relativeTo: Date()), action: #selector(addImageFromHistory(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = e.url
+            if let thumb = CaptureHistory.thumbnail(e.url, maxPixels: 160) {
+                let h: CGFloat = 40
+                thumb.size = NSSize(width: max(1, h * thumb.size.width / max(thumb.size.height, 1)).rounded(), height: h)
+                i.image = thumb
+            }
+            menu.addItem(i)
+        }
+    }
+    /// Shows the background options, adding the default background the first time.
+    @objc private func backgroundIt() {
+        if stripMode == .background { stripMode = .tools; return }
+        canvas.applyCrop()
+        canvas.clearSelection()
+        if canvas.background == nil { canvas.updateBackground { $0 = Background() } }
+        stripMode = .background
+        window?.makeFirstResponder(canvas)
+    }
+    @objc private func backgroundChanged() {
+        let fill = fillPopup.selectedTag()
+        let padding = CGFloat(paddingPopup.selectedTag()), corner = CGFloat(cornerPopup.selectedTag())
+        let shadow = bgShadowBox.state == .on
+        canvas.updateBackground { bg in
+            guard fill >= 0 else { bg = nil; return }
+            bg = Background(fill: fill, padding: padding, cornerRadius: corner, shadow: shadow)
+        }
+        refreshStrip()
+    }
     @objc private func redoIt() { canvas.redo() }
 }

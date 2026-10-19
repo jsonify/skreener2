@@ -23,6 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeys.shared.register(keyCode: kVK_ANSI_4, modifiers: mods) { [weak self] in self?.captureArea() }
         HotKeys.shared.register(keyCode: kVK_ANSI_5, modifiers: mods) { [weak self] in self?.captureWindow() }
         HotKeys.shared.register(keyCode: kVK_ANSI_6, modifiers: mods) { [weak self] in self?.captureAreaAndPin() }
+        HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
+
+        EditorWindowController.captureArea = { [weak self] done in
+            if let self { self.captureAreaImage(done) } else { done(nil) }
+        }
 
         if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
     }
@@ -47,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         timerItem.submenu = timerMenu; m.addItem(timerItem)
         m.addItem(.separator())
+        add("Capture History", #selector(showHistory), "h")
+        m.addItem(.separator())
         desktopIconsItem = NSMenuItem(title: DesktopIcons.visible ? "Hide Desktop Icons" : "Show Desktop Icons",
                                       action: #selector(toggleDesktopIcons), keyEquivalent: "")
         desktopIconsItem.target = self; m.addItem(desktopIconsItem)
@@ -69,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+    @objc private func showHistory() { CaptureHistoryPanel.shared.toggle() }
 
     /// The app menu bar, shown while an editor or Settings window is open (see `DockPresence`).
     private func buildMainMenu() -> NSMenu {
@@ -106,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
+        _ = submenu("Arrange", CanvasView.arrangeCommands.map { title, action, key, mods in
+            item(title, action, key, mods)
+        })
         NSApp.windowsMenu = submenu("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Close", #selector(NSWindow.performClose(_:)), "w"),
@@ -176,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.restoreIcons(); return }
                 lastArea = (screen, rect)
-                run(areaCapture(screen, rect, frozen)) { PinnedScreenshotController.pin($0) }
+                run(areaCapture(screen, rect, frozen)) { CaptureHistory.add($0); PinnedScreenshotController.pin($0) }
             }
         }
     }
@@ -224,6 +235,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Area capture for the editor's Add Image → Capture Area: no Quick Access, just the image (nil if cancelled).
+    private func captureAreaImage(_ done: @escaping (NSImage?) -> Void) {
+        // Give the hidden editor window a moment to leave the screen first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { done(nil); return }
+            overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, let frozen)? = sel else { done(nil); return }
+                lastArea = (screen, rect)
+                let capture = areaCapture(screen, rect, frozen)
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
+                    let image = try? await capture()
+                    if let image { CaptureHistory.add(image) } else { NSSound.beep() }
+                    done(image)
+                }
+            }
+        }
+    }
+
     /// Crops the frozen still when the screen was frozen during selection, otherwise grabs the live screen.
     private func areaCapture(_ screen: NSScreen, _ rect: CGRect, _ frozen: CGImage?) -> () async throws -> NSImage {
         if let frozen { return { try CaptureService.crop(frozen, screen: screen, globalRect: rect) } }
@@ -246,6 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finish(_ image: NSImage) {
+        CaptureHistory.add(image)
         if Preferences.copyToClipboard { Output.copy(image) }
         if Preferences.autoSave { Output.save(image) }
         let qa = QuickAccessController(image: image)
