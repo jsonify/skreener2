@@ -4,6 +4,10 @@
 # Screen Recording permission between builds. Usage: Scripts/make_dev_cert.sh [name]
 set -euo pipefail
 NAME="${1:-Skreener Dev}"
+if [[ "$NAME" == *=* || "$NAME" == -* ]]; then
+  echo "error: \"$NAME\" doesn't look like a certificate name. Run with no arguments to create \"Skreener Dev\"." >&2
+  exit 1
+fi
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if security find-identity -v -p codesigning | grep -q "\"$NAME\""; then
@@ -23,5 +27,9 @@ security add-trusted-cert -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
 
 echo
 security find-identity -v -p codesigning | grep "$NAME" || { echo "Certificate not valid yet; check Keychain Access."; exit 1; }
-echo "Done. Build with:  SKREENER_SIGN_IDENTITY=\"$NAME\" Scripts/build_app.sh"
+if [ "$NAME" = "Skreener Dev" ]; then
+  echo "Done. Scripts/build_app.sh will now sign with it automatically."
+else
+  echo "Done. Build with:  SKREENER_SIGN_IDENTITY=\"$NAME\" Scripts/build_app.sh"
+fi
 echo "The first build may ask to let codesign use the key: click Always Allow."

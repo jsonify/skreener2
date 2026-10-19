@@ -22,8 +22,8 @@ Grant Screen Recording permission on first launch.
 
 To keep that permission across rebuilds, sign with a stable certificate (once):
 ```
-Scripts/make_dev_cert.sh
-SKREENER_SIGN_IDENTITY="Skreener Dev" Scripts/build_app.sh --run   # quits the running copy, rebuilds, relaunches
+Scripts/make_dev_cert.sh          # creates "Skreener Dev"; build_app.sh then uses it automatically
+Scripts/build_app.sh --run        # quits the running copy, rebuilds, relaunches
 ```
 
 ## Not yet implemented (vs. CleanShot X)

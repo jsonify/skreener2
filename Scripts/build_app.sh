@@ -24,14 +24,25 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 # Ad-hoc signing ("-") changes the app's identity on every build, so macOS forgets the
-# Screen Recording grant. Set SKREENER_SIGN_IDENTITY to a stable certificate name to keep it.
-IDENTITY="${SKREENER_SIGN_IDENTITY:--}"
-if [ "$IDENTITY" != "-" ] && ! security find-identity -v -p codesigning | grep -q "\"$IDENTITY\""; then
-  echo "warning: signing identity \"$IDENTITY\" not found; falling back to ad-hoc (Screen Recording will be re-requested)." >&2
-  echo "         Create it once with Scripts/make_dev_cert.sh" >&2
+# Screen Recording grant. Sign with a stable certificate instead: SKREENER_SIGN_IDENTITY if set,
+# otherwise "Skreener Dev" when it exists (create it once with Scripts/make_dev_cert.sh).
+has_identity() { security find-identity -v -p codesigning | grep -q "\"$1\""; }
+if [ -n "${SKREENER_SIGN_IDENTITY:-}" ]; then
+  IDENTITY="$SKREENER_SIGN_IDENTITY"
+  if [ "$IDENTITY" != "-" ] && ! has_identity "$IDENTITY"; then
+    echo "warning: signing identity \"$IDENTITY\" not found; falling back to ad-hoc (Screen Recording will be re-requested)." >&2
+    echo "         Create it once with Scripts/make_dev_cert.sh" >&2
+    IDENTITY="-"
+  fi
+elif has_identity "Skreener Dev"; then
+  IDENTITY="Skreener Dev"
+else
+  echo "note: no \"Skreener Dev\" certificate; signing ad-hoc (Screen Recording will be re-requested)." >&2
+  echo "      Run Scripts/make_dev_cert.sh once to keep the permission across builds." >&2
   IDENTITY="-"
 fi
 codesign --force --sign "$IDENTITY" "$APP"
-echo "Built $APP (signed with ${IDENTITY/#-/ad-hoc})"
+[ "$IDENTITY" = "-" ] && SIGNED="ad-hoc" || SIGNED="\"$IDENTITY\""
+echo "Built $APP (signed with $SIGNED)"
 # Pass --run to launch it right away.
 if [ "${1:-}" = "--run" ]; then open "$APP"; fi
