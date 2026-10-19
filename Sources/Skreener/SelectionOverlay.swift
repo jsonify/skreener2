@@ -17,8 +17,11 @@ final class SelectionOverlay {
     private var completion: ((Selection?) -> Void)?
     private var windows: [SCWindow] = []
     private(set) var mode: Mode = .area
+    private var cursorPushed = false
 
     func begin(mode: Mode, windows: [SCWindow], completion: @escaping (Selection?) -> Void) {
+        // One selection at a time: a second hotkey press while picking would stack another set of panels.
+        guard self.completion == nil else { return }
         self.mode = mode
         self.windows = windows
         self.completion = completion
@@ -43,6 +46,7 @@ final class SelectionOverlay {
             p.isOpaque = false
             p.backgroundColor = .clear
             p.hasShadow = false
+            p.isReleasedWhenClosed = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             let v = SelectionView(frame: CGRect(origin: .zero, size: screen.frame.size))
             v.screen = screen
@@ -60,14 +64,23 @@ final class SelectionOverlay {
         if let p = panels.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) {
             p.makeKeyAndOrderFront(nil)
         }
-        NSCursor.crosshair.push()
+        NSCursor.crosshair.push(); cursorPushed = true
         NSApp.activate(ignoringOtherApps: true)
     }
 
     private func finish(_ sel: Selection?) {
-        NSCursor.pop()
-        panels.forEach { $0.orderOut(nil) }
+        guard completion != nil else { return }
+        if cursorPushed { NSCursor.pop(); cursorPushed = false }
+        let old = panels
         panels.removeAll()
+        for p in old {
+            // Disarm the view first: a late mouseEntered used to re-order a dismissed panel to the
+            // front, leaving an orphaned screen-saver-level overlay that nothing could remove.
+            (p.contentView as? SelectionView)?.dismantle()
+            p.close()
+        }
+        // We may be inside one of these panels' mouseUp; keep them alive until that returns.
+        DispatchQueue.main.async { withExtendedLifetime(old) {} }
         let c = completion; completion = nil
         c?(sel)
     }
@@ -77,7 +90,11 @@ private final class SelectionView: NSView {
     var screen: NSScreen!
     var mode: SelectionOverlay.Mode = .area
     var windows: [SCWindow] = []
-    var snapshot: CGImage?
+    var snapshot: CGImage? {
+        didSet { snapshotImage = snapshot.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) } }
+    }
+    /// Built once; wrapping the full-display frame on every mouse move made the loupe lag.
+    private var snapshotImage: NSImage?
     /// Draw `snapshot` as a still background and hand it back for cropping.
     var frozen = false
     var onFinish: ((Selection?) -> Void)?
@@ -87,12 +104,21 @@ private final class SelectionView: NSView {
     private var current: NSPoint?
     private var hoverWindow: SCWindow?
     private var spaceDown = false
+    private var dismantled = false
+
+    /// Called when the overlay closes: stops all further event handling and drawing.
+    func dismantle() {
+        dismantled = true
+        onFinish = nil
+        trackingAreas.forEach(removeTrackingArea)
+    }
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        guard !dismantled else { return }
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
@@ -118,6 +144,7 @@ private final class SelectionView: NSView {
 
     override func mouseExited(with event: NSEvent) { cursorPoint = nil; needsDisplay = true }
     override func mouseEntered(with event: NSEvent) {
+        guard !dismantled, window?.isVisible == true else { return }
         window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(self)
     }
@@ -245,8 +272,7 @@ private final class SelectionView: NSView {
         shape.addClip()
         NSColor.black.setFill(); img.fill()
         NSGraphicsContext.current?.imageInterpolation = .none
-        NSImage(cgImage: snap, size: NSSize(width: snap.width, height: snap.height))
-            .draw(in: img, from: src, operation: .copy, fraction: 1)
+        snapshotImage?.draw(in: img, from: src, operation: .copy, fraction: 1)
         let cell = NSRect(x: img.midX - zoom / 2, y: img.midY - zoom / 2, width: zoom, height: zoom)
         NSColor.black.setStroke(); NSBezierPath(rect: cell.insetBy(dx: -1, dy: -1)).stroke()
         NSColor.white.setStroke(); NSBezierPath(rect: cell).stroke()

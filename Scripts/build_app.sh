@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release
 APP=build/Skreener.app
+# Shown in About Skreener, so you can tell which commit is actually running.
+BUILD=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
 # A running copy keeps the old code (and its hotkeys), so quit it before replacing the bundle.
 pkill -x Skreener 2>/dev/null && sleep 0.5 || true
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
@@ -16,7 +18,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>com.skreener.app</string>
   <key>CFBundleExecutable</key><string>Skreener</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
@@ -43,6 +45,6 @@ else
 fi
 codesign --force --sign "$IDENTITY" "$APP"
 [ "$IDENTITY" = "-" ] && SIGNED="ad-hoc" || SIGNED="\"$IDENTITY\""
-echo "Built $APP (signed with $SIGNED)"
+echo "Built $APP at $BUILD (signed with $SIGNED)"
 # Pass --run to launch it right away.
 if [ "${1:-}" = "--run" ]; then open "$APP"; fi

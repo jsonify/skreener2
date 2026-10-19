@@ -210,9 +210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func captureWindow() {
         prepareCapture {
             Task { @MainActor [weak self] in
-                guard let self else { return }
                 let wins = await CaptureService.onScreenWindows()
-                overlay.begin(mode: .window, windows: wins) { [weak self] sel in self?.handle(sel) }
+                self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in self?.handle(sel) }
             }
         }
     }
