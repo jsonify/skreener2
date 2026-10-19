@@ -55,7 +55,8 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [ ] Capture history (browse / re-open / delete) — M
 
 ## Batch 6 — sharing & output
-- [ ] Preferences window (hotkey rebinding, format PNG/JPG, filename template, retina downscale) — M
+- [~] Settings window: existing options moved out of the menu, shortcut list, version + build commit — S
+- [ ] Settings: hotkey rebinding, format PNG/JPG, filename template, retina downscale — M
 - [ ] Quick Access: stacking, drag-and-drop out, swipe to dismiss, position setting — M
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M
 - [ ] Share sheet (NSSharingServicePicker) — S
@@ -63,7 +64,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 
 ## Menu parity with CleanShot X (from its menu bar)
 - [ ] Check for Updates… (Sparkle or equivalent) — M
-- [ ] Settings… (⌘,) — see Preferences window in batch 6
+- [~] Settings… (⌘,) — see Settings window in batch 6
 - [ ] Match CleanShot-style hotkeys (⇧⌘4 area, ⇧⌘3 fullscreen, ⇧⌘6 scrolling, ⇧⌘7 OCR, ⇧⌘5 all-in-one) as rebindable defaults — S
 
 ## Engineering

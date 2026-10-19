@@ -84,8 +84,8 @@ private extension NSToolbarItem.Identifier {
     static let toolsItem = NSToolbarItem.Identifier("skreener.tools")
     static let undoItem = NSToolbarItem.Identifier("skreener.undo")
     static let redoItem = NSToolbarItem.Identifier("skreener.redo")
-    static let attributesItem = NSToolbarItem.Identifier("skreener.attributes")
     static let saveAsItem = NSToolbarItem.Identifier("skreener.saveAs")
+    static let settingsItem = NSToolbarItem.Identifier("skreener.settings")
 }
 
 private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
@@ -119,8 +119,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private let scroll = ZoomingScrollView()
     private let zoomButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private var toolGroup: NSToolbarItemGroup?
-    // Contextual attributes bar: only the controls that apply to the current tool or selection are shown.
+    // Contextual attributes bar under the toolbar: only the controls that apply to the current tool or
+    // selection are shown. It lives outside the toolbar so the tool buttons always have room.
     private let attributesBar = NSStackView()
+    private let attributesTitle = NSTextField(labelWithString: "")
+    private let attributesHint = NSTextField(labelWithString: "Select an annotation to change its style")
     private let colorWell = NSColorWell(style: .minimal)
     private let strokePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -162,6 +165,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
             EditorWindowController.live.removeAll { $0 === self }
+            Task { @MainActor in DockPresence.update() }
         }
         nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in
             if self?.fitMode == true { self?.applyFit() }
@@ -169,6 +173,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         nc.addObserver(forName: NSScrollView.didEndLiveMagnifyNotification, object: scroll, queue: .main) { [weak self] _ in
             self?.fitMode = false; self?.refreshZoomLabel()
         }
+        canvas.onExtentChange = { [weak self] old in self?.canvasExtentChanged(from: old) }
         scroll.onZoom = { [weak self] in self?.fitMode = false; self?.refreshZoomLabel() }
         canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
         canvas.onContextChange = { [weak self] tool, style in self?.refreshAttributes(tool, style) }
@@ -177,6 +182,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     func present() {
+        DockPresence.update()
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         window?.layoutIfNeeded()
@@ -208,11 +214,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
         let footer = buildFooter()
         footer.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(scroll); content.addSubview(footer)
+        let strip = buildAttributesStrip()
+        strip.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(scroll); content.addSubview(footer); content.addSubview(strip)
 
         let top = (w.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: top),
+            strip.topAnchor.constraint(equalTo: top),
+            strip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            strip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            strip.heightAnchor.constraint(equalToConstant: 40),
+            scroll.topAnchor.constraint(equalTo: strip.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: footer.topAnchor),
@@ -221,6 +233,31 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             footer.heightAnchor.constraint(equalToConstant: 56),
         ])
+    }
+
+    private func buildAttributesStrip() -> NSView {
+        let bar = NSVisualEffectView()
+        bar.material = .windowBackground
+        bar.blendingMode = .withinWindow
+        bar.state = .followsWindowActiveState
+        attributesTitle.font = .systemFont(ofSize: 12, weight: .semibold)
+        attributesTitle.textColor = .secondaryLabelColor
+        attributesHint.font = .systemFont(ofSize: 12)
+        attributesHint.textColor = .tertiaryLabelColor
+        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint])
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let line = NSBox(); line.boxType = .separator
+        line.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(row); bar.addSubview(line)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
+            row.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            line.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            line.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
+        ])
+        return bar
     }
 
     private func buildFooter() -> NSView {
@@ -275,9 +312,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: Zoom
 
     private func applyFit() {
-        let vis = scroll.contentSize
-        guard vis.width > 0, vis.height > 0, image.size.width > 0, image.size.height > 0 else { return }
-        let fit = min(vis.width / image.size.width, vis.height / image.size.height, 1)
+        let vis = scroll.contentSize, size = canvas.extent.size
+        guard vis.width > 0, vis.height > 0, size.width > 0, size.height > 0 else { return }
+        let fit = min(vis.width / size.width, vis.height / size.height, 1)
         scroll.magnification = fit
         refreshZoomLabel()
     }
@@ -285,6 +322,15 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private func refreshZoomLabel() {
         zoomButton.menu?.item(at: 0)?.title = "\(Int((scroll.magnification * 100).rounded()))%"
         zoomButton.synchronizeTitleAndSelectedItem()
+    }
+
+    /// The canvas grew or shrank around its annotations: refit, or scroll so the image stays put on screen.
+    private func canvasExtentChanged(from old: NSRect) {
+        if fitMode { applyFit(); return }
+        let clip = scroll.contentView
+        let dx = canvas.extent.minX - old.minX, dy = canvas.extent.minY - old.minY
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX - dx, y: clip.bounds.minY - dy))
+        scroll.reflectScrolledClipView(clip)
     }
 
     @objc private func zoomPicked(_ item: NSMenuItem) {
@@ -297,7 +343,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .attributesItem, .undoItem, .redoItem, .flexibleSpace, .saveAsItem]
+        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .undoItem, .redoItem, .flexibleSpace, .settingsItem, .saveAsItem]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
@@ -339,11 +385,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             }
             group.selectedIndex = toolButtons.firstIndex { $0.tool == canvas.tool } ?? 0
             group.label = "Tools"
+            // Always one button per tool; never collapse the group into a pull-down menu.
+            group.controlRepresentation = .expanded
             toolGroup = group
             return group
-        case .attributesItem:
+        case .settingsItem:
             let item = NSToolbarItem(itemIdentifier: id)
-            item.view = attributesBar; item.label = "Style"
+            item.image = symbol("gearshape", "Settings"); item.label = "Settings"; item.toolTip = "Settings (⌘,)"
+            item.isBordered = true; item.target = self; item.action = #selector(openSettings)
             return item
         case .saveAsItem:
             let b = NSButton(title: "Save as…", target: self, action: #selector(saveIt))
@@ -402,10 +451,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
     /// Shows the controls for `tool` and loads them with `style`.
     private func refreshAttributes(_ tool: Tool, _ style: Style) {
+        // `.select` here means nothing is selected: there is no style to edit.
+        attributesTitle.stringValue = toolButtons.first { $0.tool == tool }?.label ?? ""
+        attributesTitle.isHidden = tool == .select
+        attributesHint.isHidden = tool != .select
+        colorWell.isHidden = tool == .select || tool == .pixelate
         strokePopup.isHidden = !tool.usesStroke
         [fontPopup, sizePopup, boldButton].forEach { $0.isHidden = tool != .text }
         pixelPopup.isHidden = tool != .pixelate
-        colorWell.isHidden = tool == .pixelate
 
         colorWell.color = style.color
         strokePopup.selectItem(withTag: Int(style.lineWidth))
@@ -443,6 +496,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     @objc private func shareIt(_ sender: NSButton) {
         NSSharingServicePicker(items: [canvas.flattened()]).show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
+    @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
     @objc private func redoIt() { canvas.redo() }
 }

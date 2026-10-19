@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
         statusItem.menu = buildMenu()
+        NSApp.mainMenu = buildMainMenu()
 
         let mods = controlKey | shiftKey
         HotKeys.shared.register(keyCode: kVK_ANSI_1, modifiers: mods) { [weak self] in self?.capturePreviousArea() }
@@ -45,7 +46,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.target = self; i.tag = s; timerMenu.addItem(i)
         }
         timerItem.submenu = timerMenu; m.addItem(timerItem)
-        m.addItem(windowOptionsItem())
         m.addItem(.separator())
         desktopIconsItem = NSMenuItem(title: DesktopIcons.visible ? "Hide Desktop Icons" : "Show Desktop Icons",
                                       action: #selector(toggleDesktopIcons), keyEquivalent: "")
@@ -58,63 +58,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.keyEquivalentModifierMask = key.isEmpty ? [] : [.command]; i.target = self; m.addItem(i)
         }
         m.addItem(.separator())
-        let clip = NSMenuItem(title: "Copy to Clipboard", action: #selector(toggleClipboard(_:)), keyEquivalent: "")
-        clip.target = self; clip.state = Preferences.copyToClipboard ? .on : .off; m.addItem(clip)
-        let save = NSMenuItem(title: "Auto-save to Folder", action: #selector(toggleAutoSave(_:)), keyEquivalent: "")
-        save.target = self; save.state = Preferences.autoSave ? .on : .off; m.addItem(save)
-        let cur = NSMenuItem(title: "Show Cursor", action: #selector(toggleCursor(_:)), keyEquivalent: "")
-        cur.target = self; cur.state = Preferences.showCursor ? .on : .off; m.addItem(cur)
-        let freeze = NSMenuItem(title: "Freeze Screen While Selecting", action: #selector(toggleFreeze(_:)), keyEquivalent: "")
-        freeze.target = self; freeze.state = Preferences.freezeScreen ? .on : .off; m.addItem(freeze)
-        let icons = NSMenuItem(title: "Hide Desktop Icons While Capturing", action: #selector(toggleHideIcons(_:)), keyEquivalent: "")
-        icons.target = self; icons.state = Preferences.hideIconsWhileCapturing ? .on : .off; m.addItem(icons)
-        let folder = NSMenuItem(title: "Choose Save Folder…", action: #selector(chooseFolder), keyEquivalent: "")
-        folder.target = self; m.addItem(folder)
-        m.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.keyEquivalentModifierMask = [.command]; settings.target = self; m.addItem(settings)
         m.addItem(withTitle: "About Skreener", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let version = NSMenuItem(title: "Version \(SettingsWindowController.version)", action: nil, keyEquivalent: "")
+        version.isEnabled = false; m.addItem(version)
+        m.addItem(.separator())
         m.addItem(withTitle: "Quit Skreener", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         return m
     }
 
-    @objc private func toggleClipboard(_ i: NSMenuItem) { Preferences.copyToClipboard.toggle(); i.state = Preferences.copyToClipboard ? .on : .off }
-    @objc private func toggleAutoSave(_ i: NSMenuItem) { Preferences.autoSave.toggle(); i.state = Preferences.autoSave ? .on : .off }
-    @objc private func toggleCursor(_ i: NSMenuItem) { Preferences.showCursor.toggle(); i.state = Preferences.showCursor ? .on : .off }
-    @objc private func toggleFreeze(_ i: NSMenuItem) { Preferences.freezeScreen.toggle(); i.state = Preferences.freezeScreen ? .on : .off }
-    @objc private func toggleHideIcons(_ i: NSMenuItem) {
-        Preferences.hideIconsWhileCapturing.toggle(); i.state = Preferences.hideIconsWhileCapturing ? .on : .off
-    }
+    @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
 
-    // MARK: Window capture options
-
-    private func windowOptionsItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "Window Capture", action: nil, keyEquivalent: "")
-        let menu = NSMenu()
-        let shadow = NSMenuItem(title: "Shadow", action: #selector(toggleWindowShadow(_:)), keyEquivalent: "")
-        shadow.target = self; shadow.state = Preferences.windowShadow ? .on : .off; menu.addItem(shadow)
-        let clear = NSMenuItem(title: "Transparent Background", action: #selector(toggleWindowTransparent(_:)), keyEquivalent: "")
-        clear.target = self; clear.state = Preferences.windowTransparentBackground ? .on : .off; menu.addItem(clear)
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Padding", action: nil, keyEquivalent: "").isEnabled = false
-        for pts in [0, 16, 32, 64] {
-            let i = NSMenuItem(title: pts == 0 ? "None" : "\(pts) pt", action: #selector(pickWindowPadding(_:)), keyEquivalent: "")
-            i.target = self; i.tag = pts; i.indentationLevel = 1
-            i.state = Preferences.windowPadding == pts ? .on : .off
-            menu.addItem(i)
+    /// The app menu bar, shown while an editor or Settings window is open (see `DockPresence`).
+    private func buildMainMenu() -> NSMenu {
+        let main = NSMenu()
+        func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenu {
+            let m = NSMenu(title: title)
+            items.forEach(m.addItem)
+            let holder = NSMenuItem(title: title, action: nil, keyEquivalent: ""); holder.submenu = m
+            main.addItem(holder)
+            return m
         }
-        item.submenu = menu
-        return item
-    }
-    @objc private func toggleWindowShadow(_ i: NSMenuItem) { Preferences.windowShadow.toggle(); i.state = Preferences.windowShadow ? .on : .off }
-    @objc private func toggleWindowTransparent(_ i: NSMenuItem) {
-        Preferences.windowTransparentBackground.toggle(); i.state = Preferences.windowTransparentBackground ? .on : .off
-    }
-    @objc private func pickWindowPadding(_ i: NSMenuItem) {
-        Preferences.windowPadding = i.tag
-        i.menu?.items.filter { $0.action == #selector(pickWindowPadding(_:)) }.forEach { $0.state = $0.tag == i.tag ? .on : .off }
-    }
-    @objc private func chooseFolder() {
-        let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false
-        if p.runModal() == .OK, let u = p.url { Preferences.saveDirectory = u }
+        func item(_ title: String, _ action: Selector?, _ key: String = "", _ mods: NSEvent.ModifierFlags = [.command],
+                  target: AnyObject? = nil) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = mods; i.target = target
+            return i
+        }
+        _ = submenu("Skreener", [
+            item("About Skreener", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            .separator(),
+            item("Settings…", #selector(openSettings), ",", target: self),
+            .separator(),
+            item("Hide Skreener", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            item("Show All", #selector(NSApplication.unhideAllApplications(_:))),
+            .separator(),
+            item("Quit Skreener", #selector(NSApplication.terminate(_:)), "q"),
+        ])
+        _ = submenu("Edit", [
+            item("Undo", #selector(CanvasView.undo(_:)), "z"),
+            item("Redo", #selector(CanvasView.redo(_:)), "z", [.command, .shift]),
+            .separator(),
+            item("Cut", #selector(NSText.cut(_:)), "x"),
+            item("Copy", #selector(NSText.copy(_:)), "c"),
+            item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ])
+        NSApp.windowsMenu = submenu("Window", [
+            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
+            item("Close", #selector(NSWindow.performClose(_:)), "w"),
+            .separator(),
+            item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
+        ])
+        return main
     }
 
     @objc private func toggleDesktopIcons() {
@@ -208,11 +206,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func captureWindow() {
-        prepareCapture {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        prepareCapture { [weak self] in
+            Task { @MainActor in
                 let wins = await CaptureService.onScreenWindows()
-                overlay.begin(mode: .window, windows: wins) { [weak self] sel in self?.handle(sel) }
+                self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in self?.handle(sel) }
             }
         }
     }
@@ -256,5 +253,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         qa.onPin = { PinnedScreenshotController.pin($0) }
         QuickAccessController.live.append(qa)
         qa.show()
+    }
+}
+
+/// Skreener lives in the menu bar, but while an editor or the Settings window is open it behaves like a
+/// normal app: Dock icon, ⌘-Tab, and its own menu bar.
+enum DockPresence {
+    @MainActor static func update() {
+        let settingsOpen = SettingsWindowController.isOpen
+        let policy: NSApplication.ActivationPolicy = EditorWindowController.live.isEmpty && !settingsOpen ? .accessory : .regular
+        guard NSApp.activationPolicy() != policy else { return }
+        NSApp.setActivationPolicy(policy)
+        if policy == .regular { NSApp.activate(ignoringOtherApps: true) }
     }
 }
