@@ -21,5 +21,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSScreenCaptureUsageDescription</key><string>Skreener needs screen recording access to take screenshots.</string>
 </dict></plist>
 PLIST
-codesign --force --sign - "$APP"
+# Ad-hoc signing ("-") changes the app's identity on every build, so macOS forgets the
+# Screen Recording grant. Set SKREENER_SIGN_IDENTITY to a stable certificate name to keep it.
+codesign --force --sign "${SKREENER_SIGN_IDENTITY:--}" "$APP"
 echo "Built $APP"
