@@ -1,7 +1,7 @@
 import AppKit
 import ScreenCaptureKit
 
-enum CaptureError: Error { case noDisplay, cancelled }
+enum CaptureError: Error { case noDisplay, cancelled, cropFailed }
 
 enum CaptureService {
     private static func displayID(_ screen: NSScreen) -> CGDirectDisplayID? {
@@ -42,12 +42,44 @@ enum CaptureService {
         return image(cg, scale: scale)
     }
 
+    /// Cut a global (bottom-left origin) rect out of a full-display frame grabbed earlier, e.g. a frozen screen.
+    static func crop(_ frame: CGImage, screen: NSScreen, globalRect r: CGRect) throws -> NSImage {
+        let sx = CGFloat(frame.width) / screen.frame.width, sy = CGFloat(frame.height) / screen.frame.height
+        let px = CGRect(x: (r.minX - screen.frame.minX) * sx, y: (screen.frame.maxY - r.maxY) * sy,
+                        width: r.width * sx, height: r.height * sy).integral
+        guard let cg = frame.cropping(to: px) else { throw CaptureError.cropFailed }
+        return image(cg, scale: sx)
+    }
+
     static func captureWindow(_ window: SCWindow) async throws -> NSImage {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let scale = NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })?.backingScaleFactor ?? 2
         let cfg = makeConfig(width: window.frame.width, height: window.frame.height, scale: scale)
+        cfg.ignoreShadowsSingleWindow = true   // we draw our own shadow so it fits inside the image
         let cg = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-        return image(cg, scale: scale)
+        return image(decorateWindow(cg, scale: scale), scale: scale)
+    }
+
+    /// Applies the window-capture options: drop shadow, padding, transparent or white background.
+    private static func decorateWindow(_ cg: CGImage, scale: CGFloat) -> CGImage {
+        let shadow = Preferences.windowShadow, opaque = !Preferences.windowTransparentBackground
+        let margin = Int(((shadow ? 40 : 0) + CGFloat(max(Preferences.windowPadding, 0))) * scale)
+        guard margin > 0 || opaque,
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: cg.width + margin * 2, height: cg.height + margin * 2,
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return cg }
+        if opaque {
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+        }
+        if shadow {
+            ctx.setShadow(offset: CGSize(width: 0, height: -10 * scale), blur: 30 * scale,
+                          color: NSColor.black.withAlphaComponent(0.45).cgColor)
+        }
+        ctx.draw(cg, in: CGRect(x: margin, y: margin, width: cg.width, height: cg.height))
+        return ctx.makeImage() ?? cg
     }
 
     static func onScreenWindows() async -> [SCWindow] {

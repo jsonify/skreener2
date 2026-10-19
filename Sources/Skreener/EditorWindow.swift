@@ -12,6 +12,25 @@ private final class CenteredClipView: NSClipView {
     }
 }
 
+/// Mouse-wheel zoom: a wheel (or ⌘ + trackpad scroll) zooms around the pointer; trackpad scrolling and
+/// Shift + wheel still pan, and pinch still zooms.
+private final class ZoomingScrollView: NSScrollView {
+    var onZoom: (() -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        let isWheel = !event.hasPreciseScrollingDeltas
+        guard allowsMagnification, let doc = documentView,
+              isWheel || event.modifierFlags.contains(.command), !event.modifierFlags.contains(.shift),
+              event.scrollingDeltaY != 0 else { super.scrollWheel(with: event); return }
+        // Wheel away from you zooms in, whatever the "natural scrolling" setting.
+        let dy = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+        let factor = exp(dy * (isWheel ? 0.1 : 0.01))
+        let target = min(maxMagnification, max(minMagnification, magnification * factor))
+        setMagnification(target, centeredAt: doc.convert(event.locationInWindow, from: nil))
+        onZoom?()
+    }
+}
+
 /// The centered "Drag Me" pill: drag it to drop the annotated image as a PNG file anywhere.
 private final class DragPill: NSView, NSDraggingSource {
     var imageProvider: () -> NSImage = { NSImage() }
@@ -64,6 +83,7 @@ private extension NSToolbarItem.Identifier {
     static let mockupItem = NSToolbarItem.Identifier("skreener.mockup")
     static let toolsItem = NSToolbarItem.Identifier("skreener.tools")
     static let undoItem = NSToolbarItem.Identifier("skreener.undo")
+    static let redoItem = NSToolbarItem.Identifier("skreener.redo")
     static let colorItem = NSToolbarItem.Identifier("skreener.color")
     static let strokeItem = NSToolbarItem.Identifier("skreener.stroke")
     static let saveAsItem = NSToolbarItem.Identifier("skreener.saveAs")
@@ -82,6 +102,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
     /// Toolbar tool buttons in display order. `tool == nil` entries are placeholders for tools that are not built yet.
     private let toolButtons: [(symbol: String, label: String, tool: Tool?)] = [
+        ("cursorarrow", "Select", .select),
         ("rectangle", "Rectangle", .rect),
         ("rectangle.fill", "Filled Rectangle", nil),
         ("circle", "Ellipse", .ellipse),
@@ -96,9 +117,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
     private let image: NSImage
     private let canvas: CanvasView
-    private let scroll = NSScrollView()
+    private let scroll = ZoomingScrollView()
     private let zoomButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private var toolGroup: NSToolbarItemGroup?
+    private var colorWell: NSColorWell?
     private var fitMode = true
 
     init(image: NSImage) {
@@ -138,6 +160,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         nc.addObserver(forName: NSScrollView.didEndLiveMagnifyNotification, object: scroll, queue: .main) { [weak self] _ in
             self?.fitMode = false; self?.refreshZoomLabel()
         }
+        scroll.onZoom = { [weak self] in self?.fitMode = false; self?.refreshZoomLabel() }
+        canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
+        canvas.onSelectionChange = { [weak self] a in
+            if let a { self?.colorWell?.color = a.color }
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -145,6 +172,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         window?.layoutIfNeeded()
+        window?.makeFirstResponder(canvas)
         applyFit()
     }
 
@@ -261,7 +289,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .colorItem, .strokeItem, .undoItem, .flexibleSpace, .saveAsItem]
+        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .colorItem, .strokeItem, .undoItem, .redoItem, .flexibleSpace, .saveAsItem]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
@@ -284,6 +312,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: id)
             item.image = symbol("arrow.uturn.backward", "Undo"); item.label = "Undo"; item.toolTip = "Undo"
             item.isBordered = true; item.target = self; item.action = #selector(undoIt)
+            item.toolTip = "Undo (⌘Z)"
+            return item
+        case .redoItem:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.image = symbol("arrow.uturn.forward", "Redo"); item.label = "Redo"; item.toolTip = "Redo (⇧⌘Z)"
+            item.isBordered = true; item.target = self; item.action = #selector(redoIt)
             return item
         case .toolsItem:
             let group = NSToolbarItemGroup(itemIdentifier: id,
@@ -292,7 +326,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
                                            labels: toolButtons.map(\.label),
                                            target: self, action: #selector(toolChanged))
             for (i, b) in toolButtons.enumerated() where i < group.subitems.count {
-                group.subitems[i].toolTip = b.tool == nil ? "\(b.label) (coming soon)" : b.label
+                let key = Tool.shortcuts.first { $0.value == b.tool }.map { " (\($0.key.uppercased()))" } ?? ""
+                group.subitems[i].toolTip = b.tool == nil ? "\(b.label) (coming soon)" : b.label + key
                 group.subitems[i].isEnabled = b.tool != nil
             }
             group.selectedIndex = toolButtons.firstIndex { $0.tool == canvas.tool } ?? 0
@@ -303,6 +338,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             let well = NSColorWell(style: .minimal)
             well.color = canvas.color
             well.target = self; well.action = #selector(colorChanged(_:))
+            colorWell = well
             well.translatesAutoresizingMaskIntoConstraints = false
             well.widthAnchor.constraint(equalToConstant: 32).isActive = true
             well.heightAnchor.constraint(equalToConstant: 28).isActive = true
@@ -329,8 +365,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     @objc private func toolChanged() {
         guard let i = toolGroup?.selectedIndex, toolButtons.indices.contains(i), let t = toolButtons[i].tool else { return }
         canvas.tool = t
+        window?.makeFirstResponder(canvas)
     }
-    @objc private func colorChanged(_ w: NSColorWell) { canvas.color = w.color }
+    private func selectToolButton(_ t: Tool) {
+        if let i = toolButtons.firstIndex(where: { $0.tool == t }) { toolGroup?.selectedIndex = i }
+    }
+    @objc private func colorChanged(_ w: NSColorWell) { canvas.applyColor(w.color) }
     @objc private func copyIt() { Output.copy(canvas.flattened()) }
     @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
@@ -338,4 +378,5 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         NSSharingServicePicker(items: [canvas.flattened()]).show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
     @objc private func undoIt() { canvas.undo() }
+    @objc private func redoIt() { canvas.redo() }
 }
