@@ -42,6 +42,11 @@ enum Preferences {
         get { d.object(forKey: "annotationShadow") as? Bool ?? true }
         set { d.set(newValue, forKey: "annotationShadow") }
     }
+    /// Keep every capture in the Capture History panel.
+    static var keepHistory: Bool {
+        get { d.object(forKey: "keepHistory") as? Bool ?? true }
+        set { d.set(newValue, forKey: "keepHistory") }
+    }
     static var windowShadow: Bool {
         get { d.object(forKey: "windowShadow") as? Bool ?? true }
         set { d.set(newValue, forKey: "windowShadow") }

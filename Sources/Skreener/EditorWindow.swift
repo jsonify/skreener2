@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Centers the document view when it is smaller than the viewport (works with scroll-view magnification).
 private final class CenteredClipView: NSClipView {
@@ -99,19 +100,19 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     static let minimumSize = NSSize(width: 990, height: 750)
     static var live: [EditorWindowController] = []
 
-    /// Toolbar tool buttons in display order. `tool == nil` entries are placeholders for tools that are not built yet.
-    private let toolButtons: [(symbol: String, label: String, tool: Tool?)] = [
-        ("cursorarrow", "Select", .select),
-        ("rectangle", "Rectangle", .rect),
-        ("rectangle.fill", "Filled Rectangle", nil),
-        ("circle", "Ellipse", .ellipse),
-        ("line.diagonal", "Line", .line),
-        ("arrow.up.right", "Arrow", .arrow),
-        ("textformat", "Text", .text),
-        ("checkerboard.rectangle", "Pixelate", .pixelate),
-        ("1.circle.fill", "Counter", nil),
-        ("pencil.tip", "Pen", .pen),
-        ("highlighter", "Highlighter", nil),
+    /// Toolbar tool buttons in display order.
+    private let toolButtons: [(symbol: String, tool: Tool)] = [
+        ("cursorarrow", .select),
+        ("rectangle", .rect),
+        ("rectangle.fill", .filledRect),
+        ("circle", .ellipse),
+        ("line.diagonal", .line),
+        ("arrow.up.right", .arrow),
+        ("textformat", .text),
+        ("checkerboard.rectangle", .pixelate),
+        ("1.circle.fill", .counter),
+        ("pencil.tip", .pen),
+        ("highlighter", .highlighter),
     ]
 
     private let image: NSImage
@@ -130,6 +131,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let boldButton = NSButton()
     private let pixelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    // Crop and Background replace the tool options in the same strip while they are active.
+    private enum StripMode { case tools, crop, background }
+    private var stripMode = StripMode.tools {
+        didSet { refreshStrip() }
+    }
+    private let cropBar = NSStackView()
+    private let backgroundBar = NSStackView()
+    private let fillPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let paddingPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let cornerPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let bgShadowBox = NSButton(checkboxWithTitle: "Shadow", target: nil, action: nil)
     private static let fontChoices = [("System", ""), ("Helvetica Neue", "Helvetica Neue"), ("Avenir Next", "Avenir Next"),
                                       ("Georgia", "Georgia"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
                                       ("Chalkboard SE", "Chalkboard SE")]
@@ -176,8 +188,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         canvas.onExtentChange = { [weak self] old in self?.canvasExtentChanged(from: old) }
         scroll.onZoom = { [weak self] in self?.fitMode = false; self?.refreshZoomLabel() }
         canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
-        canvas.onContextChange = { [weak self] tool, style in self?.refreshAttributes(tool, style) }
+        canvas.onContextChange = { [weak self] _, _ in self?.contextChanged() }
+        canvas.onCropModeChange = { [weak self] on in self?.stripMode = on ? .crop : .tools }
+        canvas.onBackgroundChange = { [weak self] in if self?.stripMode == .background { self?.refreshStrip() } }
         buildAttributesBar()
+        buildCropBar()
+        buildBackgroundBar()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -244,7 +260,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         attributesTitle.textColor = .secondaryLabelColor
         attributesHint.font = .systemFont(ofSize: 12)
         attributesHint.textColor = .tertiaryLabelColor
-        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint])
+        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint, cropBar, backgroundBar])
         row.spacing = 12
         row.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox(); line.boxType = .separator
@@ -351,16 +367,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        func placeholder(_ sym: String, _ label: String) -> NSToolbarItem {
+        func button(_ sym: String, _ label: String, _ tip: String, _ action: Selector) -> NSToolbarItem {
             let item = NSToolbarItem(itemIdentifier: id)
-            item.image = symbol(sym, label); item.label = label; item.toolTip = "\(label) (coming soon)"
-            item.isBordered = true; item.isEnabled = false
+            item.image = symbol(sym, label); item.label = label; item.toolTip = tip
+            item.isBordered = true; item.target = self; item.action = action
             return item
         }
         switch id {
-        case .cropItem: return placeholder("crop", "Crop")
-        case .addImageItem: return placeholder("plus.rectangle.on.rectangle", "Add Image")
-        case .mockupItem: return placeholder("photo", "Background")
+        case .cropItem: return button("crop", "Crop", "Crop (C)", #selector(cropIt))
+        case .addImageItem: return button("plus.rectangle.on.rectangle", "Add Image", "Add Image… (or paste one with ⌘V)", #selector(addImage))
+        case .mockupItem: return button("photo", "Background", "Background", #selector(backgroundIt))
         case .undoItem:
             let item = NSToolbarItem(itemIdentifier: id)
             item.image = symbol("arrow.uturn.backward", "Undo"); item.label = "Undo"; item.toolTip = "Undo"
@@ -374,14 +390,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             return item
         case .toolsItem:
             let group = NSToolbarItemGroup(itemIdentifier: id,
-                                           images: toolButtons.map { symbol($0.symbol, $0.label) },
+                                           images: toolButtons.map { symbol($0.symbol, $0.tool.name) },
                                            selectionMode: .selectOne,
-                                           labels: toolButtons.map(\.label),
+                                           labels: toolButtons.map(\.tool.name),
                                            target: self, action: #selector(toolChanged))
             for (i, b) in toolButtons.enumerated() where i < group.subitems.count {
                 let key = Tool.shortcuts.first { $0.value == b.tool }.map { " (\($0.key.uppercased()))" } ?? ""
-                group.subitems[i].toolTip = b.tool == nil ? "\(b.label) (coming soon)" : b.label + key
-                group.subitems[i].isEnabled = b.tool != nil
+                group.subitems[i].toolTip = b.tool.name + key
             }
             group.selectedIndex = toolButtons.firstIndex { $0.tool == canvas.tool } ?? 0
             group.label = "Tools"
@@ -446,18 +461,88 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
 
         [colorWell, strokePopup, fontPopup, sizePopup, boldButton, pixelPopup].forEach(attributesBar.addArrangedSubview)
-        refreshAttributes(canvas.contextTool, canvas.contextStyle)
+        refreshStrip()
+    }
+
+    private func buildCropBar() {
+        let hint = NSTextField(labelWithString: "Drag the corners or draw a new area · Return to apply · Esc to cancel")
+        hint.font = .systemFont(ofSize: 12)
+        hint.textColor = .tertiaryLabelColor
+        let reset = NSButton(title: "Reset", target: self, action: #selector(cropReset))
+        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cropCancel))
+        let apply = NSButton(title: "Apply", target: self, action: #selector(cropApply))
+        apply.bezelColor = .controlAccentColor
+        [reset, cancel, apply].forEach { $0.bezelStyle = .texturedRounded }
+        [hint, reset, cancel, apply].forEach(cropBar.addArrangedSubview)
+        cropBar.spacing = 8
+        cropBar.isHidden = true
+    }
+
+    private func buildBackgroundBar() {
+        fillPopup.bezelStyle = .texturedRounded
+        fillPopup.toolTip = "Fill"
+        fillPopup.target = self; fillPopup.action = #selector(backgroundChanged)
+        fillPopup.addItem(withTitle: "None"); fillPopup.lastItem?.tag = -1
+        for (i, preset) in Background.presets.enumerated() {
+            fillPopup.addItem(withTitle: preset.name)
+            fillPopup.lastItem?.tag = i
+            fillPopup.lastItem?.image = NSImage(size: NSSize(width: 26, height: 14), flipped: false) { r in
+                let clip = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+                clip.addClip()
+                Background.draw(fill: i, in: r)
+                NSColor.separatorColor.setStroke(); clip.stroke()
+                return true
+            }
+        }
+        for (popup, tip, choices) in [(paddingPopup, "Padding", [16, 32, 48, 64, 96, 128]), (cornerPopup, "Corner radius", [0, 6, 10, 16, 24])] {
+            popup.bezelStyle = .texturedRounded
+            popup.toolTip = tip
+            popup.target = self; popup.action = #selector(backgroundChanged)
+            for v in choices { popup.addItem(withTitle: "\(tip == "Padding" ? "Padding" : "Corners") \(v) pt"); popup.lastItem?.tag = v }
+        }
+        bgShadowBox.target = self; bgShadowBox.action = #selector(backgroundChanged)
+        [fillPopup, paddingPopup, cornerPopup, bgShadowBox].forEach(backgroundBar.addArrangedSubview)
+        backgroundBar.spacing = 8
+        backgroundBar.isHidden = true
+    }
+
+    private func contextChanged() {
+        // Clicking an annotation or picking a tool leaves the background options.
+        if stripMode == .background { stripMode = .tools } else { refreshStrip() }
+    }
+
+    private func refreshStrip() {
+        attributesBar.isHidden = stripMode != .tools
+        cropBar.isHidden = stripMode != .crop
+        backgroundBar.isHidden = stripMode != .background
+        switch stripMode {
+        case .tools:
+            refreshAttributes(canvas.contextTool, canvas.contextStyle)
+        case .crop:
+            attributesTitle.stringValue = "Crop"
+            attributesTitle.isHidden = false; attributesHint.isHidden = true
+        case .background:
+            attributesTitle.stringValue = "Background"
+            attributesTitle.isHidden = false; attributesHint.isHidden = true
+            let bg = canvas.background
+            fillPopup.selectItem(withTag: bg?.fill ?? -1)
+            paddingPopup.selectItem(withTag: Int(bg?.padding ?? Background().padding))
+            cornerPopup.selectItem(withTag: Int(bg?.cornerRadius ?? Background().cornerRadius))
+            bgShadowBox.state = bg?.shadow ?? true ? .on : .off
+            [paddingPopup, cornerPopup, bgShadowBox].forEach { $0.isEnabled = bg != nil }
+        }
     }
 
     /// Shows the controls for `tool` and loads them with `style`.
     private func refreshAttributes(_ tool: Tool, _ style: Style) {
         // `.select` here means nothing is selected: there is no style to edit.
-        attributesTitle.stringValue = toolButtons.first { $0.tool == tool }?.label ?? ""
+        attributesTitle.stringValue = tool.name
         attributesTitle.isHidden = tool == .select
         attributesHint.isHidden = tool != .select
-        colorWell.isHidden = tool == .select || tool == .pixelate
+        colorWell.isHidden = [.select, .pixelate, .image].contains(tool)
         strokePopup.isHidden = !tool.usesStroke
-        [fontPopup, sizePopup, boldButton].forEach { $0.isHidden = tool != .text }
+        [fontPopup, boldButton].forEach { $0.isHidden = tool != .text }
+        sizePopup.isHidden = tool != .text && tool != .counter
         pixelPopup.isHidden = tool != .pixelate
 
         colorWell.color = style.color
@@ -483,8 +568,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: Actions
 
     @objc private func toolChanged() {
-        guard let i = toolGroup?.selectedIndex, toolButtons.indices.contains(i), let t = toolButtons[i].tool else { return }
-        canvas.tool = t
+        guard let i = toolGroup?.selectedIndex, toolButtons.indices.contains(i) else { return }
+        canvas.applyCrop()
+        canvas.tool = toolButtons[i].tool
+        if stripMode == .background { stripMode = .tools }
         window?.makeFirstResponder(canvas)
     }
     private func selectToolButton(_ t: Tool) {
@@ -498,5 +585,40 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
+    @objc private func cropIt() {
+        if canvas.isCropping { canvas.applyCrop() } else { canvas.beginCrop() }
+        window?.makeFirstResponder(canvas)
+    }
+    @objc private func cropApply() { canvas.applyCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func cropCancel() { canvas.cancelCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func cropReset() { canvas.resetCrop(); window?.makeFirstResponder(canvas) }
+    @MainActor @objc private func addImage() {
+        guard let w = window else { return }
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.image]
+        p.beginSheetModal(for: w) { [weak self] r in
+            guard r == .OK, let url = p.url, let img = NSImage(contentsOf: url) else { return }
+            self?.canvas.insertImage(img)
+        }
+    }
+    /// Shows the background options, adding the default background the first time.
+    @objc private func backgroundIt() {
+        if stripMode == .background { stripMode = .tools; return }
+        canvas.applyCrop()
+        canvas.clearSelection()
+        if canvas.background == nil { canvas.updateBackground { $0 = Background() } }
+        stripMode = .background
+        window?.makeFirstResponder(canvas)
+    }
+    @objc private func backgroundChanged() {
+        let fill = fillPopup.selectedTag()
+        let padding = CGFloat(paddingPopup.selectedTag()), corner = CGFloat(cornerPopup.selectedTag())
+        let shadow = bgShadowBox.state == .on
+        canvas.updateBackground { bg in
+            guard fill >= 0 else { bg = nil; return }
+            bg = Background(fill: fill, padding: padding, cornerRadius: corner, shadow: shadow)
+        }
+        refreshStrip()
+    }
     @objc private func redoIt() { canvas.redo() }
 }

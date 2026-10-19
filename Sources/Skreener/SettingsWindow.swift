@@ -17,7 +17,8 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private static let shortcuts = [("⌃⇧4", "Capture Area"), ("⌃⇧1", "Capture Previous Area"), ("⌃⇧6", "Capture Area & Pin"),
-                                    ("⌃⇧3", "Capture Fullscreen"), ("⌃⇧5", "Capture Window"), ("⌃⇧2", "Capture Text (OCR)")]
+                                    ("⌃⇧3", "Capture Fullscreen"), ("⌃⇧5", "Capture Window"), ("⌃⇧2", "Capture Text (OCR)"),
+                                    ("⌃⇧H", "Capture History")]
 
     /// Target objects for the controls' closures (controls hold their targets weakly).
     private var actions: [ControlAction] = []
@@ -70,6 +71,11 @@ final class SettingsWindowController: NSWindowController {
         folderLabel.translatesAutoresizingMaskIntoConstraints = false
         folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
         row("Save folder:", NSStackView(views: [folderLabel, choose]))
+
+        section("History")
+        row("Captures:", checkbox("Keep capture history (last \(CaptureHistory.limit))", Preferences.keepHistory) {
+            Preferences.keepHistory = $0
+        })
 
         section("Editor")
         row("Annotations:", checkbox("Drop shadow", Preferences.annotationShadow) {

@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeys.shared.register(keyCode: kVK_ANSI_4, modifiers: mods) { [weak self] in self?.captureArea() }
         HotKeys.shared.register(keyCode: kVK_ANSI_5, modifiers: mods) { [weak self] in self?.captureWindow() }
         HotKeys.shared.register(keyCode: kVK_ANSI_6, modifiers: mods) { [weak self] in self?.captureAreaAndPin() }
+        HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
 
         if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
     }
@@ -47,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         timerItem.submenu = timerMenu; m.addItem(timerItem)
         m.addItem(.separator())
+        add("Capture History", #selector(showHistory), "h")
+        m.addItem(.separator())
         desktopIconsItem = NSMenuItem(title: DesktopIcons.visible ? "Hide Desktop Icons" : "Show Desktop Icons",
                                       action: #selector(toggleDesktopIcons), keyEquivalent: "")
         desktopIconsItem.target = self; m.addItem(desktopIconsItem)
@@ -69,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+    @objc private func showHistory() { CaptureHistoryPanel.shared.toggle() }
 
     /// The app menu bar, shown while an editor or Settings window is open (see `DockPresence`).
     private func buildMainMenu() -> NSMenu {
@@ -176,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.restoreIcons(); return }
                 lastArea = (screen, rect)
-                run(areaCapture(screen, rect, frozen)) { PinnedScreenshotController.pin($0) }
+                run(areaCapture(screen, rect, frozen)) { CaptureHistory.add($0); PinnedScreenshotController.pin($0) }
             }
         }
     }
@@ -246,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finish(_ image: NSImage) {
+        CaptureHistory.add(image)
         if Preferences.copyToClipboard { Output.copy(image) }
         if Preferences.autoSave { Output.save(image) }
         let qa = QuickAccessController(image: image)

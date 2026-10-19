@@ -37,22 +37,26 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [ ] Recording HUD (timer, pause/stop) and menu-bar stop — S
 
 ## Batch 4 — editor
-- [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M (not yet compiled on macOS; crop/filled rect/counter/highlighter/stroke/background buttons are disabled placeholders)
+- [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M
 - [~] Select/move/resize/delete existing annotations (object model, not baked pixels); double-click text to edit; recolor selection; arrow-key nudge — L
 - [~] Undo/redo of every edit (⌘Z / ⇧⌘Z), keyboard shortcuts per tool (V A R O L P T X) — S
 - [~] Mouse-wheel zoom around the pointer (trackpad still pans; ⌘+scroll and pinch zoom) — S
 - [~] Inline text editing on the canvas (type in place, live preview; Esc / ⌘Return / click outside to finish) — S
 - [~] Contextual attributes bar: color for all tools, stroke width (shapes/pen), font/size/bold (text), pixel size (pixelate); applies to the selection or to new annotations — M
-- [ ] Numbered step counter, highlighter, blur (gaussian), spotlight — M
-- [ ] Line, rounded rectangle, arrow styles (stroke width now in the attributes bar) — M
-- [ ] Crop & rotate — M
-- [ ] Background tool (gradient/solid, padding, corner radius, shadow) — M
+- [~] Filled rectangle (F), numbered step counter (N; renumbers when one is deleted), highlighter (H; multiply blend) — M
+- [~] Crop (C or toolbar; non-destructive, undoable; Return/Esc) — M
+- [~] Background tool (gradient/solid presets, padding, corner radius, shadow; undoable) — M
+- [~] Add Image (toolbar or ⌘V paste) as a movable, resizable layer — S
+- [ ] Blur (gaussian), spotlight — M
+- [ ] Rotate / flip — S
+- [ ] Rounded rectangle, arrow styles (stroke width now in the attributes bar) — M
 - [ ] Redact: auto-detect emails/text via OCR — M
 
 ## Batch 5 — capture modes
 - [ ] Scrolling capture (stitching) — L
 - [ ] All-in-one capture mode picker — M
-- [ ] Capture history (browse / re-open / delete) — M
+- [~] Capture history: panel slides down from the top (menu / ⌃⇧H); edit, copy, save, pin, delete, drag out; last 100 kept; Settings toggle — M
+- [ ] Capture history: restore editable annotations (save the editor document, not just the flattened capture) — M
 
 ## Batch 6 — sharing & output
 - [~] Settings window: existing options moved out of the menu, shortcut list, version + build commit — S
