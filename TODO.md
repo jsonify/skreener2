@@ -14,12 +14,18 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Self-timer fullscreen capture (3/5/10 s) — S
 - [~] Pinned screenshots (floating, opacity, zoom) — S
 
+- [~] Capture Previous Area (menu; hotkey still todo) — S
+- [~] Open… / Open from Clipboard (existing image → editor) — S
+- [~] Pin to the Screen… from file (pin from clipboard / fresh capture still todo) — S
+- [~] Show/Hide Desktop Icons menu toggle (Finder `CreateDesktop`) — S
+- [~] About panel — S
+
 ## Batch 2 — capture polish (high value, low risk)
-- [ ] Capture previous area (repeat last rect, hotkey) — S
+- [ ] Hotkey for Capture Previous Area; Pin from clipboard and from new capture — S
 - [ ] Freeze screen during area selection — S
 - [ ] Crosshair magnifier + pixel/size readout, arrow-key nudge, Space to move selection — M
 - [ ] Window capture options: transparent background, shadow toggle, padding — M
-- [ ] Hide desktop icons while capturing — S
+- [ ] Auto-hide desktop icons only while capturing (menu toggle is in batch 1) — S
 - [ ] Self-timer for area/window, cancel via Esc — S
 
 ## Batch 3 — screen recording (biggest gap)
@@ -50,6 +56,11 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M
 - [ ] Share sheet (NSSharingServicePicker) — S
 - [ ] Launch at login (SMAppService) — S
+
+## Menu parity with CleanShot X (from its menu bar)
+- [ ] Check for Updates… (Sparkle or equivalent) — M
+- [ ] Settings… (⌘,) — see Preferences window in batch 6
+- [ ] Match CleanShot-style hotkeys (⇧⌘4 area, ⇧⌘3 fullscreen, ⇧⌘6 scrolling, ⇧⌘7 OCR, ⇧⌘5 all-in-one) as rebindable defaults — S
 
 ## Engineering
 - [ ] CI: macOS runner `swift build` + unit tests (Package has no test target yet) — S

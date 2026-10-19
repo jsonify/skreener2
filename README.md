@@ -10,6 +10,8 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 - Capture Text (OCR, ⌃⇧2): on-device Vision text recognition copied to clipboard
 - Self-timer fullscreen capture (3/5/10 s) from the menu
 - Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close)
+- Capture Previous Area, Open… / Open from Clipboard into the editor, Pin to the Screen… from a file
+- Show/Hide Desktop Icons toggle, About panel
 - Auto-copy to clipboard, auto-save to folder, optional cursor capture
 
 ## Build
