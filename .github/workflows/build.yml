@@ -21,7 +21,8 @@ jobs:
       - name: Select newest Xcode
         run: |
           ls -d /Applications/Xcode*.app
-          NEWEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          # Versioned bundles only: the plain Xcode.app is the runner's default, which sorts last.
+          NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
           sudo xcode-select -s "$NEWEST"
       - name: Toolchain versions
         run: |
