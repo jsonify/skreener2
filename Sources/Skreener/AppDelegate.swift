@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var desktopIconsItem: NSMenuItem!
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
+    private let recordPicker = RecordAreaPicker()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -30,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotKeys.shared.register(keyCode: kVK_ANSI_8, modifiers: mods) { [weak self] in self?.recordFullscreen() }
         HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
+        recording.onTick = { [weak self] time in
+            self?.statusItem.button?.title = Preferences.recordTimeInMenuBar ? " " + time : ""
+        }
 
         EditorWindowController.captureArea = { [weak self] done in
             if let self { self.captureAreaImage(done) } else { done(nil) }
@@ -225,13 +229,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Screen recording
 
     /// Pick an area, then record it; while recording, the same command (⌃⇧7) stops.
+    /// Pick an area (or start from the last one), adjust it in the record picker, then record a video or GIF
+    /// (or take a screenshot from the picker's mode bar). While recording, the same command (⌃⇧7) stops.
     @objc func recordArea() {
         if recording.isRecording { recording.stop(); return }
+        guard !recordPicker.isActive else { return }
         prepareCapture { [weak self] in
+            if Preferences.recordRememberSelection, let last = Preferences.lastRecordRect,
+               let screen = NSScreen.screens.first(where: { $0.frame.contains(last) }) {
+                self?.showRecordPicker(screen, last)
+                return
+            }
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, _)? = sel else { self?.restoreIcons(); return }
-                recording.start(screen: screen, rect: rect)
+                showRecordPicker(screen, rect)
             }
+        }
+    }
+
+    private func showRecordPicker(_ screen: NSScreen, _ rect: CGRect) {
+        recordPicker.begin(screen: screen, rect: rect) { [weak self] pick in self?.handle(pick) }
+    }
+
+    private func handle(_ pick: RecordPick?) {
+        switch pick {
+        case nil:
+            restoreIcons()
+        case .video(let screen, let rect)?:
+            Preferences.lastRecordRect = rect
+            recording.start(screen: screen, rect: rect)
+        case .gif(let screen, let rect)?:
+            Preferences.lastRecordRect = rect
+            recording.start(screen: screen, rect: rect, gif: true)
+        case .screenshot(let screen, let rect)?:
+            lastArea = (screen, rect)
+            run { try await CaptureService.captureScreen(screen, globalRect: rect) }
+        case .text(let screen, let rect)?:
+            run({ try await CaptureService.captureScreen(screen, globalRect: rect) }, then: copyText)
+        case .timer(let screen, let rect)?:
+            lastArea = (screen, rect)
+            selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
+                self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) }
+            }, cancelled: { [weak self] in self?.restoreIcons() })
+        case .fullscreenShot?:
+            captureFullscreen()
+        case .window?:
+            captureWindow()
         }
     }
 
@@ -250,12 +293,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem.menu = nil
             button.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop Recording")
             button.contentTintColor = .systemRed
+            button.imagePosition = .imageLeading
             button.toolTip = "Stop Recording (⌃⇧7)"
             button.target = self; button.action = #selector(stopRecording)
         } else {
             restoreIcons()
             button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
             button.contentTintColor = nil
+            button.title = ""
             button.toolTip = nil
             button.target = nil; button.action = nil
             statusItem.menu = menu
@@ -300,13 +345,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.restoreIcons(); return }
-                run(areaCapture(screen, rect, frozen)) { image in
-                    Task { @MainActor in
-                        let text = await TextRecognizer.recognize(image)
-                        if text.isEmpty { NSSound.beep() } else { TextRecognizer.copyText(text); NSSound(named: "Pop")?.play() }
-                    }
-                }
+                run(areaCapture(screen, rect, frozen), then: copyText)
             }
+        }
+    }
+
+    /// Capture Text: OCR the image and copy what it says.
+    private func copyText(_ image: NSImage) {
+        Task { @MainActor in
+            let text = await TextRecognizer.recognize(image)
+            if text.isEmpty { NSSound.beep() } else { TextRecognizer.copyText(text); NSSound(named: "Pop")?.play() }
         }
     }
 

@@ -1,13 +1,17 @@
 import AppKit
 import AVFoundation
 
-/// Runs one screen recording at a time: the frame around the recorded area, the HUD (elapsed time,
-/// pause/resume, stop), and the thumbnail shown when the file is ready. Skreener's own windows are left out of
-/// the recording, so the HUD and frame never show up in the video.
+/// Runs one screen recording at a time: the optional countdown, the frame around the recorded area, the
+/// dimming outside it, the HUD (elapsed time, pause/resume, stop), the click/keystroke effects, and the
+/// thumbnail shown when the file is ready. Skreener's own windows are left out of the recording, except the
+/// effects overlay, so the HUD, frame and dimming never show up in the video.
 final class RecordingController {
     private var recorder: ScreenRecorder?
+    private let countdown = SelfTimer()
+    private let effects = RecordingEffects()
     private var hud: NSPanel?
     private var frame: NSPanel?
+    private var dims: [NSPanel] = []
     private var timeLabel: NSTextField?
     private var dot: NSView?
     private var pauseButton: NSButton?
@@ -15,27 +19,47 @@ final class RecordingController {
     private var startedAt = Date()
     private var pausedAt: Date?
     private var pausedTotal: TimeInterval = 0
+    /// Where the GIF goes when this recording is a GIF (the video is then a temporary file).
+    private var gifURL: URL?
 
     var isRecording: Bool { recorder != nil }
-    /// Called with true on start and false when the recording ends (saved, failed or never started).
+    /// Called with true on start and false when the recording ends (saved, failed, cancelled or never started).
     var onStateChange: ((Bool) -> Void)?
+    /// The elapsed time ("01:23") while recording, about twice a second.
+    var onTick: ((String) -> Void)?
 
-    /// Records `screen`, or the area `rect` on it (global, bottom-left origin coordinates).
-    func start(screen: NSScreen, rect: CGRect?) {
+    /// Records `screen`, or the area `rect` on it (global, bottom-left origin coordinates), as a video or a GIF.
+    func start(screen: NSScreen, rect: CGRect?, gif: Bool = false) {
         guard recorder == nil else { return }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let url = Preferences.saveDirectory.appendingPathComponent("Skreener Recording \(f.string(from: Date())).mp4")
-        let r = ScreenRecorder(url: url)
+        let name = "Skreener Recording \(f.string(from: Date()))"
+        gifURL = gif ? Preferences.saveDirectory.appendingPathComponent(name + ".gif") : nil
+        let video = (gif ? FileManager.default.temporaryDirectory : Preferences.saveDirectory).appendingPathComponent(name + ".mp4")
+        let r = ScreenRecorder(url: video)
         r.onFinish = { [weak self] result in self?.finished(result) }
         recorder = r
-        startedAt = Date(); pausedAt = nil; pausedTotal = 0
         showFrame(rect, on: screen)
-        showHUD(near: rect ?? screen.frame, on: screen, fullscreen: rect == nil)
+        if let rect, Preferences.recordDimScreen { showDim(around: rect) }
         onStateChange?(true)
+        guard Preferences.recordCountdown else { capture(r, screen: screen, rect: rect, gif: gif); return }
+        countdown.start(seconds: 3, completion: { [weak self] in self?.capture(r, screen: screen, rect: rect, gif: gif) },
+                        cancelled: { [weak self] in self?.tearDown() })
+    }
+
+    private func capture(_ r: ScreenRecorder, screen: NSScreen, rect: CGRect?, gif: Bool) {
+        effects.start(area: rect ?? screen.frame, clicks: Preferences.recordHighlightClicks,
+                      keys: Preferences.recordShowKeystrokes && KeystrokeAccess.granted)
+        var options = ScreenRecorder.Options()
+        if gif { options.systemAudio = false; options.microphone = false }
+        let keep = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
+        if Preferences.recordShowControls { showHUD(near: rect ?? screen.frame, on: screen, fullscreen: rect == nil) }
+        startedAt = Date(); pausedAt = nil; pausedTotal = 0
+        tick()
+        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.tick() }
         Task { @MainActor [weak self] in
             do {
-                try await r.start(screen: screen, rect: rect)
+                try await r.start(screen: screen, rect: rect, options: options, including: keep)
                 self?.startedAt = Date()
             } catch {
                 NSLog("Recording failed to start: \(error)")
@@ -46,9 +70,10 @@ final class RecordingController {
     }
 
     func stop() {
+        if countdown.isRunning { countdown.cancel(); return }
         guard let recorder else { return }
         ticker?.invalidate(); ticker = nil
-        hud?.orderOut(nil); frame?.orderOut(nil)
+        hideWindows()
         recorder.stop()
     }
 
@@ -71,26 +96,48 @@ final class RecordingController {
     @objc private func stopClicked() { stop() }
 
     private func finished(_ result: Result<URL, Error>) {
+        let gif = gifURL
         tearDown()
         switch result {
         case .success(let url):
-            NSSound(named: "Glass")?.play()
-            if Preferences.copyToClipboard {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([url as NSURL])
+            guard let gif else { delivered(url); return }
+            Task { @MainActor [weak self] in
+                do {
+                    try await GIFExporter.export(url, to: gif)
+                    self?.delivered(gif)
+                } catch {
+                    NSLog("GIF export failed: \(error)")
+                    NSSound.beep()
+                }
+                try? FileManager.default.removeItem(at: url)
             }
-            RecordingQuickAccess.show(url)
         case .failure(let error):
             NSLog("Recording failed: \(error)")
             NSSound.beep()
         }
     }
 
-    private func tearDown() {
-        ticker?.invalidate(); ticker = nil
+    private func delivered(_ url: URL) {
+        NSSound(named: "Glass")?.play()
+        if Preferences.copyToClipboard {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([url as NSURL])
+        }
+        RecordingQuickAccess.show(url)
+    }
+
+    private func hideWindows() {
         hud?.orderOut(nil); hud = nil
         frame?.orderOut(nil); frame = nil
+        dims.forEach { $0.orderOut(nil) }; dims.removeAll()
+        effects.stop()
+    }
+
+    private func tearDown() {
+        ticker?.invalidate(); ticker = nil
+        hideWindows()
         recorder = nil
+        gifURL = nil
         onStateChange?(false)
     }
 
@@ -100,10 +147,30 @@ final class RecordingController {
         var elapsed = Date().timeIntervalSince(startedAt) - pausedTotal
         if let p = pausedAt { elapsed -= Date().timeIntervalSince(p) }
         let s = max(0, Int(elapsed))
-        timeLabel?.stringValue = String(format: "%02d:%02d", s / 60, s % 60)
+        let text = String(format: "%02d:%02d", s / 60, s % 60)
+        timeLabel?.stringValue = text
+        onTick?(text)
     }
 
     // MARK: Windows
+
+    /// Dims every screen except the recorded area. Click-through, and not in the video.
+    private func showDim(around rect: CGRect) {
+        for screen in NSScreen.screens {
+            let p = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue - 1)
+            p.isOpaque = false
+            p.backgroundColor = .clear
+            p.hasShadow = false
+            p.ignoresMouseEvents = true
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+            let v = DimView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            v.hole = rect.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY)
+            p.contentView = v
+            p.orderFrontRegardless()
+            dims.append(p)
+        }
+    }
 
     /// A dashed outline just outside the recorded area (not shown for fullscreen).
     private func showFrame(_ rect: CGRect?, on screen: NSScreen) {
@@ -156,7 +223,6 @@ final class RecordingController {
         p.contentView = bg
         p.orderFrontRegardless()
         hud = p; timeLabel = l; dot = d; pauseButton = pause
-        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.tick() }
     }
 
     private func hudButton(_ sym: String, _ tip: String, _ action: Selector, x: CGFloat) -> NSButton {
@@ -167,6 +233,17 @@ final class RecordingController {
         b.toolTip = tip
         b.frame = NSRect(x: x, y: 6, width: 30, height: 24)
         return b
+    }
+}
+
+private final class DimView: NSView {
+    var hole = NSRect.zero
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(rect: bounds)
+        path.append(NSBezierPath(rect: hole))
+        path.windingRule = .evenOdd
+        NSColor.black.withAlphaComponent(0.45).setFill()
+        path.fill()
     }
 }
 
@@ -212,6 +289,7 @@ final class RecordingQuickAccess {
         let iv = NSImageView(frame: NSRect(x: 8, y: 36, width: size.width - 16, height: size.height - 44))
         iv.imageScaling = .scaleProportionallyUpOrDown
         iv.image = NSImage(systemSymbolName: "film", accessibilityDescription: "Recording")
+        iv.animates = true
         bg.addSubview(iv)
         var x: CGFloat = 8
         for (title, sel) in [("Open", #selector(openIt)), ("Show", #selector(showIt)), ("Copy", #selector(copyIt)), ("✕", #selector(closeIt))] {
@@ -225,6 +303,10 @@ final class RecordingQuickAccess {
         panel = p
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in self?.closeIt() }
 
+        if url.pathExtension.lowercased() == "gif" {
+            iv.image = NSImage(contentsOf: url)
+            return
+        }
         // First frame as the thumbnail.
         let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         gen.appliesPreferredTrackTransform = true

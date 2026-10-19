@@ -38,12 +38,14 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     init(url: URL) { self.url = url }
 
     /// Starts recording `screen`, or the part of it at `rect` (global, bottom-left origin coordinates).
-    func start(screen: NSScreen, rect: CGRect?, options: Options = Options()) async throws {
+    /// `including` names Skreener windows that should be in the video after all (the click/keystroke overlay).
+    func start(screen: NSScreen, rect: CGRect?, options: Options = Options(), including: [CGWindowID] = []) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         guard let display = content.displays.first(where: { $0.displayID == id }) else { throw RecordingError.noDisplay }
         let me = content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
-        let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
+        let keep = content.windows.filter { including.contains($0.windowID) }
+        let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: keep)
 
         let area = rect ?? screen.frame
         var scale = screen.backingScaleFactor

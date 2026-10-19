@@ -31,8 +31,13 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 ## Batch 3 — screen recording (biggest gap)
 - [~] Record area/fullscreen to MP4 (SCStream + AVAssetWriter; ⌃⇧7 area, ⌃⇧8 fullscreen; saved to the save folder; thumbnail with open / show in Finder / copy afterwards) — L
 - [~] System audio + microphone options (Settings → Screen Recording; mic needs macOS 15; each goes to its own audio track), cursor, 30/60 fps — M
-- [ ] Record to GIF — M
-- [ ] Click/keystroke visualisation, cursor highlight — M
+- [~] Record area picker (CleanShot-style): selection stays adjustable (handles, move, drag a new one, arrow keys, typed width × height, whole screen, aspect/size presets); panel with options, mic / system audio / click / keystroke toggles, Record GIF ⌥↩ / Record Video ↩; mode bar to take a screenshot, window, timer or OCR of the selection instead — M
+- [~] Recording options popover: show controls, remember last selection, time in menu bar, dim screen, countdown, cursor, highlight clicks (color, size), keystrokes (all/shortcuts, size, top/bottom), frame rate — M
+- [ ] "Do Not Disturb" while recording (no public API; maybe via a user Shortcut) — S
+- [ ] Record in Studio Mode — L
+- [ ] Webcam overlay in recordings — M
+- [~] Record to GIF (records an MP4, converts at 15 fps, max 960 px wide) — M
+- [~] Click highlighting and keystroke display, drawn into the video (keystrokes need Accessibility access) — M
 - [ ] Trim editor for recordings — M
 - [~] Recording HUD (timer, pause/resume, stop; dashed frame around the area) and menu-bar stop (the icon turns into a stop button; ⌃⇧7 stops too) — S
 - [ ] Mix system audio and microphone into one track (players that only play the first audio track miss the mic) — S
