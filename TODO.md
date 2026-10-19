@@ -37,6 +37,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [ ] Recording HUD (timer, pause/stop) and menu-bar stop — S
 
 ## Batch 4 — editor
+- [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M (not yet compiled on macOS; crop/filled rect/counter/highlighter/stroke/background buttons are disabled placeholders)
 - [ ] Select/move/resize/delete existing annotations (object model, not baked pixels) — L
 - [ ] Redo, keyboard shortcuts per tool — S
 - [ ] Numbered step counter, highlighter, blur (gaussian), spotlight — M
