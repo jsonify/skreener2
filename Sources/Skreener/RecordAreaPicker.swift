@@ -5,6 +5,45 @@ enum RecordPick {
     case video(NSScreen, CGRect), gif(NSScreen, CGRect)        // global, bottom-left origin coordinates
     case screenshot(NSScreen, CGRect), text(NSScreen, CGRect), timer(NSScreen, CGRect)
     case fullscreenShot, window
+    /// Space in the picker: pick a window to record instead.
+    case selectWindow
+}
+
+/// The instruction shown on every screen while picking what to record.
+let recordAreaHint = "Drag to record a part of the screen. Press Space to select a window."
+
+/// Another screen while the picker is open: dimmed, with the instruction banner. Dragging there starts a new
+/// selection on that screen.
+private final class OtherScreenView: NSView {
+    var onSelect: ((NSRect) -> Void)?
+    private var start: NSPoint?
+    private var current: NSPoint?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private var dragRect: NSRect? {
+        guard let s = start, let c = current else { return nil }
+        return NSRect(x: min(s.x, c.x), y: min(s.y, c.y), width: abs(s.x - c.x), height: abs(s.y - c.y))
+    }
+    override func mouseDown(with event: NSEvent) { start = convert(event.locationInWindow, from: nil); current = start }
+    override func mouseDragged(with event: NSEvent) { current = convert(event.locationInWindow, from: nil); needsDisplay = true }
+    override func mouseUp(with event: NSEvent) {
+        let r = dragRect
+        start = nil; current = nil; needsDisplay = true
+        if let r, r.width >= 8, r.height >= 8 { onSelect?(r.integral) }
+    }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(rect: bounds)
+        if let r = dragRect { path.append(NSBezierPath(rect: r)); path.windingRule = .evenOdd }
+        NSColor.black.withAlphaComponent(0.4).setFill()
+        path.fill()
+        if let r = dragRect {
+            NSColor.white.setStroke()
+            NSBezierPath(rect: r).stroke()
+        } else {
+            drawHintBanner(recordAreaHint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY))
+        }
+    }
 }
 
 private final class PickerPanel: NSPanel {
@@ -46,6 +85,8 @@ private final class Action: NSObject {
 /// Record Video ↩. Esc cancels.
 final class RecordAreaPicker: NSObject {
     private var panel: PickerPanel?
+    /// Dimmed panels with the instruction banner on the other screens.
+    private var others: [NSPanel] = []
     private var adjust: AdjustView?
     private var controls: NSView?
     private var modeBar: NSView?
@@ -59,8 +100,9 @@ final class RecordAreaPicker: NSObject {
 
     var isActive: Bool { completion != nil }
 
-    /// `rect` is the starting selection in global coordinates on `screen`.
-    func begin(screen: NSScreen, rect: CGRect, completion: @escaping (RecordPick?) -> Void) {
+    /// `rect` is the starting selection in global coordinates on `screen`. `showHint` also shows the
+    /// instruction banner on this screen (when the picker opens on a remembered area, with no drag first).
+    func begin(screen: NSScreen, rect: CGRect, showHint: Bool = false, completion: @escaping (RecordPick?) -> Void) {
         guard self.completion == nil else { return }
         self.screen = screen
         actions.removeAll(); toggles.removeAll()
@@ -79,6 +121,7 @@ final class RecordAreaPicker: NSObject {
         v.selection = rect.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY).intersection(v.bounds)
         v.onChange = { [weak self] in self?.layout() }
         v.onKey = { [weak self] e in self?.key(e) ?? false }
+        v.hint = showHint ? recordAreaHint : nil
         let c = buildControls()
         let bar = buildModeBar()
         v.addSubview(c); v.addSubview(bar)
@@ -89,6 +132,7 @@ final class RecordAreaPicker: NSObject {
         // every later Record Screen).
         self.completion = completion
         layout()
+        showOtherScreens()
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(v)
         NSApp.activate(ignoringOtherApps: true)
@@ -98,11 +142,44 @@ final class RecordAreaPicker: NSObject {
         guard let done = completion else { return }
         completion = nil
         popover?.close(); popover = nil
-        let old = panel
-        panel?.orderOut(nil); panel = nil; adjust = nil; controls = nil; modeBar = nil
-        // We may be inside one of the panel's event handlers; keep it alive until that returns.
-        DispatchQueue.main.async { withExtendedLifetime(old) {} }
+        tearDown()
         done(pick)
+    }
+
+    private func tearDown() {
+        let old = [panel].compactMap { $0 } + others
+        old.forEach { $0.orderOut(nil) }
+        panel = nil; adjust = nil; controls = nil; modeBar = nil; others = []
+        // We may be inside one of these panels' event handlers; keep them alive until that returns.
+        DispatchQueue.main.async { withExtendedLifetime(old) {} }
+    }
+
+    private func showOtherScreens() {
+        for s in NSScreen.screens where s != screen {
+            let p = NSPanel(contentRect: s.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.level = .screenSaver
+            p.isOpaque = false
+            p.backgroundColor = .clear
+            p.hasShadow = false
+            p.isReleasedWhenClosed = false
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            let v = OtherScreenView(frame: NSRect(origin: .zero, size: s.frame.size))
+            v.onSelect = { [weak self] r in self?.moveSelection(to: s, rect: r.offsetBy(dx: s.frame.minX, dy: s.frame.minY)) }
+            p.contentView = v
+            p.orderFrontRegardless()
+            others.append(p)
+        }
+    }
+
+    /// A new selection dragged on another screen: the picker moves there.
+    private func moveSelection(to s: NSScreen, rect: CGRect) {
+        guard let done = completion else { return }
+        let wasRecording = controls?.isHidden == false
+        completion = nil
+        popover?.close(); popover = nil
+        tearDown()
+        begin(screen: s, rect: rect, completion: done)
+        if wasRecording { showRecording() }
     }
 
     /// The selection in global coordinates.
@@ -113,6 +190,7 @@ final class RecordAreaPicker: NSObject {
     private func key(_ e: NSEvent) -> Bool {
         switch e.keyCode {
         case 53: finish(nil)
+        case 49: finish(.selectWindow)
         case 36, 76:
             // The first Return picks Recording (shows the panel); the next one starts it.
             guard controls?.isHidden == false else { showRecording(); return true }
@@ -573,6 +651,8 @@ private final class AdjustView: NSView {
     }
     var onChange: (() -> Void)?
     var onKey: ((NSEvent) -> Bool)?
+    /// Instruction banner near the top of the screen, until the first click.
+    var hint: String? { didSet { needsDisplay = true } }
 
     private enum Drag { case move(NSPoint), resize(Int, NSRect), new(NSPoint) }
     private var drag: Drag?
@@ -603,6 +683,7 @@ private final class AdjustView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        hint = nil
         let p = convert(event.locationInWindow, from: nil)
         if let i = handles.firstIndex(where: { handleRect($0).contains(p) }) {
             drag = .resize(i, selection)
@@ -665,6 +746,7 @@ private final class AdjustView: NSView {
         path.windingRule = .evenOdd
         NSColor.black.withAlphaComponent(0.4).setFill()
         path.fill()
+        if let hint { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.maxY - 110)) }
         NSColor.white.withAlphaComponent(0.7).setStroke()
         let border = NSBezierPath(rect: selection.insetBy(dx: -0.5, dy: -0.5))
         border.lineWidth = 1

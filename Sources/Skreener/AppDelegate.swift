@@ -236,14 +236,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         prepareCapture { [weak self] in
             if Preferences.recordRememberSelection, let last = Preferences.lastRecordRect,
                let screen = NSScreen.screens.first(where: { $0.frame.contains(last) }) {
-                self?.showRecordPicker(screen, last)
+                self?.showRecordPicker(screen, last, showHint: true)
                 return
             }
-            let hints: [SelectionOverlay.Mode: String] = [
-                .area: "Drag to record a part of the screen. Press Space to select a window.",
-                .window: "Click a window to record it. Press Space to drag an area instead.",
-            ]
-            self?.overlay.begin(mode: .area, windows: [], hints: hints) { [weak self] sel in
+            self?.pickRecordTarget(.area)
+        }
+    }
+
+    /// The Record Screen overlay on every screen: drag an area, or Space and click a window.
+    private func pickRecordTarget(_ mode: SelectionOverlay.Mode) {
+        let hints: [SelectionOverlay.Mode: String] = [
+            .area: recordAreaHint,
+            .window: "Click a window to record it. Press Space to drag an area instead.",
+        ]
+        Task { @MainActor [weak self] in
+            let windows = mode == .window ? await CaptureService.onScreenWindows() : []
+            self?.overlay.begin(mode: mode, windows: windows, hints: hints) { [weak self] sel in
                 guard let self else { return }
                 switch sel {
                 case .area(let screen, let rect, _)?:
@@ -265,8 +273,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func showRecordPicker(_ screen: NSScreen, _ rect: CGRect) {
-        recordPicker.begin(screen: screen, rect: rect) { [weak self] pick in self?.handle(pick) }
+    private func showRecordPicker(_ screen: NSScreen, _ rect: CGRect, showHint: Bool = false) {
+        recordPicker.begin(screen: screen, rect: rect, showHint: showHint) { [weak self] pick in self?.handle(pick) }
     }
 
     private func handle(_ pick: RecordPick?) {
@@ -293,6 +301,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             captureFullscreen()
         case .window?:
             captureWindow()
+        case .selectWindow?:
+            pickRecordTarget(.window)
         }
     }
 

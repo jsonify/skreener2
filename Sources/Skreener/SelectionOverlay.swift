@@ -1,6 +1,18 @@
 import AppKit
 import ScreenCaptureKit
 
+/// CleanShot-style instruction pill ("Drag to record a part of the screen…"), drawn in the current view.
+func drawHintBanner(_ text: String, centeredAt c: NSPoint) {
+    let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 20, weight: .regular),
+                                                .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
+    let s = text as NSString
+    let size = s.size(withAttributes: attrs)
+    let box = NSRect(x: c.x - size.width / 2 - 28, y: c.y - size.height / 2 - 18, width: size.width + 56, height: size.height + 36)
+    NSColor.white.withAlphaComponent(0.88).setFill()
+    NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2).fill()
+    s.draw(at: NSPoint(x: box.minX + 28, y: box.minY + 18), withAttributes: attrs)
+}
+
 enum Selection {
     case area(NSScreen, CGRect, frozen: CGImage?)   // global bottom-left coordinates; `frozen` = full-display still to crop from
     case window(SCWindow)
@@ -258,7 +270,7 @@ private final class SelectionView: NSView {
         dim.setFill(); path.fill()
         if mode == .area, let c = cursorPoint { drawCrosshair(at: c) }
         defer { if mode == .area, let c = cursorPoint { drawLoupe(at: c) } }
-        if let hint, start == nil { drawHint(hint) }
+        if let hint, start == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
         guard let h = hole else { return }
         NSColor.white.setStroke()
         let b = NSBezierPath(rect: h); b.lineWidth = 1; b.stroke()
@@ -272,19 +284,6 @@ private final class SelectionView: NSView {
             NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
             label.draw(at: NSPoint(x: box.minX + 5, y: box.minY + 2), withAttributes: attrs)
         }
-    }
-
-    /// CleanShot-style instruction pill in the middle of the screen.
-    private func drawHint(_ text: String) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 20, weight: .regular),
-                                                    .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
-        let s = text as NSString
-        let size = s.size(withAttributes: attrs)
-        let box = NSRect(x: bounds.midX - size.width / 2 - 28, y: bounds.midY - size.height / 2 - 18,
-                         width: size.width + 56, height: size.height + 36)
-        NSColor.white.withAlphaComponent(0.88).setFill()
-        NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2).fill()
-        s.draw(at: NSPoint(x: box.minX + 28, y: box.minY + 18), withAttributes: attrs)
     }
 
     private func drawCrosshair(at p: NSPoint) {
