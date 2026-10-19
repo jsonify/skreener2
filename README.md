@@ -6,7 +6,7 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 ## Features
 - Capture area / fullscreen / window (global hotkeys ⌃⇧4 / ⌃⇧3 / ⌃⇧5)
 - Quick Access thumbnail: copy, save, edit, dismiss
-- Annotation editor: arrow, rectangle, ellipse, pen, text, pixelate, color, undo
+- Annotation editor (CleanShot-style unified toolbar, 990×750 minimum window, zoom-to-fit canvas, Drag Me export): arrow, rectangle, ellipse, line, pen, text, pixelate, color, undo
 - Capture Text (OCR, ⌃⇧2): on-device Vision text recognition copied to clipboard
 - Self-timer fullscreen capture (3/5/10 s) from the menu
 - Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close)

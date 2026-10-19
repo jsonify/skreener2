@@ -1,8 +1,7 @@
 import AppKit
 
 enum Tool: Int, CaseIterable {
-    case arrow, rect, ellipse, pen, text, pixelate
-    var title: String { ["Arrow", "Rect", "Ellipse", "Pen", "Text", "Pixelate"][rawValue] }
+    case arrow, rect, ellipse, line, pen, text, pixelate
 }
 
 struct Annotation {
@@ -73,6 +72,9 @@ final class CanvasView: NSView {
             let p = NSBezierPath(roundedRect: rect(a), xRadius: 2, yRadius: 2); p.lineWidth = lw; p.stroke()
         case .ellipse:
             let p = NSBezierPath(ovalIn: rect(a)); p.lineWidth = lw; p.stroke()
+        case .line:
+            let p = NSBezierPath(); p.lineWidth = lw; p.lineCapStyle = .round
+            p.move(to: a.start); p.line(to: a.end); p.stroke()
         case .pen:
             guard let f = a.points.first else { return }
             let p = NSBezierPath(); p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round
@@ -125,57 +127,4 @@ final class CanvasView: NSView {
         img.lockFocus(); draw(bounds); img.unlockFocus()
         return img
     }
-}
-
-final class EditorWindowController: NSWindowController {
-    private let canvas: CanvasView
-    static var live: [EditorWindowController] = []
-
-    init(image: NSImage) {
-        canvas = CanvasView(image: image)
-        let maxW: CGFloat = 1200, maxH: CGFloat = 800
-        let size = NSSize(width: min(image.size.width, maxW), height: min(image.size.height, maxH) + 44)
-        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
-                         styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        w.title = "Skreener Editor"
-        super.init(window: w)
-
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: size.width, height: size.height - 44))
-        scroll.autoresizingMask = [.width, .height]
-        scroll.documentView = canvas
-        scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
-
-        let bar = NSView(frame: NSRect(x: 0, y: size.height - 44, width: size.width, height: 44))
-        bar.autoresizingMask = [.width, .minYMargin]
-        let seg = NSSegmentedControl(labels: Tool.allCases.map(\.title), trackingMode: .selectOne,
-                                     target: self, action: #selector(toolChanged(_:)))
-        seg.selectedSegment = 0; seg.frame.origin = NSPoint(x: 10, y: 8)
-        let well = NSColorWell(frame: NSRect(x: seg.frame.maxX + 12, y: 8, width: 40, height: 28))
-        well.color = .systemRed; well.target = self; well.action = #selector(colorChanged(_:))
-        func btn(_ t: String, _ s: Selector, _ x: CGFloat) -> NSButton {
-            let b = NSButton(title: t, target: self, action: s); b.bezelStyle = .rounded
-            b.frame = NSRect(x: x, y: 8, width: 64, height: 28); return b
-        }
-        let undo = btn("Undo", #selector(undoIt), well.frame.maxX + 12)
-        let copy = btn("Copy", #selector(copyIt), undo.frame.maxX + 6)
-        let save = btn("Save…", #selector(saveIt), copy.frame.maxX + 6)
-        [seg, well, undo, copy, save].forEach(bar.addSubview)
-
-        let content = NSView(frame: NSRect(origin: .zero, size: size))
-        content.addSubview(scroll); content.addSubview(bar)
-        w.contentView = content
-        w.center()
-        EditorWindowController.live.append(self)
-        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
-            EditorWindowController.live.removeAll { $0 === self }
-        }
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    func present() { showWindow(nil); NSApp.activate(ignoringOtherApps: true) }
-    @objc private func toolChanged(_ s: NSSegmentedControl) { canvas.tool = Tool(rawValue: s.selectedSegment) ?? .arrow }
-    @objc private func colorChanged(_ w: NSColorWell) { canvas.color = w.color }
-    @objc private func undoIt() { canvas.undo() }
-    @objc private func copyIt() { Output.copy(canvas.flattened()) }
-    @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
 }
