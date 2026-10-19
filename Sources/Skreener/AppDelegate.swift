@@ -5,6 +5,7 @@ import ScreenCaptureKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let overlay = SelectionOverlay()
+    private let selfTimer = SelfTimer()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -12,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = buildMenu()
 
         let mods = controlKey | shiftKey
+        HotKeys.shared.register(keyCode: kVK_ANSI_2, modifiers: mods) { [weak self] in self?.captureText() }
         HotKeys.shared.register(keyCode: kVK_ANSI_3, modifiers: mods) { [weak self] in self?.captureFullscreen() }
         HotKeys.shared.register(keyCode: kVK_ANSI_4, modifiers: mods) { [weak self] in self?.captureArea() }
         HotKeys.shared.register(keyCode: kVK_ANSI_5, modifiers: mods) { [weak self] in self?.captureWindow() }
@@ -28,6 +30,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("Capture Area", #selector(captureArea), "4")
         add("Capture Fullscreen", #selector(captureFullscreen), "3")
         add("Capture Window", #selector(captureWindow), "5")
+        add("Capture Text (OCR)", #selector(captureText), "2")
+        let timerItem = NSMenuItem(title: "Self-Timer Fullscreen", action: nil, keyEquivalent: "")
+        let timerMenu = NSMenu()
+        for s in [3, 5, 10] {
+            let i = NSMenuItem(title: "\(s) seconds", action: #selector(captureTimed(_:)), keyEquivalent: "")
+            i.target = self; i.tag = s; timerMenu.addItem(i)
+        }
+        timerItem.submenu = timerMenu; m.addItem(timerItem)
         m.addItem(.separator())
         let clip = NSMenuItem(title: "Copy to Clipboard", action: #selector(toggleClipboard(_:)), keyEquivalent: "")
         clip.target = self; clip.state = Preferences.copyToClipboard ? .on : .off; m.addItem(clip)
@@ -57,6 +67,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         run { try await CaptureService.captureScreen(screen) }
     }
 
+    @objc func captureTimed(_ item: NSMenuItem) {
+        selfTimer.start(seconds: item.tag) { [weak self] in self?.captureFullscreen() }
+    }
+
+    @objc func captureText() {
+        overlay.begin(mode: .area, windows: []) { [weak self] sel in
+            guard case .area(let screen, let rect)? = sel else { return }
+            self?.run({ try await CaptureService.captureScreen(screen, globalRect: rect) }) { image in
+                Task { @MainActor in
+                    let text = await TextRecognizer.recognize(image)
+                    if text.isEmpty { NSSound.beep() } else { TextRecognizer.copyText(text); NSSound(named: "Pop")?.play() }
+                }
+            }
+        }
+    }
+
     @objc func captureArea() {
         overlay.begin(mode: .area, windows: []) { [weak self] sel in self?.handle(sel) }
     }
@@ -76,12 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func run(_ capture: @escaping () async throws -> NSImage) {
+    private func run(_ capture: @escaping () async throws -> NSImage, then: ((NSImage) -> Void)? = nil) {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
             do {
                 let image = try await capture()
-                finish(image)
+                (then ?? self.finish)(image)
             } catch {
                 NSLog("Capture failed: \(error)")
                 NSSound.beep()
@@ -94,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Preferences.autoSave { Output.save(image) }
         let qa = QuickAccessController(image: image)
         qa.onAnnotate = { EditorWindowController(image: $0).present() }
+        qa.onPin = { PinnedScreenshotController.pin($0) }
         QuickAccessController.live.append(qa)
         qa.show()
     }
