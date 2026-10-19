@@ -325,9 +325,9 @@ private final class HistoryCell: NSView, NSDraggingSource {
         thumb.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.25).cgColor
         thumb.translatesAutoresizingMaskIntoConstraints = false
         let url = entry.url
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let img = CaptureHistory.thumbnail(url, maxPixels: 480)
-            DispatchQueue.main.async { [weak self] in self?.thumb.image = img }
+            DispatchQueue.main.async { self?.thumb.image = img }
         }
 
         let time = NSTextField(labelWithString: Self.relative.localizedString(for: entry.date, relativeTo: Date()))

@@ -2,7 +2,12 @@
 # Builds Skreener.app (macOS only). Usage: Scripts/build_app.sh [--run]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-swift build -c release
+# SKREENER_STRICT=1 (set in CI) turns compiler warnings into errors so none slip through.
+if [ "${SKREENER_STRICT:-}" = "1" ]; then
+  swift build -c release -Xswiftc -warnings-as-errors
+else
+  swift build -c release
+fi
 APP=build/Skreener.app
 # Shown in About Skreener, so you can tell which commit is actually running.
 BUILD=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
