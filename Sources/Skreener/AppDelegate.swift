@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import ScreenCaptureKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let overlay = SelectionOverlay()
     private let selfTimer = SelfTimer()
@@ -44,12 +44,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("Capture Fullscreen", #selector(captureFullscreen), "3")
         add("Capture Window", #selector(captureWindow), "5")
         add("Capture Text (OCR)", #selector(captureText), "2")
-        let timerItem = NSMenuItem(title: "Self-Timer Fullscreen", action: nil, keyEquivalent: "")
+        let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
         let timerMenu = NSMenu()
+        for (title, sel) in [("Area…", #selector(timedArea)), ("Window…", #selector(timedWindow)),
+                             ("Fullscreen", #selector(timedFullscreen))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; timerMenu.addItem(i)
+        }
+        timerMenu.addItem(.separator())
         for s in [3, 5, 10] {
-            let i = NSMenuItem(title: "\(s) seconds", action: #selector(captureTimed(_:)), keyEquivalent: "")
+            let i = NSMenuItem(title: "\(s) Second Delay", action: #selector(timerDelayPicked(_:)), keyEquivalent: "")
             i.target = self; i.tag = s; timerMenu.addItem(i)
         }
+        timerMenu.delegate = self
         timerItem.submenu = timerMenu; m.addItem(timerItem)
         m.addItem(.separator())
         add("Capture History", #selector(showHistory), "h")
@@ -76,6 +82,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+
+    /// Self-Timer submenu: tick the current delay.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        for i in menu.items where i.action == #selector(timerDelayPicked(_:)) {
+            i.state = i.tag == Preferences.selfTimerSeconds ? .on : .off
+        }
+    }
     @objc private func showHistory() { CaptureHistoryPanel.shared.toggle() }
 
     /// The app menu bar, shown while an editor or Settings window is open (see `DockPresence`).
@@ -114,6 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
+        _ = submenu("Image", CanvasView.imageCommands.map { item($0.0, $0.1, "", []) } + [.separator()]
+            + CanvasView.redactCommands.map { item($0.0, $0.1, "", []) })
         _ = submenu("Arrange", CanvasView.arrangeCommands.map { title, action, key, mods in
             item(title, action, key, mods)
         })
@@ -192,8 +207,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func captureTimed(_ item: NSMenuItem) {
-        selfTimer.start(seconds: item.tag) { [weak self] in self?.captureFullscreen() }
+    // MARK: Self-timer: pick the area or window first, then count down, then capture it live.
+
+    @objc private func timerDelayPicked(_ item: NSMenuItem) { Preferences.selfTimerSeconds = item.tag }
+
+    @objc func timedFullscreen() {
+        selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in self?.captureFullscreen() })
+    }
+
+    @objc func timedArea() {
+        prepareCapture { [weak self] in
+            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, _)? = sel else { self?.restoreIcons(); return }
+                lastArea = (screen, rect)
+                selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
+                    self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) }
+                }, cancelled: { [weak self] in self?.restoreIcons() })
+            }
+        }
+    }
+
+    @objc func timedWindow() {
+        prepareCapture { [weak self] in
+            Task { @MainActor in
+                let wins = await CaptureService.onScreenWindows()
+                self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in
+                    guard let self, case .window(let w)? = sel else { self?.restoreIcons(); return }
+                    selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
+                        self?.run { try await CaptureService.captureWindow(w) }
+                    }, cancelled: { [weak self] in self?.restoreIcons() })
+                }
+            }
+        }
     }
 
     @objc func captureText() {
@@ -279,6 +324,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CaptureHistory.add(image)
         if Preferences.copyToClipboard { Output.copy(image) }
         if Preferences.autoSave { Output.save(image) }
+        // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
+        if Preferences.openEditorAfterCapture {
+            EditorWindowController(image: image).present()
+            return
+        }
         let qa = QuickAccessController(image: image)
         qa.onAnnotate = { EditorWindowController(image: $0).present() }
         qa.onPin = { PinnedScreenshotController.pin($0) }

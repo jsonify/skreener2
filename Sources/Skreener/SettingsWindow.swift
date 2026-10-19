@@ -64,6 +64,9 @@ final class SettingsWindowController: NSWindowController {
         section("After Capture")
         row("Output:", checkbox("Copy to clipboard", Preferences.copyToClipboard) { Preferences.copyToClipboard = $0 })
         row("", checkbox("Save to folder", Preferences.autoSave) { Preferences.autoSave = $0 })
+        row("Then:", checkbox("Open in the editor (instead of the Quick Access thumbnail)", Preferences.openEditorAfterCapture) {
+            Preferences.openEditorAfterCapture = $0
+        })
         let choose = NSButton(title: "Choose…", target: nil, action: nil)
         bind(choose) { [weak self] _ in self?.chooseFolder() }
         folderLabel.lineBreakMode = .byTruncatingMiddle

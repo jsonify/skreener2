@@ -82,6 +82,8 @@ private extension NSToolbarItem.Identifier {
     static let cropItem = NSToolbarItem.Identifier("skreener.crop")
     static let addImageItem = NSToolbarItem.Identifier("skreener.addImage")
     static let mockupItem = NSToolbarItem.Identifier("skreener.mockup")
+    static let rotateItem = NSToolbarItem.Identifier("skreener.rotate")
+    static let redactItem = NSToolbarItem.Identifier("skreener.redact")
     static let toolsItem = NSToolbarItem.Identifier("skreener.tools")
     static let undoItem = NSToolbarItem.Identifier("skreener.undo")
     static let redoItem = NSToolbarItem.Identifier("skreener.redo")
@@ -112,6 +114,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         ("arrow.up.right", .arrow),
         ("textformat", .text),
         ("checkerboard.rectangle", .pixelate),
+        ("drop.halffull", .blur),
+        ("flashlight.on.fill", .spotlight),
         ("1.circle.fill", .counter),
         ("pencil.tip", .pen),
         ("highlighter", .highlighter),
@@ -133,6 +137,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let boldButton = NSButton()
     private let pixelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let cornerStylePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let arrowStylePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let arrangeButton = NSPopUpButton(frame: .zero, pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
@@ -364,7 +370,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .undoItem, .redoItem, .flexibleSpace, .settingsItem, .saveAsItem]
+        // No fixed spaces: with 13 tool buttons the toolbar only just fits the 990 pt minimum width.
+        [.cropItem, .rotateItem, .addImageItem, .mockupItem, .redactItem, .toolsItem, .undoItem, .redoItem, .flexibleSpace, .settingsItem, .saveAsItem]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
@@ -372,6 +379,20 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        /// A toolbar button that opens a menu of canvas commands.
+        func menuItem(_ sym: String, _ label: String, _ tip: String, _ commands: [(String, Selector)]) -> NSToolbarItem {
+            let item = NSMenuToolbarItem(itemIdentifier: id)
+            item.image = symbol(sym, label); item.label = label; item.toolTip = tip
+            item.showsIndicator = true
+            let m = NSMenu()
+            for (title, action) in commands {
+                let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                i.target = canvas
+                m.addItem(i)
+            }
+            item.menu = m
+            return item
+        }
         func button(_ sym: String, _ label: String, _ tip: String, _ action: Selector) -> NSToolbarItem {
             let item = NSToolbarItem(itemIdentifier: id)
             item.image = symbol(sym, label); item.label = label; item.toolTip = tip
@@ -380,6 +401,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
         switch id {
         case .cropItem: return button("crop", "Crop", "Crop (C)", #selector(cropIt))
+        case .rotateItem:
+            return menuItem("rotate.right", "Rotate", "Rotate or flip the screenshot and its annotations", CanvasView.imageCommands)
+        case .redactItem:
+            return menuItem("eye.slash", "Redact", "Find text in the screenshot and pixelate it", CanvasView.redactCommands)
         case .addImageItem:
             let item = NSMenuToolbarItem(itemIdentifier: id)
             item.image = symbol("plus.rectangle.on.rectangle", "Add Image"); item.label = "Add Image"
@@ -454,7 +479,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
         setUp(strokePopup, "Stroke width", [1, 2, 3, 5, 8, 12].map { ("\($0) pt", $0) }, #selector(strokePicked(_:)))
         setUp(sizePopup, "Font size", [12, 14, 16, 18, 22, 28, 32, 40, 48, 64, 72].map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
-        setUp(pixelPopup, "Pixel size", [("Fine", 6), ("Medium", 10), ("Coarse", 18), ("Heavy", 28)], #selector(pixelPicked(_:)))
+        setUp(pixelPopup, "Strength", [("Light", 6), ("Medium", 10), ("Strong", 18), ("Heavy", 28)], #selector(pixelPicked(_:)))
+        setUp(cornerStylePopup, "Corners", [("Sharp Corners", 0), ("Slightly Rounded", 2), ("Rounded", 8), ("Very Rounded", 16)],
+              #selector(cornerPicked(_:)))
+        setUp(arrowStylePopup, "Arrow style", [("Filled Head", ArrowStyle.filled.rawValue), ("Open Head", ArrowStyle.open.rawValue),
+                                               ("Double-Headed", ArrowStyle.double.rawValue)], #selector(arrowStylePicked(_:)))
         setUp(fontPopup, "Font", [], #selector(fontPicked(_:)))
         for (title, name) in Self.fontChoices {
             fontPopup.addItem(withTitle: title)
@@ -482,7 +511,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             arrangeButton.lastItem?.target = canvas
         }
 
-        [colorWell, strokePopup, fontPopup, sizePopup, boldButton, pixelPopup, arrangeButton].forEach(attributesBar.addArrangedSubview)
+        [colorWell, strokePopup, arrowStylePopup, cornerStylePopup, fontPopup, sizePopup, boldButton, pixelPopup,
+         arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
     }
 
@@ -585,17 +615,21 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesTitle.stringValue = tool.name
         attributesTitle.isHidden = tool == .select
         attributesHint.isHidden = tool != .select
-        colorWell.isHidden = [.select, .pixelate, .image].contains(tool)
+        colorWell.isHidden = [.select, .pixelate, .blur, .spotlight, .image].contains(tool)
         strokePopup.isHidden = !tool.usesStroke
         [fontPopup, boldButton].forEach { $0.isHidden = tool != .text }
         sizePopup.isHidden = tool != .text && tool != .counter
-        pixelPopup.isHidden = tool != .pixelate
+        pixelPopup.isHidden = !tool.obscures
+        cornerStylePopup.isHidden = !tool.hasCorners
+        arrowStylePopup.isHidden = tool != .arrow
         arrangeButton.isHidden = !canvas.hasSelection
 
         colorWell.color = style.color
         strokePopup.selectItem(withTag: Int(style.lineWidth))
         sizePopup.selectItem(withTag: Int(style.fontSize))
         pixelPopup.selectItem(withTag: Int(style.pixelSize))
+        cornerStylePopup.selectItem(withTag: Int(style.cornerRadius))
+        arrowStylePopup.selectItem(withTag: style.arrowStyle.rawValue)
         if let i = fontPopup.itemArray.firstIndex(where: { $0.representedObject as? String == style.fontName }) {
             fontPopup.selectItem(at: i)
         }
@@ -606,6 +640,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func strokePicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.lineWidth = CGFloat(p.selectedTag()) } }
     @objc private func sizePicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.fontSize = CGFloat(p.selectedTag()) } }
     @objc private func pixelPicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.pixelSize = CGFloat(p.selectedTag()) } }
+    @objc private func cornerPicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.cornerRadius = CGFloat(p.selectedTag()) } }
+    @objc private func arrowStylePicked(_ p: NSPopUpButton) {
+        canvas.updateStyle { $0.arrowStyle = ArrowStyle(rawValue: p.selectedTag()) ?? .filled }
+    }
     @objc private func fontPicked(_ p: NSPopUpButton) {
         let name = p.selectedItem?.representedObject as? String ?? ""
         canvas.updateStyle { $0.fontName = name }

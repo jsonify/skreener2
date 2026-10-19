@@ -17,12 +17,21 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # Use the newest Xcode on the runner: newer compilers add warnings the default one doesn't report.
+      - name: Select newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          # Versioned bundles only: the plain Xcode.app is the runner's default, which sorts last.
+          NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$NEWEST"
       - name: Toolchain versions
         run: |
           xcodebuild -version
           swift --version
-      - name: Build app
+      - name: Build app (warnings are errors)
         run: ./Scripts/build_app.sh
+        env:
+          SKREENER_STRICT: "1"
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
