@@ -84,7 +84,6 @@ private extension NSToolbarItem.Identifier {
     static let toolsItem = NSToolbarItem.Identifier("skreener.tools")
     static let undoItem = NSToolbarItem.Identifier("skreener.undo")
     static let redoItem = NSToolbarItem.Identifier("skreener.redo")
-    static let attributesItem = NSToolbarItem.Identifier("skreener.attributes")
     static let saveAsItem = NSToolbarItem.Identifier("skreener.saveAs")
 }
 
@@ -119,8 +118,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private let scroll = ZoomingScrollView()
     private let zoomButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private var toolGroup: NSToolbarItemGroup?
-    // Contextual attributes bar: only the controls that apply to the current tool or selection are shown.
+    // Contextual attributes bar under the toolbar: only the controls that apply to the current tool or
+    // selection are shown. It lives outside the toolbar so the tool buttons always have room.
     private let attributesBar = NSStackView()
+    private let attributesTitle = NSTextField(labelWithString: "")
+    private let attributesHint = NSTextField(labelWithString: "Select an annotation to change its style")
     private let colorWell = NSColorWell(style: .minimal)
     private let strokePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -208,11 +210,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
         let footer = buildFooter()
         footer.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(scroll); content.addSubview(footer)
+        let strip = buildAttributesStrip()
+        strip.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(scroll); content.addSubview(footer); content.addSubview(strip)
 
         let top = (w.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: top),
+            strip.topAnchor.constraint(equalTo: top),
+            strip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            strip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            strip.heightAnchor.constraint(equalToConstant: 40),
+            scroll.topAnchor.constraint(equalTo: strip.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: footer.topAnchor),
@@ -221,6 +229,31 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             footer.heightAnchor.constraint(equalToConstant: 56),
         ])
+    }
+
+    private func buildAttributesStrip() -> NSView {
+        let bar = NSVisualEffectView()
+        bar.material = .windowBackground
+        bar.blendingMode = .withinWindow
+        bar.state = .followsWindowActiveState
+        attributesTitle.font = .systemFont(ofSize: 12, weight: .semibold)
+        attributesTitle.textColor = .secondaryLabelColor
+        attributesHint.font = .systemFont(ofSize: 12)
+        attributesHint.textColor = .tertiaryLabelColor
+        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint])
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let line = NSBox(); line.boxType = .separator
+        line.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(row); bar.addSubview(line)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
+            row.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            line.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            line.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
+        ])
+        return bar
     }
 
     private func buildFooter() -> NSView {
@@ -297,7 +330,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .attributesItem, .undoItem, .redoItem, .flexibleSpace, .saveAsItem]
+        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .undoItem, .redoItem, .flexibleSpace, .saveAsItem]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
@@ -339,12 +372,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             }
             group.selectedIndex = toolButtons.firstIndex { $0.tool == canvas.tool } ?? 0
             group.label = "Tools"
+            // Always one button per tool; never collapse the group into a pull-down menu.
+            group.controlRepresentation = .expanded
             toolGroup = group
             return group
-        case .attributesItem:
-            let item = NSToolbarItem(itemIdentifier: id)
-            item.view = attributesBar; item.label = "Style"
-            return item
         case .saveAsItem:
             let b = NSButton(title: "Save as…", target: self, action: #selector(saveIt))
             b.bezelStyle = .rounded
@@ -402,10 +433,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
 
     /// Shows the controls for `tool` and loads them with `style`.
     private func refreshAttributes(_ tool: Tool, _ style: Style) {
+        // `.select` here means nothing is selected: there is no style to edit.
+        attributesTitle.stringValue = toolButtons.first { $0.tool == tool }?.label ?? ""
+        attributesTitle.isHidden = tool == .select
+        attributesHint.isHidden = tool != .select
+        colorWell.isHidden = tool == .select || tool == .pixelate
         strokePopup.isHidden = !tool.usesStroke
         [fontPopup, sizePopup, boldButton].forEach { $0.isHidden = tool != .text }
         pixelPopup.isHidden = tool != .pixelate
-        colorWell.isHidden = tool == .pixelate
 
         colorWell.color = style.color
         strokePopup.selectItem(withTag: Int(style.lineWidth))
