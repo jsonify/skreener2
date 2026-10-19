@@ -63,7 +63,6 @@ final class RecordAreaPicker: NSObject {
     func begin(screen: NSScreen, rect: CGRect, completion: @escaping (RecordPick?) -> Void) {
         guard self.completion == nil else { return }
         self.screen = screen
-        self.completion = completion
         actions.removeAll(); toggles.removeAll()
 
         let p = PickerPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -86,6 +85,9 @@ final class RecordAreaPicker: NSObject {
         p.contentView = v
         c.isHidden = true
         panel = p; adjust = v; controls = c; modeBar = bar
+        // Set last, so a failure while building the picker can't leave it marked active (which blocked
+        // every later Record Screen).
+        self.completion = completion
         layout()
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(v)
@@ -370,8 +372,9 @@ final class RecordAreaPicker: NSObject {
         row.spacing = 4
         row.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
         let modesCard = Self.card(row), sizeCard = Self.card(buildSizeControls())
-        sizeCard.heightAnchor.constraint(equalTo: modesCard.heightAnchor).isActive = true
         let bar = NSStackView(views: [modesCard, sizeCard])
+        // Only once both cards are in the stack: a constraint between views with no common ancestor throws.
+        sizeCard.heightAnchor.constraint(equalTo: modesCard.heightAnchor).isActive = true
         bar.spacing = 10
         bar.alignment = .centerY
         bar.appearance = NSAppearance(named: .darkAqua)
