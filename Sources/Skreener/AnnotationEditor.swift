@@ -76,12 +76,39 @@ struct Background: Equatable {
         ("Black", [.black]),
     ]
 
+    /// `fill` value for the desktop wallpaper of the main screen (it comes after the presets).
+    static var wallpaperFill: Int { presets.count }
+
+    private static var wallpaperCache: (url: URL, image: NSImage)?
+    /// The main screen's current wallpaper, or nil when it is not a plain image file (a folder or a dynamic aerial).
+    static var wallpaper: NSImage? {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first,
+              let url = NSWorkspace.shared.desktopImageURL(for: screen) else { return nil }
+        if let c = wallpaperCache, c.url == url { return c.image }
+        guard let img = NSImage(contentsOf: url) else { return nil }
+        wallpaperCache = (url, img)
+        return img
+    }
+
     private static func hex(_ v: Int) -> NSColor {
         NSColor(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
                 blue: CGFloat(v & 0xFF) / 255, alpha: 1)
     }
 
     static func draw(fill: Int, in r: NSRect) {
+        if fill == wallpaperFill {
+            guard let img = wallpaper, img.size.width > 0, img.size.height > 0 else {
+                NSColor.windowBackgroundColor.setFill(); r.fill(); return
+            }
+            // Aspect-fill, centered.
+            let scale = max(r.width / img.size.width, r.height / img.size.height)
+            let w = img.size.width * scale, h = img.size.height * scale
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: r).addClip()
+            img.draw(in: NSRect(x: r.midX - w / 2, y: r.midY - h / 2, width: w, height: h))
+            NSGraphicsContext.restoreGraphicsState()
+            return
+        }
         let colors = presets[min(max(fill, 0), presets.count - 1)].colors
         if colors.count == 1 { colors[0].setFill(); r.fill() } else { NSGradient(colors: colors)?.draw(in: r, angle: -45) }
     }
@@ -91,6 +118,8 @@ struct Background: Equatable {
 /// For text, `start` is the top-left corner of the text.
 struct Annotation: Equatable {
     var id = UUID()
+    /// Creation order. Counters are numbered by it, so arranging them front/back keeps their numbers.
+    var seq = Annotation.nextSeq()
     var tool: Tool
     var start: NSPoint
     var end: NSPoint
@@ -98,6 +127,9 @@ struct Annotation: Equatable {
     var text: String = ""
     var image: NSImage? = nil
     var style: Style
+
+    private static var lastSeq = 0
+    private static func nextSeq() -> Int { lastSeq += 1; return lastSeq }
 
     mutating func translate(dx: CGFloat, dy: CGFloat) {
         start.x += dx; start.y += dy
@@ -133,7 +165,7 @@ private final class InlineTextView: NSTextView {
 
 /// Drawing surface in image coordinates. Click an annotation to select it, drag to move it, drag a handle
 /// to resize it, double-click text to edit it in place; ⌫ deletes, arrows nudge, ⌘Z / ⇧⌘Z undo and redo.
-final class CanvasView: NSView, NSTextViewDelegate {
+final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     let base: NSImage
     private(set) var items: [Annotation] = [] {
         didSet { updateExtent() }
@@ -147,6 +179,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
         didSet { updateExtent(); needsDisplay = true }
     }
     var isCropping: Bool { cropDraft != nil }
+    /// Room around the canvas while cropping, so every handle can be grabbed even at the window's edges.
+    private var cropMargin: CGFloat = 0
     /// Called when crop mode starts (true) or ends (false).
     var onCropModeChange: ((Bool) -> Void)?
     private(set) var background: Background? {
@@ -181,7 +215,12 @@ final class CanvasView: NSView, NSTextViewDelegate {
         case resizeCorner(anchor: NSPoint)
         case resizeEnd(isStart: Bool)
         case cropCorner(anchor: NSPoint)
+        case cropEdges(CropEdges)
         case cropMove(last: NSPoint)
+    }
+    /// Which sides of the crop a handle moves: one for a side handle, two for a corner.
+    private struct CropEdges {
+        var left = false, right = false, bottom = false, top = false
     }
     /// Everything one undo step restores.
     private struct Snapshot: Equatable {
@@ -279,7 +318,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
             drag = .move(last: p)
         case .resizeCorner(let anchor)?:
             guard let i = selectedIndex else { return }
-            items[i].start = anchor; items[i].end = p
+            items[i].start = anchor
+            items[i].end = items[i].tool == .image ? aspectLocked(items[i], anchor: anchor, to: p) : p
         case .resizeEnd(let isStart)?:
             guard let i = selectedIndex else { return }
             if isStart { items[i].start = p } else { items[i].end = p }
@@ -287,6 +327,16 @@ final class CanvasView: NSView, NSTextViewDelegate {
             let full = fullContentRect()
             let q = NSPoint(x: min(max(p.x, full.minX), full.maxX), y: min(max(p.y, full.minY), full.maxY))
             cropDraft = NSRect(x: min(anchor.x, q.x), y: min(anchor.y, q.y), width: abs(q.x - anchor.x), height: abs(q.y - anchor.y))
+        case .cropEdges(let e)?:
+            guard let r = cropDraft else { return }
+            let full = fullContentRect(), minSize: CGFloat = 4
+            let q = NSPoint(x: min(max(p.x, full.minX), full.maxX), y: min(max(p.y, full.minY), full.maxY))
+            var x0 = r.minX, x1 = r.maxX, y0 = r.minY, y1 = r.maxY
+            if e.left { x0 = min(q.x, x1 - minSize) }
+            if e.right { x1 = max(q.x, x0 + minSize) }
+            if e.bottom { y0 = min(q.y, y1 - minSize) }
+            if e.top { y1 = max(q.y, y0 + minSize) }
+            cropDraft = NSRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
         case .cropMove(let last)?:
             guard var r = cropDraft else { return }
             let full = fullContentRect()
@@ -309,6 +359,14 @@ final class CanvasView: NSView, NSTextViewDelegate {
         recordUndo(from: beforeDrag)
         draft = nil; drag = nil
         needsDisplay = true
+    }
+
+    /// Corner for an image resized from `anchor` toward `p`, keeping the picture's proportions.
+    private func aspectLocked(_ a: Annotation, anchor: NSPoint, to p: NSPoint) -> NSPoint {
+        guard let s = a.image?.size, s.width > 0, s.height > 0 else { return p }
+        let dx = p.x - anchor.x, dy = p.y - anchor.y
+        let scale = max(abs(dx) / s.width, abs(dy) / s.height, 4 / min(s.width, s.height))
+        return NSPoint(x: anchor.x + (dx < 0 ? -1 : 1) * s.width * scale, y: anchor.y + (dy < 0 ? -1 : 1) * s.height * scale)
     }
 
     private func isMeaningful(_ a: Annotation) -> Bool {
@@ -433,6 +491,68 @@ final class CanvasView: NSView, NSTextViewDelegate {
         insertImage(img)
     }
 
+    // MARK: Arrange (the screenshot itself is not an annotation, so it always stays at the bottom)
+
+    var hasSelection: Bool { selectedIndex != nil }
+
+    @objc func bringToFront(_ sender: Any?) { moveSelection { _, n in n - 1 } }
+    @objc func bringForward(_ sender: Any?) { moveSelection { i, _ in i + 1 } }
+    @objc func sendBackward(_ sender: Any?) { moveSelection { i, _ in i - 1 } }
+    @objc func sendToBack(_ sender: Any?) { moveSelection { _, _ in 0 } }
+    @objc private func deleteSelected(_ sender: Any?) { deleteSelection() }
+
+    /// Moves the selected annotation to `target(index, count)` in the stacking order (later draws on top).
+    private func moveSelection(to target: (Int, Int) -> Int) {
+        guard let i = selectedIndex else { NSSound.beep(); return }
+        finishTextEditing()
+        let j = min(max(target(i, items.count), 0), items.count - 1)
+        guard j != i else { return }
+        mutate { let a = items.remove(at: i); items.insert(a, at: j) }
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(bringToFront(_:)), #selector(bringForward(_:)):
+            return selectedIndex.map { $0 < items.count - 1 } ?? false
+        case #selector(sendBackward(_:)), #selector(sendToBack(_:)):
+            return selectedIndex.map { $0 > 0 } ?? false
+        case #selector(deleteSelected(_:)):
+            return selectedIndex != nil
+        default:
+            return true
+        }
+    }
+
+    /// Right-click an annotation: select it and offer Arrange and Delete.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard !isCropping else { return nil }
+        finishTextEditing()
+        let p = convert(event.locationInWindow, from: nil)
+        guard let i = items.indices.reversed().first(where: { hits(items[$0], p) }) else { return nil }
+        selectedID = items[i].id
+        needsDisplay = true
+        let m = NSMenu()
+        for (title, action, key, mods) in CanvasView.arrangeCommands {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = mods
+            item.target = self
+            m.addItem(item)
+        }
+        m.addItem(.separator())
+        let delete = NSMenuItem(title: "Delete", action: #selector(deleteSelected(_:)), keyEquivalent: "")
+        delete.target = self
+        m.addItem(delete)
+        return m
+    }
+
+    /// Arrange commands for menus: title, action, key, modifiers.
+    static let arrangeCommands: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+        ("Bring to Front", #selector(CanvasView.bringToFront(_:)), "]", [.command, .option]),
+        ("Bring Forward", #selector(CanvasView.bringForward(_:)), "]", [.command]),
+        ("Send Backward", #selector(CanvasView.sendBackward(_:)), "[", [.command]),
+        ("Send to Back", #selector(CanvasView.sendToBack(_:)), "[", [.command, .option]),
+    ]
+
     // MARK: Crop
 
     /// Enters crop mode with the current crop (or everything) chosen.
@@ -440,6 +560,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         guard !isCropping else { return }
         finishTextEditing()
         clearSelection()
+        cropMargin = 28 / zoom
         cropDraft = crop ?? fullContentRect()
         onCropModeChange?(true)
     }
@@ -449,6 +570,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         guard let r = cropDraft?.integral else { return }
         let before = snapshot
         let full = fullContentRect()
+        cropMargin = 0
         cropDraft = nil
         if r.contains(full) { crop = nil } else if r.width >= 4, r.height >= 4 { crop = r }
         recordUndo(from: before)
@@ -457,6 +579,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     func cancelCrop() {
         guard isCropping else { return }
+        cropMargin = 0
         cropDraft = nil
         onCropModeChange?(false)
     }
@@ -466,12 +589,33 @@ final class CanvasView: NSView, NSTextViewDelegate {
         if isCropping { cropDraft = fullContentRect() }
     }
 
+    /// The crop's eight handles: four corners, then the middle of each side.
+    private func cropHandles(_ r: NSRect) -> [(point: NSPoint, edges: CropEdges)] {
+        [(NSPoint(x: r.minX, y: r.minY), CropEdges(left: true, bottom: true)),
+         (NSPoint(x: r.maxX, y: r.minY), CropEdges(right: true, bottom: true)),
+         (NSPoint(x: r.minX, y: r.maxY), CropEdges(left: true, top: true)),
+         (NSPoint(x: r.maxX, y: r.maxY), CropEdges(right: true, top: true)),
+         (NSPoint(x: r.minX, y: r.midY), CropEdges(left: true)),
+         (NSPoint(x: r.maxX, y: r.midY), CropEdges(right: true)),
+         (NSPoint(x: r.midX, y: r.minY), CropEdges(bottom: true)),
+         (NSPoint(x: r.midX, y: r.maxY), CropEdges(top: true))]
+    }
+
+    /// A handle (or, failing that, a side of the frame) resizes; inside moves; outside draws a new area.
     private func cropDrag(in r: NSRect, at p: NSPoint) -> Drag {
-        let corners = [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
-                       NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)]
-        if let h = corners.indices.first(where: { hypot(corners[$0].x - p.x, corners[$0].y - p.y) <= 10 / zoom }) {
-            return .cropCorner(anchor: corners[3 - h])
+        let hs = cropHandles(r)
+        if let h = hs.min(by: { hypot($0.point.x - p.x, $0.point.y - p.y) < hypot($1.point.x - p.x, $1.point.y - p.y) }),
+           hypot(h.point.x - p.x, h.point.y - p.y) <= 12 / zoom {
+            return .cropEdges(h.edges)
         }
+        let slop = 6 / zoom
+        let inX = p.x >= r.minX - slop && p.x <= r.maxX + slop, inY = p.y >= r.minY - slop && p.y <= r.maxY + slop
+        var e = CropEdges()
+        e.left = inY && abs(p.x - r.minX) <= slop
+        e.right = inY && abs(p.x - r.maxX) <= slop
+        e.bottom = inX && abs(p.y - r.minY) <= slop
+        e.top = inX && abs(p.y - r.maxY) <= slop
+        if e.left || e.right || e.bottom || e.top { return .cropEdges(e) }
         if r.contains(p) { return .cropMove(last: p) }
         let full = fullContentRect()
         return .cropCorner(anchor: NSPoint(x: min(max(p.x, full.minX), full.maxX), y: min(max(p.y, full.minY), full.maxY)))
@@ -612,7 +756,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// crop, plus the background padding. Annotations keep image coordinates: only the view's bounds change.
     private func updateExtent() {
         let content = cropDraft == nil ? (crop ?? fullContentRect()) : fullContentRect()
-        let pad = activeBackground?.padding ?? 0
+        let pad = isCropping ? cropMargin : activeBackground?.padding ?? 0
         let r = content.insetBy(dx: -pad, dy: -pad)
         contentRect = content
         needsDisplay = true
@@ -731,7 +875,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
     }
 
-    /// Dims everything outside the crop and draws its frame, thirds and corner handles.
+    /// Dims everything outside the crop and draws its frame, thirds and eight handles.
     private func drawCropOverlay(_ r: NSRect) {
         let px = 1 / zoom
         let dim = NSBezierPath(rect: bounds)
@@ -749,7 +893,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         let frame = NSBezierPath(rect: r)
         frame.lineWidth = 1.5 * px
         NSColor.white.setStroke(); frame.stroke()
-        for c in [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY), NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)] {
+        for c in cropHandles(r).map(\.point) {
             let s = 5 * px
             let dot = NSBezierPath(rect: NSRect(x: c.x - s, y: c.y - s, width: s * 2, height: s * 2))
             NSColor.white.setFill(); dot.fill()
@@ -813,11 +957,12 @@ final class CanvasView: NSView, NSTextViewDelegate {
         }
     }
 
-    /// Filled badge with the counter's number: its position among the counters, so deleting one renumbers the rest.
+    /// Filled badge with the counter's number: its place among the counters in creation order, so deleting one
+    /// renumbers the rest.
     private func drawCounter(_ a: Annotation) {
         let box = bounds(of: a)
         NSBezierPath(ovalIn: box).fill()
-        let n = (items.filter { $0.tool == .counter }.firstIndex { $0.id == a.id } ?? 0) + 1
+        let n = items.filter { $0.tool == .counter && $0.seq < a.seq }.count + 1
         let light = (a.style.color.usingColorSpace(.sRGB)?.brightnessComponent ?? 0) > 0.85
             && (a.style.color.usingColorSpace(.sRGB)?.saturationComponent ?? 0) < 0.5
         let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: a.style.counterRadius * 1.1, weight: .bold),

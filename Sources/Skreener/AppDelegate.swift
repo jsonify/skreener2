@@ -25,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeys.shared.register(keyCode: kVK_ANSI_6, modifiers: mods) { [weak self] in self?.captureAreaAndPin() }
         HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
 
+        EditorWindowController.captureArea = { [weak self] done in
+            if let self { self.captureAreaImage(done) } else { done(nil) }
+        }
+
         if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
     }
 
@@ -110,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
+        _ = submenu("Arrange", CanvasView.arrangeCommands.map { title, action, key, mods in
+            item(title, action, key, mods)
+        })
         NSApp.windowsMenu = submenu("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Close", #selector(NSWindow.performClose(_:)), "w"),
@@ -225,6 +232,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             lastArea = (screen, rect)
             run(areaCapture(screen, rect, frozen))
         case .window(let w): run { try await CaptureService.captureWindow(w) }
+        }
+    }
+
+    /// Area capture for the editor's Add Image → Capture Area: no Quick Access, just the image (nil if cancelled).
+    private func captureAreaImage(_ done: @escaping (NSImage?) -> Void) {
+        // Give the hidden editor window a moment to leave the screen first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { done(nil); return }
+            overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, let frozen)? = sel else { done(nil); return }
+                lastArea = (screen, rect)
+                let capture = areaCapture(screen, rect, frozen)
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
+                    let image = try? await capture()
+                    if let image { CaptureHistory.add(image) } else { NSSound.beep() }
+                    done(image)
+                }
+            }
         }
     }
 

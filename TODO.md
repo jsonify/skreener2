@@ -44,9 +44,11 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Inline text editing on the canvas (type in place, live preview; Esc / ⌘Return / click outside to finish) — S
 - [~] Contextual attributes bar: color for all tools, stroke width (shapes/pen), font/size/bold (text), pixel size (pixelate); applies to the selection or to new annotations — M
 - [~] Filled rectangle (F), numbered step counter (N; renumbers when one is deleted), highlighter (H; multiply blend) — M
-- [~] Crop (C or toolbar; non-destructive, undoable; Return/Esc) — M
+- [~] Crop (C or toolbar; eight handles + draggable sides, margin around the canvas; non-destructive, undoable; Return/Esc) — M
 - [~] Background tool (gradient/solid presets, padding, corner radius, shadow; undoable) — M
-- [~] Add Image (toolbar or ⌘V paste) as a movable, resizable layer — S
+- [~] Add Image (toolbar menu: Capture Area…, From Capture History, Open File…, Paste / ⌘V) as a movable layer that keeps its proportions — S
+- [~] Arrange: bring to front / forward, send backward / to back (context menu, style bar, Arrange menu, ⌥⌘] ⌘] ⌘[ ⌥⌘[) — S
+- [~] Background: desktop wallpaper as a fill — S
 - [ ] Blur (gaussian), spotlight — M
 - [ ] Rotate / flip — S
 - [ ] Rounded rectangle, arrow styles (stroke width now in the attributes bar) — M

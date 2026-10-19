@@ -96,9 +96,11 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
 
 /// CleanShot-style editor: unified titlebar toolbar, centered zoomable canvas, footer with zoom / Drag Me / actions.
 /// The window never gets smaller than `minimumSize`.
-final class EditorWindowController: NSWindowController, NSToolbarDelegate {
+final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate {
     static let minimumSize = NSSize(width: 990, height: 750)
     static var live: [EditorWindowController] = []
+    /// Set by the app: lets the user pick an area on screen and hands back the capture (nil if cancelled).
+    static var captureArea: ((@escaping (NSImage?) -> Void) -> Void)?
 
     /// Toolbar tool buttons in display order.
     private let toolButtons: [(symbol: String, tool: Tool)] = [
@@ -131,6 +133,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let boldButton = NSButton()
     private let pixelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let arrangeButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    /// Add Image → From Capture History; filled in each time it opens.
+    private let historyMenu = NSMenu(title: "From Capture History")
     // Crop and Background replace the tool options in the same strip while they are active.
     private enum StripMode { case tools, crop, background }
     private var stripMode = StripMode.tools {
@@ -375,7 +380,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         }
         switch id {
         case .cropItem: return button("crop", "Crop", "Crop (C)", #selector(cropIt))
-        case .addImageItem: return button("plus.rectangle.on.rectangle", "Add Image", "Add Image… (or paste one with ⌘V)", #selector(addImage))
+        case .addImageItem:
+            let item = NSMenuToolbarItem(itemIdentifier: id)
+            item.image = symbol("plus.rectangle.on.rectangle", "Add Image"); item.label = "Add Image"
+            item.toolTip = "Add an image from a new capture, the capture history, a file or the clipboard"
+            item.showsIndicator = true
+            item.menu = buildAddImageMenu()
+            return item
         case .mockupItem: return button("photo", "Background", "Background", #selector(backgroundIt))
         case .undoItem:
             let item = NSToolbarItem(itemIdentifier: id)
@@ -460,7 +471,18 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         boldButton.toolTip = "Bold"
         boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
 
-        [colorWell, strokePopup, fontPopup, sizePopup, boldButton, pixelPopup].forEach(attributesBar.addArrangedSubview)
+        arrangeButton.bezelStyle = .texturedRounded
+        arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
+        arrangeButton.addItem(withTitle: "Arrange")
+        arrangeButton.lastItem?.image = symbol("square.3.layers.3d", "Arrange")
+        // Shortcuts live in the Arrange menu bar menu; repeating them here would fire twice.
+        for (title, action, _, _) in CanvasView.arrangeCommands {
+            arrangeButton.addItem(withTitle: title)
+            arrangeButton.lastItem?.action = action
+            arrangeButton.lastItem?.target = canvas
+        }
+
+        [colorWell, strokePopup, fontPopup, sizePopup, boldButton, pixelPopup, arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
     }
 
@@ -482,6 +504,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         fillPopup.bezelStyle = .texturedRounded
         fillPopup.toolTip = "Fill"
         fillPopup.target = self; fillPopup.action = #selector(backgroundChanged)
+        fillPopup.autoenablesItems = false
         fillPopup.addItem(withTitle: "None"); fillPopup.lastItem?.tag = -1
         for (i, preset) in Background.presets.enumerated() {
             fillPopup.addItem(withTitle: preset.name)
@@ -494,6 +517,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
                 return true
             }
         }
+        fillPopup.menu?.addItem(.separator())
+        fillPopup.addItem(withTitle: "Desktop Wallpaper")
+        fillPopup.lastItem?.tag = Background.wallpaperFill
+        refreshWallpaperItem()
         for (popup, tip, choices) in [(paddingPopup, "Padding", [16, 32, 48, 64, 96, 128]), (cornerPopup, "Corner radius", [0, 6, 10, 16, 24])] {
             popup.bezelStyle = .texturedRounded
             popup.toolTip = tip
@@ -504,6 +531,24 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         [fillPopup, paddingPopup, cornerPopup, bgShadowBox].forEach(backgroundBar.addArrangedSubview)
         backgroundBar.spacing = 8
         backgroundBar.isHidden = true
+    }
+
+    /// The wallpaper can change while the editor is open, so its swatch is redrawn whenever the options show.
+    private func refreshWallpaperItem() {
+        guard let item = fillPopup.menu?.items.first(where: { $0.tag == Background.wallpaperFill }) else { return }
+        let available = Background.wallpaper != nil
+        item.isEnabled = available
+        item.title = available ? "Desktop Wallpaper" : "Desktop Wallpaper (unavailable)"
+        item.toolTip = available ? nil : "The current wallpaper is not a still image (for example a dynamic or aerial wallpaper)."
+        item.image = nil
+        guard available else { return }
+        item.image = NSImage(size: NSSize(width: 26, height: 14), flipped: false) { r in
+            let clip = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+            clip.addClip()
+            Background.draw(fill: Background.wallpaperFill, in: r)
+            NSColor.separatorColor.setStroke(); clip.stroke()
+            return true
+        }
     }
 
     private func contextChanged() {
@@ -524,6 +569,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         case .background:
             attributesTitle.stringValue = "Background"
             attributesTitle.isHidden = false; attributesHint.isHidden = true
+            refreshWallpaperItem()
             let bg = canvas.background
             fillPopup.selectItem(withTag: bg?.fill ?? -1)
             paddingPopup.selectItem(withTag: Int(bg?.padding ?? Background().padding))
@@ -544,6 +590,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         [fontPopup, boldButton].forEach { $0.isHidden = tool != .text }
         sizePopup.isHidden = tool != .text && tool != .counter
         pixelPopup.isHidden = tool != .pixelate
+        arrangeButton.isHidden = !canvas.hasSelection
 
         colorWell.color = style.color
         strokePopup.selectItem(withTag: Int(style.lineWidth))
@@ -592,13 +639,72 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     @objc private func cropApply() { canvas.applyCrop(); window?.makeFirstResponder(canvas) }
     @objc private func cropCancel() { canvas.cancelCrop(); window?.makeFirstResponder(canvas) }
     @objc private func cropReset() { canvas.resetCrop(); window?.makeFirstResponder(canvas) }
-    @MainActor @objc private func addImage() {
+    @MainActor @objc private func addImageFromFile() {
         guard let w = window else { return }
         let p = NSOpenPanel()
         p.allowedContentTypes = [.image]
         p.beginSheetModal(for: w) { [weak self] r in
             guard r == .OK, let url = p.url, let img = NSImage(contentsOf: url) else { return }
             self?.canvas.insertImage(img)
+        }
+    }
+    @objc private func addImageFromHistory(_ item: NSMenuItem) {
+        guard let url = item.representedObject as? URL, let img = NSImage(contentsOf: url) else { NSSound.beep(); return }
+        canvas.insertImage(img)
+    }
+    @objc private func addImageFromClipboard() { canvas.paste(nil) }
+    /// Hides this editor, lets the user pick an area, then adds the capture to the canvas.
+    @objc private func addImageFromCapture() {
+        guard let capture = Self.captureArea, let w = window else { return }
+        w.orderOut(nil)
+        capture { [weak self] img in
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            if let img { self?.canvas.insertImage(img) }
+        }
+    }
+
+    private func buildAddImageMenu() -> NSMenu {
+        let m = NSMenu()
+        for (title, sym, sel) in [("Capture Area…", "camera.viewfinder", #selector(addImageFromCapture)),
+                                  ("Open File…", "folder", #selector(addImageFromFile)),
+                                  ("Paste from Clipboard", "doc.on.clipboard", #selector(addImageFromClipboard))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            i.target = self
+            i.image = symbol(sym, title)
+            m.addItem(i)
+        }
+        let history = NSMenuItem(title: "From Capture History", action: nil, keyEquivalent: "")
+        history.image = symbol("clock.arrow.circlepath", "Capture History")
+        historyMenu.delegate = self
+        history.submenu = historyMenu
+        m.insertItem(history, at: 1)
+        return m
+    }
+
+    /// Fills Add Image → From Capture History with the newest captures, as thumbnails.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === historyMenu else { return }
+        menu.removeAllItems()
+        let entries = CaptureHistory.entries().prefix(20)
+        if entries.isEmpty {
+            let none = NSMenuItem(title: "No captures yet", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+            return
+        }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        for e in entries {
+            let i = NSMenuItem(title: f.localizedString(for: e.date, relativeTo: Date()), action: #selector(addImageFromHistory(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = e.url
+            if let thumb = CaptureHistory.thumbnail(e.url, maxPixels: 160) {
+                let h: CGFloat = 40
+                thumb.size = NSSize(width: max(1, h * thumb.size.width / max(thumb.size.height, 1)).rounded(), height: h)
+                i.image = thumb
+            }
+            menu.addItem(i)
         }
     }
     /// Shows the background options, adding the default background the first time.
