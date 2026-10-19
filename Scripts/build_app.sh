@@ -1,9 +1,11 @@
 #!/bin/bash
-# Builds Skreener.app (macOS only). Usage: Scripts/build_app.sh
+# Builds Skreener.app (macOS only). Usage: Scripts/build_app.sh [--run]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release
 APP=build/Skreener.app
+# A running copy keeps the old code (and its hotkeys), so quit it before replacing the bundle.
+pkill -x Skreener 2>/dev/null && sleep 0.5 || true
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
 cp .build/release/Skreener "$APP/Contents/MacOS/Skreener"
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -23,5 +25,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 # Ad-hoc signing ("-") changes the app's identity on every build, so macOS forgets the
 # Screen Recording grant. Set SKREENER_SIGN_IDENTITY to a stable certificate name to keep it.
-codesign --force --sign "${SKREENER_SIGN_IDENTITY:--}" "$APP"
-echo "Built $APP"
+IDENTITY="${SKREENER_SIGN_IDENTITY:--}"
+if [ "$IDENTITY" != "-" ] && ! security find-identity -v -p codesigning | grep -q "\"$IDENTITY\""; then
+  echo "warning: signing identity \"$IDENTITY\" not found; falling back to ad-hoc (Screen Recording will be re-requested)." >&2
+  echo "         Create it once with Scripts/make_dev_cert.sh" >&2
+  IDENTITY="-"
+fi
+codesign --force --sign "$IDENTITY" "$APP"
+echo "Built $APP (signed with ${IDENTITY/#-/ad-hoc})"
+# Pass --run to launch it right away.
+if [ "${1:-}" = "--run" ]; then open "$APP"; fi

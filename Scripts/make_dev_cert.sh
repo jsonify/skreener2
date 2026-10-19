@@ -1,0 +1,27 @@
+#!/bin/bash
+# Creates a self-signed "Skreener Dev" code-signing certificate in your login keychain (macOS only).
+# Signing every build with the same certificate keeps the app's identity stable, so macOS keeps the
+# Screen Recording permission between builds. Usage: Scripts/make_dev_cert.sh [name]
+set -euo pipefail
+NAME="${1:-Skreener Dev}"
+KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+if security find-identity -v -p codesigning | grep -q "\"$NAME\""; then
+  echo "\"$NAME\" already exists and is valid."; exit 0
+fi
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$NAME" \
+  -keyout "$TMP/key.pem" -out "$TMP/cert.pem" \
+  -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning"
+# Legacy PBE algorithms so `security import` accepts the bundle from both LibreSSL and OpenSSL 3.
+openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -out "$TMP/id.p12" -passout pass:skreener \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
+security import "$TMP/id.p12" -k "$KEYCHAIN" -P skreener -T /usr/bin/codesign
+# Trust it for code signing (asks for your login password / Touch ID once).
+security add-trusted-cert -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
+
+echo
+security find-identity -v -p codesigning | grep "$NAME" || { echo "Certificate not valid yet; check Keychain Access."; exit 1; }
+echo "Done. Build with:  SKREENER_SIGN_IDENTITY=\"$NAME\" Scripts/build_app.sh"
+echo "The first build may ask to let codesign use the key: click Always Allow."

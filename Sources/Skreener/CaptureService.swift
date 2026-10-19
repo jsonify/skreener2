@@ -8,11 +8,11 @@ enum CaptureService {
         screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 
-    private static func makeConfig(width: CGFloat, height: CGFloat, scale: CGFloat) -> SCStreamConfiguration {
+    private static func makeConfig(width: CGFloat, height: CGFloat, scale: CGFloat, showsCursor: Bool = Preferences.showCursor) -> SCStreamConfiguration {
         let cfg = SCStreamConfiguration()
         cfg.width = Int(width * scale)
         cfg.height = Int(height * scale)
-        cfg.showsCursor = Preferences.showCursor
+        cfg.showsCursor = showsCursor
         cfg.captureResolution = .best
         return cfg
     }
@@ -22,7 +22,7 @@ enum CaptureService {
     }
 
     /// Capture a screen, or a sub-rect given in global (bottom-left origin) screen coordinates.
-    static func captureScreen(_ screen: NSScreen, globalRect: CGRect? = nil) async throws -> NSImage {
+    static func captureScreen(_ screen: NSScreen, globalRect: CGRect? = nil, showsCursor: Bool = Preferences.showCursor) async throws -> NSImage {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let id = displayID(screen), let display = content.displays.first(where: { $0.displayID == id })
         else { throw CaptureError.noDisplay }
@@ -30,13 +30,13 @@ enum CaptureService {
         let scale = screen.backingScaleFactor
         let cfg: SCStreamConfiguration
         if let r = globalRect {
-            cfg = makeConfig(width: r.width, height: r.height, scale: scale)
+            cfg = makeConfig(width: r.width, height: r.height, scale: scale, showsCursor: showsCursor)
             // convert to display-local, top-left origin
             cfg.sourceRect = CGRect(x: r.minX - screen.frame.minX,
                                     y: screen.frame.maxY - r.maxY,
                                     width: r.width, height: r.height)
         } else {
-            cfg = makeConfig(width: screen.frame.width, height: screen.frame.height, scale: scale)
+            cfg = makeConfig(width: screen.frame.width, height: screen.frame.height, scale: scale, showsCursor: showsCursor)
         }
         let cg = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
         return image(cg, scale: scale)
