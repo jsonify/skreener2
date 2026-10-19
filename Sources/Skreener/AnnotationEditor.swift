@@ -6,9 +6,33 @@ enum Tool: Int, CaseIterable {
     /// Single-key shortcuts in the editor (no modifiers).
     static let shortcuts: [Character: Tool] = ["v": .select, "a": .arrow, "r": .rect, "o": .ellipse,
                                                "l": .line, "p": .pen, "t": .text, "x": .pixelate]
+
+    var usesStroke: Bool { [.arrow, .rect, .ellipse, .line, .pen].contains(self) }
+}
+
+/// Per-annotation look. New annotations copy the canvas's current style; editing the style of a
+/// selected annotation changes only that annotation.
+struct Style: Equatable {
+    var color: NSColor = .systemRed
+    var lineWidth: CGFloat = 3
+    var fontSize: CGFloat = 22
+    /// Font family name; empty means the system font.
+    var fontName: String = ""
+    var bold = true
+    /// Mosaic cell size for the pixelate tool.
+    var pixelSize: CGFloat = 10
+
+    var font: NSFont {
+        if fontName.isEmpty { return .systemFont(ofSize: fontSize, weight: bold ? .semibold : .regular) }
+        let f = NSFont(name: fontName, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        return bold ? NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask) : f
+    }
+
+    var textAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: color] }
 }
 
 /// One annotation, kept as an editable object (never baked into the image until export).
+/// For text, `start` is the top-left corner of the text.
 struct Annotation: Equatable {
     var id = UUID()
     var tool: Tool
@@ -16,7 +40,7 @@ struct Annotation: Equatable {
     var end: NSPoint
     var points: [NSPoint] = []
     var text: String = ""
-    var color: NSColor
+    var style: Style
 
     mutating func translate(dx: CGFloat, dy: CGFloat) {
         start.x += dx; start.y += dy
@@ -25,17 +49,45 @@ struct Annotation: Equatable {
     }
 }
 
+/// Text view used to type text annotations in place. The editor window has no Edit menu, so the
+/// usual ⌘C/⌘V/⌘X/⌘A/⌘Z shortcuts are wired up here; Esc or ⌘Return finishes editing.
+private final class InlineTextView: NSTextView {
+    var onFinish: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
+        let mods = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        switch (mods, key) {
+        case ([.command], "c"): copy(nil)
+        case ([.command], "v"): pasteAsPlainText(nil)
+        case ([.command], "x"): cut(nil)
+        case ([.command], "a"): selectAll(nil)
+        case ([.command], "z"): undoManager?.undo()
+        case ([.command, .shift], "z"): undoManager?.redo()
+        case ([.command], "\r"): onFinish?()
+        default: return super.performKeyEquivalent(with: event)
+        }
+        return true
+    }
+
+    override func cancelOperation(_ sender: Any?) { onFinish?() }
+}
+
 /// Drawing surface in image coordinates. Click an annotation to select it, drag to move it, drag a handle
-/// to resize it, double-click text to edit it; ⌫ deletes, arrows nudge, ⌘Z / ⇧⌘Z undo and redo.
-final class CanvasView: NSView {
+/// to resize it, double-click text to edit it in place; ⌫ deletes, arrows nudge, ⌘Z / ⇧⌘Z undo and redo.
+final class CanvasView: NSView, NSTextViewDelegate {
     let base: NSImage
     private(set) var items: [Annotation] = []
-    var tool: Tool = .arrow
-    var color: NSColor = .systemRed
+    var tool: Tool = .arrow {
+        didSet { if tool != oldValue { finishTextEditing(); notifyContext() } }
+    }
+    /// Style given to new annotations.
+    private(set) var style = Style()
     /// Called when a single-key shortcut switches the tool.
     var onToolShortcut: ((Tool) -> Void)?
-    /// Called with the newly selected annotation (or nil) so the toolbar can mirror its color.
-    var onSelectionChange: ((Annotation?) -> Void)?
+    /// Called whenever the attributes bar should change: the tool whose options apply and the style to show.
+    var onContextChange: ((Tool, Style) -> Void)?
 
     private enum Drag {
         case draw
@@ -50,11 +102,13 @@ final class CanvasView: NSView {
     private var redoStack: [[Annotation]] = []
     private var exporting = false
     private var selectedID: UUID? {
-        didSet { if selectedID != oldValue { onSelectionChange?(selectedIndex.map { items[$0] }) } }
+        didSet { if selectedID != oldValue { notifyContext() } }
     }
-    private var selectedIndex: Int? { selectedID.flatMap { id in items.firstIndex { $0.id == id } } }
+    private var selectedIndex: Int? { index(of: selectedID) }
 
-    private let lineWidth: CGFloat = 3
+    private var textEditor: InlineTextView?
+    private var editingID: UUID?
+    private var beforeEditing: [Annotation] = []
 
     init(image: NSImage) {
         base = image
@@ -68,9 +122,18 @@ final class CanvasView: NSView {
     /// Screen-space sizes (handles, hit slop) divided by the zoom so they feel the same at any magnification.
     private var zoom: CGFloat { max(enclosingScrollView?.magnification ?? 1, 0.01) }
 
+    private func index(of id: UUID?) -> Int? { id.flatMap { id in items.firstIndex { $0.id == id } } }
+
+    /// The tool whose options the attributes bar shows: the selected annotation's, else the current tool's.
+    var contextTool: Tool { selectedIndex.map { items[$0].tool } ?? tool }
+    var contextStyle: Style { selectedIndex.map { items[$0].style } ?? style }
+
+    private func notifyContext() { onContextChange?(contextTool, contextStyle) }
+
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
+        if textEditor != nil { finishTextEditing(); return }   // a click outside the text box ends typing
         window?.makeFirstResponder(self)
         let p = convert(event.locationInWindow, from: nil)
         beforeDrag = items
@@ -78,7 +141,7 @@ final class CanvasView: NSView {
         if let i = selectedIndex, let d = handleDrag(for: items[i], at: p) { drag = d; return }
         if let i = items.indices.reversed().first(where: { hits(items[$0], p) }) {
             selectedID = items[i].id
-            if event.clickCount == 2, items[i].tool == .text { editText(at: i); return }
+            if event.clickCount == 2, items[i].tool == .text { beginTextEditing(at: i); return }
             drag = .move(last: p); needsDisplay = true
             return
         }
@@ -88,7 +151,7 @@ final class CanvasView: NSView {
         case .select: return
         case .text: addText(at: p)
         default:
-            draft = Annotation(tool: tool, start: p, end: p, points: [p], color: color)
+            draft = Annotation(tool: tool, start: p, end: p, points: [p], style: style)
             drag = .draw
         }
     }
@@ -114,7 +177,7 @@ final class CanvasView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let d = drag else { return }   // text add/edit already recorded its own undo step
+        guard let d = drag else { return }   // text add/edit records its own undo step
         if case .draw = d, let a = draft, isMeaningful(a) {
             items.append(a)
             selectedID = a.id
@@ -136,6 +199,9 @@ final class CanvasView: NSView {
         switch event.keyCode {
         case 51, 117: deleteSelection(); return                         // ⌫, ⌦
         case 53: selectedID = nil; needsDisplay = true; return          // Esc
+        case 36, 76:                                                    // Return / Enter edits selected text
+            if let i = selectedIndex, items[i].tool == .text { beginTextEditing(at: i) }
+            return
         case 123: nudge(dx: -step, dy: 0); return
         case 124: nudge(dx: step, dy: 0); return
         case 125: nudge(dx: 0, dy: -step); return
@@ -152,7 +218,7 @@ final class CanvasView: NSView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let mods = event.modifierFlags.intersection([.command, .shift, .control, .option])
-        guard window?.isKeyWindow == true, event.charactersIgnoringModifiers?.lowercased() == "z" else {
+        guard textEditor == nil, window?.isKeyWindow == true, event.charactersIgnoringModifiers?.lowercased() == "z" else {
             return super.performKeyEquivalent(with: event)
         }
         switch mods {
@@ -165,26 +231,35 @@ final class CanvasView: NSView {
     // MARK: Editing
 
     func undo() {
+        finishTextEditing()
         guard let previous = undoStack.popLast() else { NSSound.beep(); return }
         redoStack.append(items)
         items = previous
-        if selectedIndex == nil { selectedID = nil }
+        if selectedIndex == nil { selectedID = nil } else { notifyContext() }
         needsDisplay = true
     }
 
     func redo() {
+        finishTextEditing()
         guard let next = redoStack.popLast() else { NSSound.beep(); return }
         undoStack.append(items)
         items = next
-        if selectedIndex == nil { selectedID = nil }
+        if selectedIndex == nil { selectedID = nil } else { notifyContext() }
         needsDisplay = true
     }
 
-    /// Sets the drawing color and recolors the selected annotation, if any.
-    func applyColor(_ c: NSColor) {
-        color = c
-        guard let i = selectedIndex, items[i].color != c else { return }
-        mutate { items[i].color = c }
+    /// Changes the style for new annotations and, if one is selected (or being typed), restyles it too.
+    func updateStyle(_ change: (inout Style) -> Void) {
+        change(&style)
+        if let i = selectedIndex {
+            var s = items[i].style
+            change(&s)
+            if s != items[i].style {
+                if editingID == items[i].id { items[i].style = s } else { mutate { items[i].style = s } }
+            }
+        }
+        if let editor = textEditor, let i = index(of: editingID) { styleEditor(editor, items[i].style); layoutEditor() }
+        needsDisplay = true
     }
 
     func deleteSelection() {
@@ -211,26 +286,100 @@ final class CanvasView: NSView {
         redoStack.removeAll()
     }
 
-    private func promptText(_ initial: String) -> String? {
-        let alert = NSAlert(); alert.messageText = "Text"
-        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24)); tf.stringValue = initial
-        alert.accessoryView = tf
-        alert.addButton(withTitle: initial.isEmpty ? "Add" : "Update"); alert.addButton(withTitle: "Cancel")
-        alert.window.initialFirstResponder = tf
-        guard alert.runModal() == .alertFirstButtonReturn, !tf.stringValue.isEmpty else { return nil }
-        return tf.stringValue
-    }
+    // MARK: Inline text
 
     private func addText(at p: NSPoint) {
-        guard let s = promptText("") else { return }
-        let a = Annotation(tool: .text, start: p, end: p, text: s, color: color)
-        mutate { items.append(a) }
+        beforeEditing = items
+        // Put the click roughly on the first line's vertical center.
+        let top = NSPoint(x: p.x, y: p.y + style.font.boundingRectForFont.height / 2)
+        let a = Annotation(tool: .text, start: top, end: top, style: style)
+        items.append(a)
         selectedID = a.id
+        startEditor(for: a)
     }
 
-    private func editText(at i: Int) {
-        guard let s = promptText(items[i].text), s != items[i].text else { return }
-        mutate { items[i].text = s }
+    private func beginTextEditing(at i: Int) {
+        beforeEditing = items
+        selectedID = items[i].id
+        startEditor(for: items[i])
+    }
+
+    private func startEditor(for a: Annotation) {
+        let tv = InlineTextView(frame: NSRect(origin: a.start, size: .zero))
+        tv.delegate = self
+        tv.onFinish = { [weak self] in self?.finishTextEditing() }
+        tv.string = a.text
+        tv.drawsBackground = false
+        tv.isRichText = false
+        tv.allowsUndo = true
+        tv.textContainerInset = .zero
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.textContainer?.widthTracksTextView = false
+        tv.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        tv.isHorizontallyResizable = true
+        tv.isVerticallyResizable = true
+        tv.wantsLayer = true
+        tv.layer?.masksToBounds = false
+        styleEditor(tv, a.style)
+        editingID = a.id
+        textEditor = tv
+        addSubview(tv)
+        layoutEditor()
+        tv.setSelectedRange(NSRange(location: (a.text as NSString).length, length: 0))
+        window?.makeFirstResponder(tv)
+        notifyContext()
+        needsDisplay = true
+    }
+
+    private func styleEditor(_ tv: NSTextView, _ s: Style) {
+        tv.font = s.font
+        tv.textColor = s.color
+        tv.insertionPointColor = s.color
+        tv.typingAttributes = s.textAttributes
+        tv.textStorage?.setAttributes(s.textAttributes, range: NSRange(location: 0, length: (tv.string as NSString).length))
+    }
+
+    /// Sizes the text box to its content, keeping the top-left corner fixed, and frames it like a selection.
+    private func layoutEditor() {
+        guard let tv = textEditor, let i = index(of: editingID),
+              let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+        lm.ensureLayout(for: tc)
+        let used = lm.usedRect(for: tc).size
+        let font = items[i].style.font
+        let size = NSSize(width: max(used.width, font.pointSize * 0.6) + 2,
+                          height: max(used.height, lm.defaultLineHeight(for: font)))
+        tv.minSize = size
+        tv.frame = NSRect(x: items[i].start.x, y: items[i].start.y - size.height, width: size.width, height: size.height)
+        let px = 1 / zoom
+        tv.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        tv.layer?.borderWidth = 1.5 * px
+        tv.layer?.cornerRadius = 4 * px
+    }
+
+    func textDidChange(_ notification: Notification) {
+        guard let tv = textEditor, let i = index(of: editingID) else { return }
+        items[i].text = tv.string
+        layoutEditor()
+    }
+
+    /// Ends in-place typing: keeps the text (or drops an empty box) and records one undo step.
+    func finishTextEditing() {
+        guard let tv = textEditor else { return }
+        textEditor = nil
+        tv.delegate = nil
+        tv.removeFromSuperview()
+        if let i = index(of: editingID) {
+            items[i].text = tv.string
+            if items[i].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                items.remove(at: i)
+                selectedID = nil
+            }
+        }
+        editingID = nil
+        recordUndo(from: beforeEditing)
+        window?.makeFirstResponder(self)
+        notifyContext()
+        needsDisplay = true
     }
 
     // MARK: Geometry & hit testing
@@ -240,13 +389,15 @@ final class CanvasView: NSView {
                width: abs(a.start.x - a.end.x), height: abs(a.start.y - a.end.y))
     }
 
-    private func textAttributes(_ color: NSColor) -> [NSAttributedString.Key: Any] {
-        [.font: NSFont.systemFont(ofSize: 22, weight: .semibold), .foregroundColor: color]
+    private func textSize(_ a: Annotation) -> NSSize {
+        (a.text as NSString).size(withAttributes: a.style.textAttributes)
     }
 
     private func bounds(of a: Annotation) -> NSRect {
         switch a.tool {
-        case .text: return NSRect(origin: a.start, size: (a.text as NSString).size(withAttributes: textAttributes(a.color)))
+        case .text:
+            let s = textSize(a)
+            return NSRect(x: a.start.x, y: a.start.y - s.height, width: s.width, height: s.height)
         case .pen:
             let xs = a.points.map(\.x), ys = a.points.map(\.y)
             guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return .zero }
@@ -273,7 +424,7 @@ final class CanvasView: NSView {
         let slop = 5 / zoom
         if a.tool == .text || a.tool == .pixelate { return bounds(of: a).insetBy(dx: -slop, dy: -slop).contains(p) }
         guard let path = outline(a) else { return false }
-        return path.cgPath.copy(strokingWithWidth: lineWidth + slop * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        return path.cgPath.copy(strokingWithWidth: a.style.lineWidth + slop * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
             .contains(p)
     }
 
@@ -300,13 +451,13 @@ final class CanvasView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         base.draw(in: bounds)
-        for a in items + (draft.map { [$0] } ?? []) { render(a) }
-        if !exporting, let i = selectedIndex { drawSelection(items[i]) }
+        for a in items + (draft.map { [$0] } ?? []) where a.id != editingID { render(a) }
+        if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
     }
 
     private func render(_ a: Annotation) {
-        a.color.setStroke(); a.color.setFill()
-        let lw = lineWidth
+        a.style.color.setStroke(); a.style.color.setFill()
+        let lw = a.style.lineWidth
         switch a.tool {
         case .rect, .ellipse, .line, .pen:
             guard let p = outline(a) else { return }
@@ -323,9 +474,9 @@ final class CanvasView: NSView {
             tri.line(to: NSPoint(x: a.end.x - head * cos(ang + .pi / 7), y: a.end.y - head * sin(ang + .pi / 7)))
             tri.close(); tri.fill()
         case .text:
-            (a.text as NSString).draw(at: a.start, withAttributes: textAttributes(a.color))
+            (a.text as NSString).draw(at: bounds(of: a).origin, withAttributes: a.style.textAttributes)
         case .pixelate:
-            drawPixelated(rect(a))
+            drawPixelated(rect(a), block: a.style.pixelSize)
         case .select:
             break
         }
@@ -346,9 +497,8 @@ final class CanvasView: NSView {
     }
 
     /// Blocky mosaic of the underlying base image inside `r`.
-    private func drawPixelated(_ r: NSRect) {
-        guard r.width > 2, r.height > 2 else { return }
-        let block: CGFloat = 10
+    private func drawPixelated(_ r: NSRect, block: CGFloat) {
+        guard r.width > 2, r.height > 2, block >= 1 else { return }
         let scaleX = base.size.width / bounds.width, scaleY = base.size.height / bounds.height
         var y = r.minY
         while y < r.maxY {
@@ -370,6 +520,7 @@ final class CanvasView: NSView {
     private func bitmap() -> NSBitmapImageRep? { cachedRep }
 
     func flattened() -> NSImage {
+        finishTextEditing()
         let img = NSImage(size: base.size)
         exporting = true
         img.lockFocus(); draw(bounds); img.unlockFocus()
