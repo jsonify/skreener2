@@ -29,9 +29,9 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S
 
 ## Batch 3 — screen recording (biggest gap)
-- [~] Record area/fullscreen to MP4 (SCStream + AVAssetWriter; ⌃⇧7 area, ⌃⇧8 fullscreen; saved to the save folder; thumbnail with open / show in Finder / copy afterwards) — L
+- [~] Record area/fullscreen to MP4 (SCStream + AVAssetWriter; Record Screen ⌃⇧7: drag an area or Space to pick a window, whole-screen button in the picker; saved to the save folder; thumbnail with open / show in Finder / copy afterwards) — L
 - [~] System audio + microphone options (Settings → Screen Recording; mic needs macOS 15; each goes to its own audio track), cursor, 30/60 fps — M
-- [~] Record area picker (CleanShot-style): selection stays adjustable (handles, move, drag a new one, arrow keys, typed width × height, whole screen, aspect/size presets); panel with options, mic / system audio / click / keystroke toggles, Record GIF ⌥↩ / Record Video ↩; mode bar to take a screenshot, window, timer or OCR of the selection instead — M
+- [~] Record Screen picker (CleanShot-style): "Drag to record… Press Space to select a window" banner on every screen; then the selection stays adjustable (handles, move, drag a new one, arrow keys, typed width × height, whole screen, aspect/size presets); mode bar (Area, Fullscreen, Window, Timer, OCR, Recording + size card); Recording (or ↩) shows the panel with options, mic / system audio / click / keystroke toggles, Record GIF ⌥↩ / Record Video ↩ — M
 - [~] Recording options popover: show controls, remember last selection, time in menu bar, dim screen, countdown, cursor, highlight clicks (color, size), keystrokes (all/shortcuts, size, top/bottom), frame rate — M
 - [ ] "Do Not Disturb" while recording (no public API; maybe via a user Shortcut) — S
 - [ ] Record in Studio Mode — L

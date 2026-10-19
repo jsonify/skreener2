@@ -27,8 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotKeys.shared.register(keyCode: kVK_ANSI_4, modifiers: mods) { [weak self] in self?.captureArea() }
         HotKeys.shared.register(keyCode: kVK_ANSI_5, modifiers: mods) { [weak self] in self?.captureWindow() }
         HotKeys.shared.register(keyCode: kVK_ANSI_6, modifiers: mods) { [weak self] in self?.captureAreaAndPin() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_7, modifiers: mods) { [weak self] in self?.recordArea() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_8, modifiers: mods) { [weak self] in self?.recordFullscreen() }
+        HotKeys.shared.register(keyCode: kVK_ANSI_7, modifiers: mods) { [weak self] in self?.recordScreen() }
         HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
         recording.onTick = { [weak self] time in
@@ -68,8 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timerMenu.delegate = self
         timerItem.submenu = timerMenu; m.addItem(timerItem)
         m.addItem(.separator())
-        add("Record Area", #selector(recordArea), "7")
-        add("Record Fullscreen", #selector(recordFullscreen), "8")
+        add("Record Screen", #selector(recordScreen), "7")
         m.addItem(.separator())
         add("Capture History", #selector(showHistory), "h")
         m.addItem(.separator())
@@ -229,9 +227,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Screen recording
 
     /// Pick an area, then record it; while recording, the same command (⌃⇧7) stops.
-    /// Pick an area (or start from the last one), adjust it in the record picker, then record a video or GIF
-    /// (or take a screenshot from the picker's mode bar). While recording, the same command (⌃⇧7) stops.
-    @objc func recordArea() {
+    /// Record Screen: drag an area (or press Space and click a window), adjust it in the record picker, then
+    /// record a video or GIF, or take a screenshot from the picker's mode bar. With "Remember last selection"
+    /// on, the picker opens on the previous area. While recording, the same command (⌃⇧7) stops.
+    @objc func recordScreen() {
         if recording.isRecording { recording.stop(); return }
         guard !recordPicker.isActive else { return }
         prepareCapture { [weak self] in
@@ -240,9 +239,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.showRecordPicker(screen, last)
                 return
             }
-            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
-                guard let self, case .area(let screen, let rect, _)? = sel else { self?.restoreIcons(); return }
-                showRecordPicker(screen, rect)
+            let hints: [SelectionOverlay.Mode: String] = [
+                .area: "Drag to record a part of the screen. Press Space to select a window.",
+                .window: "Click a window to record it. Press Space to drag an area instead.",
+            ]
+            self?.overlay.begin(mode: .area, windows: [], hints: hints) { [weak self] sel in
+                guard let self else { return }
+                switch sel {
+                case .area(let screen, let rect, _)?:
+                    showRecordPicker(screen, rect)
+                case .window(let w)?:
+                    // SCWindow frames are top-left origin; the picker works in bottom-left global coordinates.
+                    let primaryH = NSScreen.screens.first?.frame.height ?? 0
+                    let rect = CGRect(x: w.frame.minX, y: primaryH - w.frame.maxY, width: w.frame.width, height: w.frame.height)
+                    let screen = NSScreen.screens.max { a, b in
+                        a.frame.intersection(rect).width * a.frame.intersection(rect).height
+                            < b.frame.intersection(rect).width * b.frame.intersection(rect).height
+                    }
+                    guard let screen else { restoreIcons(); return }
+                    showRecordPicker(screen, rect.intersection(screen.frame))
+                case nil:
+                    restoreIcons()
+                }
             }
         }
     }
@@ -278,15 +296,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc func recordFullscreen() {
-        if recording.isRecording { recording.stop(); return }
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
-        prepareCapture { [weak self] in self?.recording.start(screen: screen, rect: nil) }
-    }
-
     @objc private func stopRecording() { recording.stop() }
 
-    /// While recording, the menu bar icon becomes a stop button (⌃⇧7 / ⌃⇧8 also stop).
+    /// While recording, the menu bar icon becomes a stop button (⌃⇧7 also stops).
     private func recordingChanged(_ on: Bool) {
         guard let button = statusItem.button else { return }
         if on {

@@ -39,10 +39,11 @@ private final class Action: NSObject {
     @objc func fire(_ sender: Any?) { run(sender) }
 }
 
-/// CleanShot-style area picker for recordings: after the first drag the selection stays adjustable (drag the
-/// handles or the inside, or drag outside for a new one), with a panel in the selection (options, size, audio
-/// and effect toggles, Record GIF ⌥↩ / Record Video ↩) and a mode bar at the bottom of the screen that takes
-/// a screenshot of the selection instead. Esc cancels.
+/// CleanShot-style picker shown once an area is chosen for Record Screen: the selection stays adjustable (drag
+/// the handles or the inside, or drag outside for a new one) and a mode bar at the bottom of the screen offers
+/// Area / Fullscreen / Window / Timer / OCR screenshots or Recording, next to the size fields. Recording (or
+/// Return) shows the recording panel in the selection: options, audio and effect toggles, Record GIF ⌥↩ /
+/// Record Video ↩. Esc cancels.
 final class RecordAreaPicker: NSObject {
     private var panel: PickerPanel?
     private var adjust: AdjustView?
@@ -83,6 +84,7 @@ final class RecordAreaPicker: NSObject {
         let bar = buildModeBar()
         v.addSubview(c); v.addSubview(bar)
         p.contentView = v
+        c.isHidden = true
         panel = p; adjust = v; controls = c; modeBar = bar
         layout()
         p.makeKeyAndOrderFront(nil)
@@ -110,10 +112,22 @@ final class RecordAreaPicker: NSObject {
         switch e.keyCode {
         case 53: finish(nil)
         case 36, 76:
+            // The first Return picks Recording (shows the panel); the next one starts it.
+            guard controls?.isHidden == false else { showRecording(); return true }
             finish(e.modifierFlags.contains(.option) ? .gif(screen, globalSelection) : .video(screen, globalSelection))
         default: return false
         }
         return true
+    }
+
+    private var recordingButton: NSButton?
+
+    /// Recording picked in the mode bar: highlight it and show the recording panel in the selection.
+    private func showRecording() {
+        guard let c = controls else { return }
+        c.isHidden = false
+        recordingButton?.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        layout()
     }
 
     // MARK: Layout
@@ -188,10 +202,8 @@ final class RecordAreaPicker: NSObject {
         return b
     }
 
-    private func buildControls() -> NSView {
-        // Row 1: options, width × height, whole screen, size presets.
-        let options = Self.iconButton("slider.vertical.3", "Recording options")
-        bind(options) { [weak self] sender in self?.showOptions(sender as? NSView) }
+    /// Width × height, whole screen and the aspect/size presets: the right-hand card of the mode bar.
+    private func buildSizeControls() -> NSView {
         for f in [widthField, heightField] {
             f.alignment = .center
             f.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
@@ -227,14 +239,22 @@ final class RecordAreaPicker: NSObject {
                 }
             })
         }
-        let row1 = NSStackView(views: [options, widthField, times, heightField, whole, presets])
-        row1.spacing = 6
-        row1.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        let row = NSStackView(views: [widthField, times, heightField, whole, presets])
+        row.spacing = 6
+        row.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 10)
+        return row
+    }
 
+    /// The recording panel shown in the selection once Recording is picked: options, audio and effect toggles
+    /// (each with a check mark underneath when on), Record GIF and Record Video.
+    private func buildControls() -> NSView {
+        let options = Self.iconButton("slider.vertical.3", "Recording options")
+        bind(options) { [weak self] sender in self?.showOptions(sender as? NSView) }
         // Row 2: audio and effect toggles, each with a check mark underneath when on.
         let micAvailable: Bool
         if #available(macOS 15.0, *) { micAvailable = true } else { micAvailable = false }
         let row2 = NSStackView(views: [
+            options,
             toggle("mic", micAvailable ? "Record microphone" : "Microphone recording needs macOS 15 or later", enabled: micAvailable,
                    get: { Preferences.recordMicrophone }, set: { Preferences.recordMicrophone = $0 }),
             toggle("speaker.wave.2", "Record system audio",
@@ -248,8 +268,7 @@ final class RecordAreaPicker: NSObject {
         row2.spacing = 0
         row2.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 6, right: 6)
 
-        let line = NSBox(); line.boxType = .separator
-        let top = column([row1, line, row2], spacing: 0)
+        let top = column([row2], spacing: 0)
 
         let gif = RecordRow(symbol: "photo.stack", title: "Record GIF", shortcut: "⌥↩") { [weak self] in
             guard let self else { return }
@@ -302,7 +321,7 @@ final class RecordAreaPicker: NSObject {
     private func buildModeBar() -> NSView {
         let modes: [(String, String, RecordPick?)] = [
             ("viewfinder", "Area", nil), ("display", "Fullscreen", .fullscreenShot), ("macwindow", "Window", .window),
-            ("timer", "Timer", nil), ("textformat", "OCR", nil), ("video", "Recording", nil),
+            ("arrow.down", "Scrolling", nil), ("timer", "Timer", nil), ("textformat", "OCR", nil), ("video", "Recording", nil),
         ]
         var buttons: [NSView] = []
         for (sym, title, pick) in modes {
@@ -325,23 +344,38 @@ final class RecordAreaPicker: NSObject {
             case "OCR":
                 b.toolTip = "Copy the text in the selected area"
                 bind(b) { [weak self] _ in guard let self else { return }; finish(.text(screen, globalSelection)) }
+            case "Scrolling":
+                b.toolTip = "Scrolling capture isn't available yet"
+                b.isEnabled = false
             case "Recording":
-                b.toolTip = "Record the selected area (↩ video, ⌥↩ GIF)"
+                b.toolTip = "Record the selected area (↩)"
                 b.wantsLayer = true
                 b.layer?.cornerRadius = 8
-                b.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
+                bind(b) { [weak self] _ in self?.showRecording() }
+                recordingButton = b
             default:
                 b.toolTip = title == "Window" ? "Screenshot of a window" : "Screenshot of the whole screen"
                 bind(b) { [weak self] _ in self?.finish(pick) }
+            }
+            // Thin dividers before OCR and Recording, as in CleanShot.
+            if title == "OCR" || title == "Recording" {
+                let line = NSBox(); line.boxType = .separator
+                line.translatesAutoresizingMaskIntoConstraints = false
+                line.heightAnchor.constraint(equalToConstant: 30).isActive = true
+                buttons.append(line)
             }
             buttons.append(b)
         }
         let row = NSStackView(views: buttons)
         row.spacing = 4
         row.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
-        let card = Self.card(row)
-        card.appearance = NSAppearance(named: .darkAqua)
-        return card
+        let modesCard = Self.card(row), sizeCard = Self.card(buildSizeControls())
+        sizeCard.heightAnchor.constraint(equalTo: modesCard.heightAnchor).isActive = true
+        let bar = NSStackView(views: [modesCard, sizeCard])
+        bar.spacing = 10
+        bar.alignment = .centerY
+        bar.appearance = NSAppearance(named: .darkAqua)
+        return bar
     }
 
     // MARK: Selection changes

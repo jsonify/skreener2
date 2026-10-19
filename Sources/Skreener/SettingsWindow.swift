@@ -18,7 +18,7 @@ final class SettingsWindowController: NSWindowController {
 
     private static let shortcuts = [("⌃⇧4", "Capture Area"), ("⌃⇧1", "Capture Previous Area"), ("⌃⇧6", "Capture Area & Pin"),
                                     ("⌃⇧3", "Capture Fullscreen"), ("⌃⇧5", "Capture Window"), ("⌃⇧2", "Capture Text (OCR)"),
-                                    ("⌃⇧7", "Record Area / Stop Recording"), ("⌃⇧8", "Record Fullscreen"),
+                                    ("⌃⇧7", "Record Screen / Stop Recording"),
                                     ("⌃⇧H", "Capture History")]
 
     /// Target objects for the controls' closures (controls hold their targets weakly).
