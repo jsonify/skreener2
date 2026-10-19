@@ -6,6 +6,7 @@ final class QuickAccessController {
     private var timer: Timer?
     private var image: NSImage
     var onAnnotate: ((NSImage) -> Void)?
+    var onPin: ((NSImage) -> Void)?
 
     init(image: NSImage) { self.image = image }
 
@@ -33,12 +34,12 @@ final class QuickAccessController {
         bg.addSubview(iv)
 
         let actions: [(String, Selector)] = [("Copy", #selector(copyIt)), ("Save", #selector(saveIt)),
-                                             ("Edit", #selector(editIt)), ("✕", #selector(closeIt))]
+                                             ("Edit", #selector(editIt)), ("Pin", #selector(pinIt)), ("✕", #selector(closeIt))]
         var x: CGFloat = 8
         for (title, sel) in actions {
             let b = NSButton(title: title, target: self, action: sel)
             b.bezelStyle = .rounded; b.controlSize = .small
-            b.frame = NSRect(x: x, y: 6, width: title == "✕" ? 30 : 48, height: 24)
+            b.frame = NSRect(x: x, y: 6, width: title == "✕" ? 28 : 40, height: 24)
             bg.addSubview(b); x += b.frame.width + 6
         }
         p.contentView = bg
@@ -49,6 +50,7 @@ final class QuickAccessController {
 
     @objc private func copyIt() { Output.copy(image) }
     @objc private func saveIt() { Output.saveAs(image) }
+    @objc private func pinIt() { onPin?(image); closeIt() }
     @objc private func editIt() { onAnnotate?(image); closeIt() }
     @objc func closeIt() {
         timer?.invalidate()
