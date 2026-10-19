@@ -27,7 +27,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSScreenCaptureUsageDescription</key><string>Skreener needs screen recording access to take screenshots.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>Skreener needs screen recording access to take screenshots and record the screen.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Skreener records your microphone in screen recordings when you turn that on in Settings.</string>
 </dict></plist>
 PLIST
 # Ad-hoc signing ("-") changes the app's identity on every build, so macOS forgets the

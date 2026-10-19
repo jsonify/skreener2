@@ -47,6 +47,11 @@ enum Preferences {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }
         set { d.set(newValue, forKey: "openEditorAfterCapture") }
     }
+    /// Open each new editor as a tab of the editor window that is already open, instead of its own window.
+    static var editorTabs: Bool {
+        get { d.object(forKey: "editorTabs") as? Bool ?? true }
+        set { d.set(newValue, forKey: "editorTabs") }
+    }
     /// Self-timer countdown in seconds (3, 5 or 10).
     static var selfTimerSeconds: Int {
         get { [3, 5, 10].contains(d.integer(forKey: "selfTimerSeconds")) ? d.integer(forKey: "selfTimerSeconds") : 5 }
@@ -56,6 +61,25 @@ enum Preferences {
     static var keepHistory: Bool {
         get { d.object(forKey: "keepHistory") as? Bool ?? true }
         set { d.set(newValue, forKey: "keepHistory") }
+    }
+    /// Screen recordings: include system audio (other apps' sound).
+    static var recordSystemAudio: Bool {
+        get { d.bool(forKey: "recordSystemAudio") }
+        set { d.set(newValue, forKey: "recordSystemAudio") }
+    }
+    /// Screen recordings: include the microphone (macOS 15 or later).
+    static var recordMicrophone: Bool {
+        get { d.bool(forKey: "recordMicrophone") }
+        set { d.set(newValue, forKey: "recordMicrophone") }
+    }
+    static var recordShowsCursor: Bool {
+        get { d.object(forKey: "recordShowsCursor") as? Bool ?? true }
+        set { d.set(newValue, forKey: "recordShowsCursor") }
+    }
+    /// Screen recordings: frames per second (30 or 60).
+    static var recordFrameRate: Int {
+        get { d.integer(forKey: "recordFrameRate") == 60 ? 60 : 30 }
+        set { d.set(newValue, forKey: "recordFrameRate") }
     }
     static var windowShadow: Bool {
         get { d.object(forKey: "windowShadow") as? Bool ?? true }

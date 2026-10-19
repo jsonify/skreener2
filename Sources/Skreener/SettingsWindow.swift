@@ -18,6 +18,7 @@ final class SettingsWindowController: NSWindowController {
 
     private static let shortcuts = [("⌃⇧4", "Capture Area"), ("⌃⇧1", "Capture Previous Area"), ("⌃⇧6", "Capture Area & Pin"),
                                     ("⌃⇧3", "Capture Fullscreen"), ("⌃⇧5", "Capture Window"), ("⌃⇧2", "Capture Text (OCR)"),
+                                    ("⌃⇧7", "Record Area / Stop Recording"), ("⌃⇧8", "Record Fullscreen"),
                                     ("⌃⇧H", "Capture History")]
 
     /// Target objects for the controls' closures (controls hold their targets weakly).
@@ -85,6 +86,9 @@ final class SettingsWindowController: NSWindowController {
             Preferences.annotationShadow = $0
             NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
         })
+        row("Windows:", checkbox("Open screenshots as tabs in one editor window", Preferences.editorTabs) {
+            Preferences.editorTabs = $0
+        })
 
         section("Selection")
         row("Screen:", checkbox("Freeze screen while selecting", Preferences.freezeScreen) { Preferences.freezeScreen = $0 })
@@ -103,6 +107,20 @@ final class SettingsWindowController: NSWindowController {
         padding.selectItem(withTag: Preferences.windowPadding)
         bind(padding) { Preferences.windowPadding = ($0 as? NSPopUpButton)?.selectedTag() ?? 0 }
         row("Padding:", padding)
+
+        // Recordings are always written to the save folder, as MP4.
+        section("Screen Recording")
+        let mic = checkbox("Microphone", Preferences.recordMicrophone) { Preferences.recordMicrophone = $0 }
+        if #unavailable(macOS 15.0) {
+            mic.isEnabled = false
+            mic.title = "Microphone (macOS 15+)"
+        }
+        row("Audio:", NSStackView(views: [checkbox("System audio", Preferences.recordSystemAudio) { Preferences.recordSystemAudio = $0 }, mic]))
+        let fps = NSPopUpButton(frame: .zero, pullsDown: false)
+        for rate in [30, 60] { fps.addItem(withTitle: "\(rate) fps"); fps.lastItem?.tag = rate }
+        fps.selectItem(withTag: Preferences.recordFrameRate)
+        bind(fps) { Preferences.recordFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 30 }
+        row("Video:", NSStackView(views: [fps, checkbox("Show cursor", Preferences.recordShowsCursor) { Preferences.recordShowsCursor = $0 }]))
 
         section("Shortcuts")
         for (keys, title) in Self.shortcuts {

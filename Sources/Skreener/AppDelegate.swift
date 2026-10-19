@@ -4,16 +4,19 @@ import ScreenCaptureKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
+    private var menu: NSMenu!
     private let overlay = SelectionOverlay()
     private let selfTimer = SelfTimer()
     private var lastArea: (NSScreen, CGRect)?
     private var desktopIconsItem: NSMenuItem!
     private var iconsHiddenForCapture = false
+    private let recording = RecordingController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
-        statusItem.menu = buildMenu()
+        menu = buildMenu()
+        statusItem.menu = menu
         NSApp.mainMenu = buildMainMenu()
 
         let mods = controlKey | shiftKey
@@ -23,7 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotKeys.shared.register(keyCode: kVK_ANSI_4, modifiers: mods) { [weak self] in self?.captureArea() }
         HotKeys.shared.register(keyCode: kVK_ANSI_5, modifiers: mods) { [weak self] in self?.captureWindow() }
         HotKeys.shared.register(keyCode: kVK_ANSI_6, modifiers: mods) { [weak self] in self?.captureAreaAndPin() }
+        HotKeys.shared.register(keyCode: kVK_ANSI_7, modifiers: mods) { [weak self] in self?.recordArea() }
+        HotKeys.shared.register(keyCode: kVK_ANSI_8, modifiers: mods) { [weak self] in self?.recordFullscreen() }
         HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
+        recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
 
         EditorWindowController.captureArea = { [weak self] done in
             if let self { self.captureAreaImage(done) } else { done(nil) }
@@ -57,6 +63,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         timerMenu.delegate = self
         timerItem.submenu = timerMenu; m.addItem(timerItem)
+        m.addItem(.separator())
+        add("Record Area", #selector(recordArea), "7")
+        add("Record Fullscreen", #selector(recordFullscreen), "8")
         m.addItem(.separator())
         add("Capture History", #selector(showHistory), "h")
         m.addItem(.separator())
@@ -136,6 +145,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Close", #selector(NSWindow.performClose(_:)), "w"),
             .separator(),
+            // Editor tabs (AppKit also adds Show Tab Bar / Show All Tabs here).
+            item("Show Previous Tab", #selector(NSWindow.selectPreviousTab(_:)), "[", [.command, .shift]),
+            item("Show Next Tab", #selector(NSWindow.selectNextTab(_:)), "]", [.command, .shift]),
+            item("Move Tab to New Window", #selector(NSWindow.moveTabToNewWindow(_:))),
+            item("Merge All Windows", #selector(NSWindow.mergeAllWindows(_:))),
+            .separator(),
             item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
         ])
         return main
@@ -204,6 +219,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 lastArea = (screen, rect)
                 run(areaCapture(screen, rect, frozen)) { CaptureHistory.add($0); PinnedScreenshotController.pin($0) }
             }
+        }
+    }
+
+    // MARK: Screen recording
+
+    /// Pick an area, then record it; while recording, the same command (⌃⇧7) stops.
+    @objc func recordArea() {
+        if recording.isRecording { recording.stop(); return }
+        prepareCapture { [weak self] in
+            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, _)? = sel else { self?.restoreIcons(); return }
+                recording.start(screen: screen, rect: rect)
+            }
+        }
+    }
+
+    @objc func recordFullscreen() {
+        if recording.isRecording { recording.stop(); return }
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
+        prepareCapture { [weak self] in self?.recording.start(screen: screen, rect: nil) }
+    }
+
+    @objc private func stopRecording() { recording.stop() }
+
+    /// While recording, the menu bar icon becomes a stop button (⌃⇧7 / ⌃⇧8 also stop).
+    private func recordingChanged(_ on: Bool) {
+        guard let button = statusItem.button else { return }
+        if on {
+            statusItem.menu = nil
+            button.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop Recording")
+            button.contentTintColor = .systemRed
+            button.toolTip = "Stop Recording (⌃⇧7)"
+            button.target = self; button.action = #selector(stopRecording)
+        } else {
+            restoreIcons()
+            button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
+            button.contentTintColor = nil
+            button.toolTip = nil
+            button.target = nil; button.action = nil
+            statusItem.menu = menu
         }
     }
 
