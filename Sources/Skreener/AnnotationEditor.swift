@@ -78,7 +78,17 @@ private final class InlineTextView: NSTextView {
 /// to resize it, double-click text to edit it in place; ⌫ deletes, arrows nudge, ⌘Z / ⇧⌘Z undo and redo.
 final class CanvasView: NSView, NSTextViewDelegate {
     let base: NSImage
-    private(set) var items: [Annotation] = []
+    private(set) var items: [Annotation] = [] {
+        didSet { updateExtent() }
+    }
+    /// The captured image plus any annotations that stick out past it (image coordinates). The canvas and the
+    /// export cover this area; the part outside the image is filled with `backdrop`.
+    private(set) var extent: NSRect
+    /// Called after `extent` changes, with the previous extent.
+    var onExtentChange: ((NSRect) -> Void)?
+    private var imageRect: NSRect { NSRect(origin: .zero, size: base.size) }
+    /// Fill for the grown area: the color of the image's top-left pixel.
+    private lazy var backdrop: NSColor = bitmap()?.colorAt(x: 0, y: 0) ?? .white
     var tool: Tool = .arrow {
         didSet { if tool != oldValue { finishTextEditing(); notifyContext() } }
     }
@@ -95,7 +105,9 @@ final class CanvasView: NSView, NSTextViewDelegate {
         case resizeCorner(anchor: NSPoint)
         case resizeEnd(isStart: Bool)
     }
-    private var draft: Annotation?
+    private var draft: Annotation? {
+        didSet { updateExtent() }
+    }
     private var drag: Drag?
     private var beforeDrag: [Annotation] = []
     private var undoStack: [[Annotation]] = []
@@ -112,6 +124,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     init(image: NSImage) {
         base = image
+        extent = NSRect(origin: .zero, size: image.size)
         super.init(frame: NSRect(origin: .zero, size: image.size))
         NotificationCenter.default.addObserver(forName: .skreenerPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
             self?.needsDisplay = true
@@ -389,6 +402,34 @@ final class CanvasView: NSView, NSTextViewDelegate {
         needsDisplay = true
     }
 
+    // MARK: Extent
+
+    /// Grows (or shrinks back) the canvas to cover the image and every annotation, like CleanShot.
+    /// Annotations keep image coordinates: only the view's bounds origin and size change.
+    private func updateExtent() {
+        var r = imageRect
+        for a in items + (draft.map { [$0] } ?? []) where !(a.tool == .text && a.text.isEmpty) {
+            r = r.union(bounds(of: a).insetBy(dx: -inkPadding(a), dy: -inkPadding(a)))
+        }
+        r = r.integral
+        guard r != extent else { return }
+        let old = extent
+        extent = r
+        setFrameSize(r.size)
+        setBoundsOrigin(r.origin)
+        needsDisplay = true
+        onExtentChange?(old)
+    }
+
+    /// How far the drawn ink reaches past an annotation's geometric bounds (half the stroke, or the arrowhead).
+    private func inkPadding(_ a: Annotation) -> CGFloat {
+        switch a.tool {
+        case .text, .pixelate, .select: return 0
+        case .arrow: return max(a.style.lineWidth / 2, max(12, a.style.lineWidth * 5) * 0.45)
+        default: return a.style.lineWidth / 2
+        }
+    }
+
     // MARK: Geometry & hit testing
 
     private func rect(_ a: Annotation) -> NSRect {
@@ -457,7 +498,8 @@ final class CanvasView: NSView, NSTextViewDelegate {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        base.draw(in: bounds)
+        if extent != imageRect { backdrop.setFill(); bounds.fill() }
+        base.draw(in: imageRect)
         for a in items + (draft.map { [$0] } ?? []) where a.id != editingID { render(a) }
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
     }
@@ -521,13 +563,12 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// Blocky mosaic of the underlying base image inside `r`.
     private func drawPixelated(_ r: NSRect, block: CGFloat) {
         guard r.width > 2, r.height > 2, block >= 1 else { return }
-        let scaleX = base.size.width / bounds.width, scaleY = base.size.height / bounds.height
         var y = r.minY
         while y < r.maxY {
             var x = r.minX
             while x < r.maxX {
                 let cell = NSRect(x: x, y: y, width: min(block, r.maxX - x), height: min(block, r.maxY - y))
-                let src = NSRect(x: cell.midX * scaleX, y: cell.midY * scaleY, width: 1, height: 1)
+                let src = NSRect(x: cell.midX, y: cell.midY, width: 1, height: 1)
                 if let rep = base.bestRepresentation(for: .zero, context: nil, hints: nil) as? NSBitmapImageRep ?? bitmap(),
                    let c = rep.colorAt(x: Int(src.minX * CGFloat(rep.pixelsWide) / base.size.width),
                                        y: Int((base.size.height - src.minY) * CGFloat(rep.pixelsHigh) / base.size.height)) {
@@ -543,9 +584,12 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     func flattened() -> NSImage {
         finishTextEditing()
-        let img = NSImage(size: base.size)
+        let img = NSImage(size: extent.size)
         exporting = true
-        img.lockFocus(); draw(bounds); img.unlockFocus()
+        img.lockFocus()
+        NSGraphicsContext.current?.cgContext.translateBy(x: -extent.minX, y: -extent.minY)
+        draw(extent)
+        img.unlockFocus()
         exporting = false
         return img
     }

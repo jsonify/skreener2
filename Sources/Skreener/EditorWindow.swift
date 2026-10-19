@@ -173,6 +173,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         nc.addObserver(forName: NSScrollView.didEndLiveMagnifyNotification, object: scroll, queue: .main) { [weak self] _ in
             self?.fitMode = false; self?.refreshZoomLabel()
         }
+        canvas.onExtentChange = { [weak self] old in self?.canvasExtentChanged(from: old) }
         scroll.onZoom = { [weak self] in self?.fitMode = false; self?.refreshZoomLabel() }
         canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
         canvas.onContextChange = { [weak self] tool, style in self?.refreshAttributes(tool, style) }
@@ -311,9 +312,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: Zoom
 
     private func applyFit() {
-        let vis = scroll.contentSize
-        guard vis.width > 0, vis.height > 0, image.size.width > 0, image.size.height > 0 else { return }
-        let fit = min(vis.width / image.size.width, vis.height / image.size.height, 1)
+        let vis = scroll.contentSize, size = canvas.extent.size
+        guard vis.width > 0, vis.height > 0, size.width > 0, size.height > 0 else { return }
+        let fit = min(vis.width / size.width, vis.height / size.height, 1)
         scroll.magnification = fit
         refreshZoomLabel()
     }
@@ -321,6 +322,15 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     private func refreshZoomLabel() {
         zoomButton.menu?.item(at: 0)?.title = "\(Int((scroll.magnification * 100).rounded()))%"
         zoomButton.synchronizeTitleAndSelectedItem()
+    }
+
+    /// The canvas grew or shrank around its annotations: refit, or scroll so the image stays put on screen.
+    private func canvasExtentChanged(from old: NSRect) {
+        if fitMode { applyFit(); return }
+        let clip = scroll.contentView
+        let dx = canvas.extent.minX - old.minX, dy = canvas.extent.minY - old.minY
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX - dx, y: clip.bounds.minY - dy))
+        scroll.reflectScrolledClipView(clip)
     }
 
     @objc private func zoomPicked(_ item: NSMenuItem) {

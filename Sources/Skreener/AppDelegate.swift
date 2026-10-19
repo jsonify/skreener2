@@ -98,8 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Quit Skreener", #selector(NSApplication.terminate(_:)), "q"),
         ])
         _ = submenu("Edit", [
-            item("Undo", Selector(("undo:")), "z"),
-            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            item("Undo", #selector(CanvasView.undo(_:)), "z"),
+            item("Redo", #selector(CanvasView.redo(_:)), "z", [.command, .shift]),
             .separator(),
             item("Cut", #selector(NSText.cut(_:)), "x"),
             item("Copy", #selector(NSText.copy(_:)), "c"),
@@ -206,8 +206,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func captureWindow() {
-        prepareCapture {
-            Task { @MainActor [weak self] in
+        prepareCapture { [weak self] in
+            Task { @MainActor in
                 let wins = await CaptureService.onScreenWindows()
                 self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in self?.handle(sel) }
             }
