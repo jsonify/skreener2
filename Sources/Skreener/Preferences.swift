@@ -42,6 +42,11 @@ enum Preferences {
         get { d.object(forKey: "annotationShadow") as? Bool ?? true }
         set { d.set(newValue, forKey: "annotationShadow") }
     }
+    /// Self-timer countdown in seconds (3, 5 or 10).
+    static var selfTimerSeconds: Int {
+        get { [3, 5, 10].contains(d.integer(forKey: "selfTimerSeconds")) ? d.integer(forKey: "selfTimerSeconds") : 5 }
+        set { d.set(newValue, forKey: "selfTimerSeconds") }
+    }
     /// Keep every capture in the Capture History panel.
     static var keepHistory: Bool {
         get { d.object(forKey: "keepHistory") as? Bool ?? true }

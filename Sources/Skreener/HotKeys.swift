@@ -5,18 +5,27 @@ import AppKit
 final class HotKeys {
     static let shared = HotKeys()
     private var handlers: [UInt32: () -> Void] = [:]
-    private var refs: [EventHotKeyRef?] = []
+    private var refs: [UInt32: EventHotKeyRef] = [:]
     private var nextID: UInt32 = 1
     private var installed = false
 
-    func register(keyCode: Int, modifiers: Int, handler: @escaping () -> Void) {
+    /// Returns an id for `unregister`.
+    @discardableResult
+    func register(keyCode: Int, modifiers: Int, handler: @escaping () -> Void) -> UInt32 {
         installIfNeeded()
         let id = nextID; nextID += 1
         handlers[id] = handler
         var ref: EventHotKeyRef?
         let hkID = EventHotKeyID(signature: OSType(0x534B524E), id: id) // 'SKRN'
         RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), hkID, GetApplicationEventTarget(), 0, &ref)
-        refs.append(ref)
+        refs[id] = ref
+        return id
+    }
+
+    /// Releases a hotkey, e.g. the temporary Esc used to cancel the self-timer.
+    func unregister(_ id: UInt32) {
+        if let ref = refs.removeValue(forKey: id) { UnregisterEventHotKey(ref) }
+        handlers[id] = nil
     }
 
     private func installIfNeeded() {

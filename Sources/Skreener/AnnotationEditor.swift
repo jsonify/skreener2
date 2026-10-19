@@ -1,15 +1,20 @@
 import AppKit
+import CoreImage
 
 enum Tool: Int, CaseIterable {
     /// `.image` is not a toolbar tool: it marks pictures added with Add Image or pasted with ⌘V.
-    case select, arrow, rect, filledRect, ellipse, line, pen, highlighter, text, counter, pixelate, image
+    case select, arrow, rect, filledRect, ellipse, line, pen, highlighter, text, counter, pixelate, blur, spotlight, image
 
     /// Single-key shortcuts in the editor (no modifiers).
     static let shortcuts: [Character: Tool] = ["v": .select, "a": .arrow, "r": .rect, "f": .filledRect, "o": .ellipse,
                                                "l": .line, "p": .pen, "h": .highlighter, "t": .text, "n": .counter,
-                                               "x": .pixelate]
+                                               "x": .pixelate, "b": .blur, "s": .spotlight]
 
     var usesStroke: Bool { [.arrow, .rect, .ellipse, .line, .pen, .highlighter].contains(self) }
+    /// Tools that hide part of the screenshot; their strength comes from `Style.pixelSize`.
+    var obscures: Bool { self == .pixelate || self == .blur }
+    /// Rectangle-like tools whose corners can be rounded.
+    var hasCorners: Bool { self == .rect || self == .filledRect || self == .spotlight }
     /// Freehand tools keep every point of the drag.
     var isFreehand: Bool { self == .pen || self == .highlighter }
 
@@ -26,9 +31,15 @@ enum Tool: Int, CaseIterable {
         case .text: return "Text"
         case .counter: return "Counter"
         case .pixelate: return "Pixelate"
+        case .blur: return "Blur"
+        case .spotlight: return "Spotlight"
         case .image: return "Image"
         }
     }
+}
+
+enum ArrowStyle: Int {
+    case filled, open, double
 }
 
 /// Per-annotation look. New annotations copy the canvas's current style; editing the style of a
@@ -40,8 +51,11 @@ struct Style: Equatable {
     /// Font family name; empty means the system font.
     var fontName: String = ""
     var bold = true
-    /// Mosaic cell size for the pixelate tool.
+    /// Mosaic cell size for pixelate, blur radius for blur.
     var pixelSize: CGFloat = 10
+    /// Corner radius for rectangles, filled rectangles and spotlights.
+    var cornerRadius: CGFloat = 2
+    var arrowStyle = ArrowStyle.filled
 
     var font: NSFont {
         if fontName.isEmpty { return .systemFont(ofSize: fontSize, weight: bold ? .semibold : .regular) }
@@ -166,7 +180,14 @@ private final class InlineTextView: NSTextView {
 /// Drawing surface in image coordinates. Click an annotation to select it, drag to move it, drag a handle
 /// to resize it, double-click text to edit it in place; ⌫ deletes, arrows nudge, ⌘Z / ⇧⌘Z undo and redo.
 final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
-    let base: NSImage
+    /// The screenshot. It changes only when the whole image is rotated or flipped.
+    private(set) var base: NSImage {
+        didSet {
+            guard base !== oldValue else { return }
+            cachedRep = nil; cachedBackdrop = nil; cachedCG = nil; blurCache = [:]
+            updateExtent()
+        }
+    }
     private(set) var items: [Annotation] = [] {
         didSet { updateExtent() }
     }
@@ -198,7 +219,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     var onExtentChange: ((NSRect) -> Void)?
     private var imageRect: NSRect { NSRect(origin: .zero, size: base.size) }
     /// Fill for the grown area: the color of the image's top-left pixel.
-    private lazy var backdrop: NSColor = bitmap()?.colorAt(x: 0, y: 0) ?? .white
+    private var backdrop: NSColor {
+        if let c = cachedBackdrop { return c }
+        let c = bitmap()?.colorAt(x: 0, y: 0) ?? .white
+        cachedBackdrop = c
+        return c
+    }
+    private var cachedBackdrop: NSColor?
     var tool: Tool = .arrow {
         didSet { if tool != oldValue { finishTextEditing(); notifyContext() } }
     }
@@ -224,19 +251,20 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
     /// Everything one undo step restores.
     private struct Snapshot: Equatable {
+        var base: NSImage
         var items: [Annotation]
         var crop: NSRect?
         var background: Background?
     }
     private var snapshot: Snapshot {
-        get { Snapshot(items: items, crop: crop, background: background) }
-        set { items = newValue.items; crop = newValue.crop; background = newValue.background }
+        get { Snapshot(base: base, items: items, crop: crop, background: background) }
+        set { base = newValue.base; items = newValue.items; crop = newValue.crop; background = newValue.background }
     }
     private var draft: Annotation? {
         didSet { updateExtent() }
     }
     private var drag: Drag?
-    private var beforeDrag = Snapshot(items: [])
+    private lazy var beforeDrag = snapshot
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
     private var exporting = false
@@ -247,7 +275,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private var textEditor: InlineTextView?
     private var editingID: UUID?
-    private var beforeEditing = Snapshot(items: [])
+    private lazy var beforeEditing = snapshot
 
     init(image: NSImage) {
         base = image
@@ -553,6 +581,104 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         ("Send to Back", #selector(CanvasView.sendToBack(_:)), "[", [.command, .option]),
     ]
 
+    // MARK: Rotate / flip (the screenshot and every annotation together; undoable)
+
+    enum Orientation { case rotateLeft, rotateRight, flipHorizontal, flipVertical }
+
+    @objc func rotateLeft(_ sender: Any?) { reorient(.rotateLeft) }
+    @objc func rotateRight(_ sender: Any?) { reorient(.rotateRight) }
+    @objc func flipHorizontal(_ sender: Any?) { reorient(.flipHorizontal) }
+    @objc func flipVertical(_ sender: Any?) { reorient(.flipVertical) }
+
+    static let imageCommands: [(String, Selector)] = [
+        ("Rotate Left", #selector(CanvasView.rotateLeft(_:))), ("Rotate Right", #selector(CanvasView.rotateRight(_:))),
+        ("Flip Horizontal", #selector(CanvasView.flipHorizontal(_:))), ("Flip Vertical", #selector(CanvasView.flipVertical(_:))),
+    ]
+
+    /// The same orientation change as an affine map, for a w×h area with a bottom-left origin.
+    private static func transform(_ op: Orientation, width w: CGFloat, height h: CGFloat) -> CGAffineTransform {
+        switch op {
+        case .rotateRight: return CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: w)
+        case .rotateLeft: return CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: h, ty: 0)
+        case .flipHorizontal: return CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: w, ty: 0)
+        case .flipVertical: return CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: h)
+        }
+    }
+
+    /// A rotated or flipped copy at full pixel resolution.
+    static func reoriented(_ img: NSImage, _ op: Orientation) -> NSImage? {
+        var r = CGRect(origin: .zero, size: img.size)
+        guard let cg = img.cgImage(forProposedRect: &r, context: nil, hints: nil),
+              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let turns = op == .rotateLeft || op == .rotateRight
+        let pw = cg.width, ph = cg.height
+        guard let ctx = CGContext(data: nil, width: turns ? ph : pw, height: turns ? pw : ph, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        ctx.concatenate(transform(op, width: CGFloat(pw), height: CGFloat(ph)))
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: pw, height: ph))
+        guard let out = ctx.makeImage() else { return nil }
+        return NSImage(cgImage: out, size: turns ? NSSize(width: img.size.height, height: img.size.width) : img.size)
+    }
+
+    private func reorient(_ op: Orientation) {
+        finishTextEditing()
+        cancelCrop()
+        guard let newBase = Self.reoriented(base, op) else { NSSound.beep(); return }
+        let t = Self.transform(op, width: base.size.width, height: base.size.height)
+        mutate {
+            base = newBase
+            items = items.map { a in
+                var a = a
+                switch a.tool {
+                case .text, .counter:
+                    // Text and counters stay upright: only their center moves.
+                    let b = bounds(of: a), c = NSPoint(x: b.midX, y: b.midY).applying(t)
+                    a.translate(dx: c.x - b.midX, dy: c.y - b.midY)
+                case .image:
+                    a.image = a.image.flatMap { Self.reoriented($0, op) } ?? a.image
+                    a.start = a.start.applying(t); a.end = a.end.applying(t)
+                default:
+                    a.start = a.start.applying(t); a.end = a.end.applying(t)
+                    a.points = a.points.map { $0.applying(t) }
+                }
+                return a
+            }
+            crop = crop.map { $0.applying(t) }
+        }
+    }
+
+    // MARK: Redact (OCR finds the text; each match gets an editable pixelate box)
+
+    @objc func redactAllText(_ sender: Any?) { redact(.allText) }
+    @objc func redactEmails(_ sender: Any?) { redact(.emails) }
+    @objc func redactPhoneNumbers(_ sender: Any?) { redact(.phoneNumbers) }
+    @objc func redactLinks(_ sender: Any?) { redact(.links) }
+
+    static let redactCommands: [(String, Selector)] = [
+        ("Redact All Text", #selector(CanvasView.redactAllText(_:))), ("Redact Email Addresses", #selector(CanvasView.redactEmails(_:))),
+        ("Redact Phone Numbers", #selector(CanvasView.redactPhoneNumbers(_:))), ("Redact Links", #selector(CanvasView.redactLinks(_:))),
+    ]
+
+    private func redact(_ kind: TextRecognizer.Sensitive) {
+        finishTextEditing()
+        cancelCrop()
+        let image = base
+        Task { @MainActor [weak self] in
+            let boxes = await TextRecognizer.boxes(in: image, matching: kind)
+            guard let self, self.base === image else { return }
+            guard !boxes.isEmpty else { NSSound.beep(); return }
+            var s = self.style
+            s.pixelSize = max(s.pixelSize, 8)
+            let added = boxes.map { b -> Annotation in
+                let r = b.insetBy(dx: -3, dy: -2)
+                return Annotation(tool: .pixelate, start: r.origin, end: NSPoint(x: r.maxX, y: r.maxY), style: s)
+            }
+            self.mutate { self.items += added }
+            self.selectedID = nil
+        }
+    }
+
     // MARK: Crop
 
     /// Enters crop mode with the current crop (or everything) chosen.
@@ -771,7 +897,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// How far the drawn ink reaches past an annotation's geometric bounds (half the stroke, or the arrowhead).
     private func inkPadding(_ a: Annotation) -> CGFloat {
         switch a.tool {
-        case .text, .pixelate, .select, .filledRect, .counter, .image: return 0
+        case .text, .pixelate, .blur, .spotlight, .select, .filledRect, .counter, .image: return 0
         case .highlighter: return a.style.highlighterWidth / 2
         case .arrow: return max(a.style.lineWidth / 2, max(12, a.style.lineWidth * 5) * 0.45)
         default: return a.style.lineWidth / 2
@@ -808,20 +934,23 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// The stroked outline used both for hit testing and (for most tools) drawing.
     private func outline(_ a: Annotation) -> NSBezierPath? {
         switch a.tool {
-        case .rect, .filledRect: return NSBezierPath(roundedRect: rect(a), xRadius: 2, yRadius: 2)
+        case .rect, .filledRect, .spotlight:
+            let r = rect(a), radius = min(a.style.cornerRadius, r.width / 2, r.height / 2)
+            return NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
         case .ellipse: return NSBezierPath(ovalIn: rect(a))
         case .line, .arrow:
             let p = NSBezierPath(); p.move(to: a.start); p.line(to: a.end); return p
         case .pen, .highlighter:
             guard let f = a.points.first else { return nil }
             let p = NSBezierPath(); p.move(to: f); a.points.dropFirst().forEach { p.line(to: $0) }; return p
-        case .text, .pixelate, .select, .counter, .image: return nil
+        case .text, .pixelate, .blur, .select, .counter, .image: return nil
         }
     }
 
     private func hits(_ a: Annotation, _ p: NSPoint) -> Bool {
         let slop = 5 / zoom
-        if [.text, .pixelate, .filledRect, .counter, .image].contains(a.tool) {
+        // A spotlight is hit on its outline (like a rectangle), so annotations inside it stay clickable.
+        if [.text, .pixelate, .blur, .filledRect, .counter, .image].contains(a.tool) {
             return bounds(of: a).insetBy(dx: -slop, dy: -slop).contains(p)
         }
         guard let path = outline(a) else { return false }
@@ -833,7 +962,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Resize handles: rect corners as (BL, BR, TL, TR), or the two endpoints of a line/arrow.
     private func handles(_ a: Annotation) -> [NSPoint] {
         switch a.tool {
-        case .rect, .filledRect, .ellipse, .pixelate, .image:
+        case .rect, .filledRect, .ellipse, .pixelate, .blur, .spotlight, .image:
             let r = rect(a)
             return [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
                     NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)]
@@ -869,10 +998,23 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
         if contentRect != imageRect { backdrop.setFill(); contentRect.fill() }
         base.draw(in: imageRect)
-        for a in items + (draft.map { [$0] } ?? []) where a.id != editingID { render(a) }
+        let all = items + (draft.map { [$0] } ?? [])
+        for a in all where a.id != editingID { render(a) }
+        drawSpotlights(all.filter { $0.tool == .spotlight })
         ctx?.restoreGState()
         if let r = cropDraft { drawCropOverlay(r) }
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
+    }
+
+    /// Dims the screenshot everywhere except inside the spotlights (all of them together, so they never double-darken).
+    private func drawSpotlights(_ spots: [Annotation]) {
+        guard !spots.isEmpty, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        NSColor.black.withAlphaComponent(0.55).setFill()
+        contentRect.fill()
+        ctx.setBlendMode(.clear)
+        for s in spots { outline(s)?.fill() }
+        ctx.endTransparencyLayer()
     }
 
     /// Dims everything outside the crop and draws its frame, thirds and eight handles.
@@ -903,7 +1045,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private func render(_ a: Annotation) {
         // The shadow goes on a transparency layer so overlapping parts (an arrow's shaft and head) cast one shadow.
-        guard Preferences.annotationShadow, a.tool != .pixelate, a.tool != .highlighter, let ctx = NSGraphicsContext.current?.cgContext else {
+        guard Preferences.annotationShadow, !a.tool.obscures, a.tool != .highlighter, a.tool != .spotlight, let ctx = NSGraphicsContext.current?.cgContext else {
             renderShape(a); return
         }
         ctx.saveGState()
@@ -941,19 +1083,41 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             let dx = a.end.x - a.start.x, dy = a.end.y - a.start.y
             let len = hypot(dx, dy); guard len > 2 else { return }
             let ang = atan2(dy, dx), head: CGFloat = max(12, lw * 5)
+            let style = a.style.arrowStyle
+            // A filled head covers the end of the shaft, so stop the shaft short of the tip.
+            let inset = style == .open ? 0 : head * 0.6
+            let tail = style == .double ? NSPoint(x: a.start.x + cos(ang) * inset, y: a.start.y + sin(ang) * inset) : a.start
             let line = NSBezierPath(); line.lineWidth = lw; line.lineCapStyle = .round
-            line.move(to: a.start)
-            line.line(to: NSPoint(x: a.end.x - cos(ang) * head * 0.6, y: a.end.y - sin(ang) * head * 0.6)); line.stroke()
-            let tri = NSBezierPath(); tri.move(to: a.end)
-            tri.line(to: NSPoint(x: a.end.x - head * cos(ang - .pi / 7), y: a.end.y - head * sin(ang - .pi / 7)))
-            tri.line(to: NSPoint(x: a.end.x - head * cos(ang + .pi / 7), y: a.end.y - head * sin(ang + .pi / 7)))
-            tri.close(); tri.fill()
+            line.move(to: tail)
+            line.line(to: NSPoint(x: a.end.x - cos(ang) * inset, y: a.end.y - sin(ang) * inset)); line.stroke()
+            drawArrowHead(tip: a.end, angle: ang, size: head, open: style == .open, lineWidth: lw)
+            if style == .double { drawArrowHead(tip: a.start, angle: ang + .pi, size: head, open: false, lineWidth: lw) }
         case .text:
             (a.text as NSString).draw(at: bounds(of: a).origin, withAttributes: a.style.textAttributes)
         case .pixelate:
             drawPixelated(rect(a), block: a.style.pixelSize)
-        case .select:
-            break
+        case .blur:
+            guard let img = blurred(radius: a.style.pixelSize), let ctx = NSGraphicsContext.current?.cgContext else { return }
+            ctx.saveGState()
+            ctx.clip(to: rect(a).intersection(imageRect))
+            ctx.draw(img, in: imageRect)
+            ctx.restoreGState()
+        case .spotlight, .select:
+            break   // spotlights are drawn together by drawSpotlights
+        }
+    }
+
+    private func drawArrowHead(tip: NSPoint, angle: CGFloat, size: CGFloat, open: Bool, lineWidth: CGFloat) {
+        let left = NSPoint(x: tip.x - size * cos(angle - .pi / 7), y: tip.y - size * sin(angle - .pi / 7))
+        let right = NSPoint(x: tip.x - size * cos(angle + .pi / 7), y: tip.y - size * sin(angle + .pi / 7))
+        let p = NSBezierPath()
+        if open {
+            p.move(to: left); p.line(to: tip); p.line(to: right)
+            p.lineWidth = lineWidth; p.lineCapStyle = .round; p.lineJoinStyle = .round
+            p.stroke()
+        } else {
+            p.move(to: tip); p.line(to: left); p.line(to: right); p.close()
+            p.fill()
         }
     }
 
@@ -1005,8 +1169,35 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             y += block
         }
     }
-    private lazy var cachedRep: NSBitmapImageRep? = base.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:))
-    private func bitmap() -> NSBitmapImageRep? { cachedRep }
+    private var cachedRep: NSBitmapImageRep?
+    private func bitmap() -> NSBitmapImageRep? {
+        if cachedRep == nil { cachedRep = base.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) }
+        return cachedRep
+    }
+
+    private var cachedCG: CGImage?
+    private var baseCG: CGImage? {
+        if cachedCG == nil {
+            var r = CGRect(origin: .zero, size: base.size)
+            cachedCG = base.cgImage(forProposedRect: &r, context: nil, hints: nil)
+        }
+        return cachedCG
+    }
+    private static let ciContext = CIContext()
+    private var blurCache: [Int: CGImage] = [:]
+
+    /// The whole screenshot gaussian-blurred (cached per radius); blur annotations show a piece of it.
+    private func blurred(radius: CGFloat) -> CGImage? {
+        let key = Int(radius)
+        if let c = blurCache[key] { return c }
+        guard let cg = baseCG, base.size.width > 0 else { return nil }
+        let ci = CIImage(cgImage: cg)
+        let sigma = Double(radius * CGFloat(cg.width) / base.size.width)
+        let out = ci.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: ci.extent)
+        let img = Self.ciContext.createCGImage(out, from: ci.extent)
+        blurCache[key] = img
+        return img
+    }
 
     func flattened() -> NSImage {
         finishTextEditing()

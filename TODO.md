@@ -26,7 +26,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Crosshair magnifier + pixel/size readout, arrow-key nudge (Shift = 10 pt), Space to move selection — M
 - [~] Window capture options: transparent background, shadow toggle, padding (menu → Window Capture) — M
 - [~] Auto-hide desktop icons only while capturing (menu toggle; restores after the capture) — S
-- [ ] Self-timer for area/window, cancel via Esc — S
+- [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S
 
 ## Batch 3 — screen recording (biggest gap)
 - [ ] Record area/fullscreen to MP4 (SCStream + AVAssetWriter) — L
@@ -49,10 +49,10 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Add Image (toolbar menu: Capture Area…, From Capture History, Open File…, Paste / ⌘V) as a movable layer that keeps its proportions — S
 - [~] Arrange: bring to front / forward, send backward / to back (context menu, style bar, Arrange menu, ⌥⌘] ⌘] ⌘[ ⌥⌘[) — S
 - [~] Background: desktop wallpaper as a fill — S
-- [ ] Blur (gaussian), spotlight — M
-- [ ] Rotate / flip — S
-- [ ] Rounded rectangle, arrow styles (stroke width now in the attributes bar) — M
-- [ ] Redact: auto-detect emails/text via OCR — M
+- [~] Blur (B; gaussian, strength popup), spotlight (S; dims everything outside, rounded corners) — M
+- [~] Rotate left/right, flip horizontal/vertical (toolbar menu or Image menu; annotations follow, undoable) — S
+- [~] Rounded rectangles (corner popup for rect/filled rect/spotlight), arrow styles (filled, open, double-headed) — M
+- [~] Redact via OCR: all text, email addresses, phone numbers, links → editable pixelate boxes (toolbar or Image menu) — M
 
 ## Batch 5 — capture modes
 - [ ] Scrolling capture (stitching) — L
