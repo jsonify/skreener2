@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
         statusItem.menu = buildMenu()
+        NSApp.mainMenu = buildMainMenu()
 
         let mods = controlKey | shiftKey
         HotKeys.shared.register(keyCode: kVK_ANSI_1, modifiers: mods) { [weak self] in self?.capturePreviousArea() }
@@ -68,6 +69,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+
+    /// The app menu bar, shown while an editor or Settings window is open (see `DockPresence`).
+    private func buildMainMenu() -> NSMenu {
+        let main = NSMenu()
+        func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenu {
+            let m = NSMenu(title: title)
+            items.forEach(m.addItem)
+            let holder = NSMenuItem(title: title, action: nil, keyEquivalent: ""); holder.submenu = m
+            main.addItem(holder)
+            return m
+        }
+        func item(_ title: String, _ action: Selector?, _ key: String = "", _ mods: NSEvent.ModifierFlags = [.command],
+                  target: AnyObject? = nil) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = mods; i.target = target
+            return i
+        }
+        _ = submenu("Skreener", [
+            item("About Skreener", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            .separator(),
+            item("Settings…", #selector(openSettings), ",", target: self),
+            .separator(),
+            item("Hide Skreener", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            item("Show All", #selector(NSApplication.unhideAllApplications(_:))),
+            .separator(),
+            item("Quit Skreener", #selector(NSApplication.terminate(_:)), "q"),
+        ])
+        _ = submenu("Edit", [
+            item("Undo", Selector(("undo:")), "z"),
+            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            .separator(),
+            item("Cut", #selector(NSText.cut(_:)), "x"),
+            item("Copy", #selector(NSText.copy(_:)), "c"),
+            item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ])
+        NSApp.windowsMenu = submenu("Window", [
+            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
+            item("Close", #selector(NSWindow.performClose(_:)), "w"),
+            .separator(),
+            item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
+        ])
+        return main
+    }
 
     @objc private func toggleDesktopIcons() {
         let show = !DesktopIcons.visible
@@ -207,5 +253,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         qa.onPin = { PinnedScreenshotController.pin($0) }
         QuickAccessController.live.append(qa)
         qa.show()
+    }
+}
+
+/// Skreener lives in the menu bar, but while an editor or the Settings window is open it behaves like a
+/// normal app: Dock icon, ⌘-Tab, and its own menu bar.
+enum DockPresence {
+    @MainActor static func update() {
+        let settingsOpen = SettingsWindowController.isOpen
+        let policy: NSApplication.ActivationPolicy = EditorWindowController.live.isEmpty && !settingsOpen ? .accessory : .regular
+        guard NSApp.activationPolicy() != policy else { return }
+        NSApp.setActivationPolicy(policy)
+        if policy == .regular { NSApp.activate(ignoringOtherApps: true) }
     }
 }

@@ -49,8 +49,8 @@ struct Annotation: Equatable {
     }
 }
 
-/// Text view used to type text annotations in place. The editor window has no Edit menu, so the
-/// usual ⌘C/⌘V/⌘X/⌘A/⌘Z shortcuts are wired up here; Esc or ⌘Return finishes editing.
+/// Text view used to type text annotations in place. The usual ⌘C/⌘V/⌘X/⌘A/⌘Z shortcuts are handled
+/// here so they act on the text box, not the canvas; Esc or ⌘Return finishes editing.
 private final class InlineTextView: NSTextView {
     var onFinish: (() -> Void)?
 
@@ -113,6 +113,9 @@ final class CanvasView: NSView, NSTextViewDelegate {
     init(image: NSImage) {
         base = image
         super.init(frame: NSRect(origin: .zero, size: image.size))
+        NotificationCenter.default.addObserver(forName: .skreenerPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.needsDisplay = true
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -229,6 +232,10 @@ final class CanvasView: NSView, NSTextViewDelegate {
     }
 
     // MARK: Editing
+
+    // Edit menu → Undo / Redo
+    @objc func undo(_ sender: Any?) { undo() }
+    @objc func redo(_ sender: Any?) { redo() }
 
     func undo() {
         finishTextEditing()
@@ -456,6 +463,21 @@ final class CanvasView: NSView, NSTextViewDelegate {
     }
 
     private func render(_ a: Annotation) {
+        // The shadow goes on a transparency layer so overlapping parts (an arrow's shaft and head) cast one shadow.
+        guard Preferences.annotationShadow, a.tool != .pixelate, let ctx = NSGraphicsContext.current?.cgContext else {
+            renderShape(a); return
+        }
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -1.5), blur: 4, color: NSColor.black.withAlphaComponent(0.35).cgColor)
+        // Bounded to the annotation (plus arrowhead and shadow room) so it stays cheap on large images.
+        let pad = max(a.style.lineWidth * 5, 12) + 12
+        ctx.beginTransparencyLayer(in: bounds(of: a).insetBy(dx: -pad, dy: -pad), auxiliaryInfo: nil)
+        renderShape(a)
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+    }
+
+    private func renderShape(_ a: Annotation) {
         a.style.color.setStroke(); a.style.color.setFill()
         let lw = a.style.lineWidth
         switch a.tool {

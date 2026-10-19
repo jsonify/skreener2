@@ -1,5 +1,10 @@
 import AppKit
 
+extension Notification.Name {
+    /// Posted by the Settings window when an option that affects open windows changes.
+    static let skreenerPreferencesChanged = Notification.Name("SkreenerPreferencesChanged")
+}
+
 enum Preferences {
     private static let d = UserDefaults.standard
 
@@ -31,6 +36,11 @@ enum Preferences {
     static var hideIconsWhileCapturing: Bool {
         get { d.bool(forKey: "hideIconsWhileCapturing") }
         set { d.set(newValue, forKey: "hideIconsWhileCapturing") }
+    }
+    /// Subtle drop shadow under annotations (shapes, arrows, pen, text), in the editor and in exports.
+    static var annotationShadow: Bool {
+        get { d.object(forKey: "annotationShadow") as? Bool ?? true }
+        set { d.set(newValue, forKey: "annotationShadow") }
     }
     static var windowShadow: Bool {
         get { d.object(forKey: "windowShadow") as? Bool ?? true }

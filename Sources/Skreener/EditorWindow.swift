@@ -85,6 +85,7 @@ private extension NSToolbarItem.Identifier {
     static let undoItem = NSToolbarItem.Identifier("skreener.undo")
     static let redoItem = NSToolbarItem.Identifier("skreener.redo")
     static let saveAsItem = NSToolbarItem.Identifier("skreener.saveAs")
+    static let settingsItem = NSToolbarItem.Identifier("skreener.settings")
 }
 
 private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
@@ -164,6 +165,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
             EditorWindowController.live.removeAll { $0 === self }
+            Task { @MainActor in DockPresence.update() }
         }
         nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in
             if self?.fitMode == true { self?.applyFit() }
@@ -179,6 +181,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     func present() {
+        DockPresence.update()
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         window?.layoutIfNeeded()
@@ -330,7 +333,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .undoItem, .redoItem, .flexibleSpace, .saveAsItem]
+        [.cropItem, .addImageItem, .mockupItem, .space, .toolsItem, .space, .undoItem, .redoItem, .flexibleSpace, .settingsItem, .saveAsItem]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
@@ -376,6 +379,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
             group.controlRepresentation = .expanded
             toolGroup = group
             return group
+        case .settingsItem:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.image = symbol("gearshape", "Settings"); item.label = "Settings"; item.toolTip = "Settings (⌘,)"
+            item.isBordered = true; item.target = self; item.action = #selector(openSettings)
+            return item
         case .saveAsItem:
             let b = NSButton(title: "Save as…", target: self, action: #selector(saveIt))
             b.bezelStyle = .rounded
@@ -478,6 +486,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate {
     @objc private func shareIt(_ sender: NSButton) {
         NSSharingServicePicker(items: [canvas.flattened()]).show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
+    @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
     @objc private func redoIt() { canvas.redo() }
 }

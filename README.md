@@ -8,13 +8,13 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 - Area selection: crosshair + pixel magnifier, arrow keys nudge the pointer (Shift = 10 pt), hold Space to move the selection, optional frozen screen
 - Window capture options: shadow, transparent or white background, padding
 - Quick Access thumbnail: copy, save, edit, dismiss
-- Annotation editor (CleanShot-style unified toolbar, 990×750 minimum window, zoom-to-fit canvas, Drag Me export): arrow, rectangle, ellipse, line, pen, text (typed in place on the image), pixelate. Every tool has its own toolbar button; a style bar under the toolbar shows the options for the current tool or selection: color, stroke width, font, size, bold, pixel size. Annotations stay editable: select, move, resize by handles, delete (⌫), double-click text to edit, recolor; undo/redo (⌘Z / ⇧⌘Z); tool keys V A R O L P T X; mouse wheel zooms
+- Annotation editor (CleanShot-style unified toolbar, 990×750 minimum window, zoom-to-fit canvas, Drag Me export): arrow, rectangle, ellipse, line, pen, text (typed in place on the image), pixelate. Every tool has its own toolbar button; a style bar under the toolbar shows the options for the current tool or selection: color, stroke width, font, size, bold, pixel size. Annotations stay editable: select, move, resize by handles, delete (⌫), double-click text to edit, recolor; undo/redo (⌘Z / ⇧⌘Z); tool keys V A R O L P T X; mouse wheel zooms; optional subtle drop shadow on annotations. While an editor or Settings is open, Skreener shows in the Dock, ⌘-Tab and the menu bar
 - Capture Text (OCR, ⌃⇧2): on-device Vision text recognition copied to clipboard
 - Self-timer fullscreen capture (3/5/10 s) from the menu
 - Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close)
 - Open… / Open from Clipboard into the editor, Pin to the Screen… from a file or the clipboard
 - Show/Hide Desktop Icons toggle (or hide them only while capturing), About panel
-- Settings window (⌘, from the menu bar icon): copy/save after capture, save folder, freeze screen, cursor, desktop icons, window capture style, shortcut list, and the running version + build commit
+- Settings window (⌘, the menu bar icon, or the editor's gear button): annotation drop shadow, copy/save after capture, save folder, freeze screen, cursor, desktop icons, window capture style, shortcut list, and the running version + build commit
 
 ## Build
 ```

@@ -1,9 +1,12 @@
 import AppKit
 
-/// Settings window (⌘, from the menu bar icon): what happens after a capture, selection and window-capture
+/// Settings window (⌘, or the menu bar icon or the editor's gear button): what happens after a capture, selection and window-capture
 /// options, the global shortcuts, and the version / build that is running.
 final class SettingsWindowController: NSWindowController {
     @MainActor static let shared = SettingsWindowController()
+    /// Whether the Settings window is on screen (without creating it).
+    @MainActor static var isOpen: Bool { created?.window?.isVisible == true }
+    @MainActor private static weak var created: SettingsWindowController?
 
     /// "0.1.0 (48db438)": marketing version plus the git commit stamped in by build_app.sh.
     nonisolated static var version: String {
@@ -26,9 +29,13 @@ final class SettingsWindowController: NSWindowController {
         w.title = "Skreener Settings"
         w.isReleasedWhenClosed = false
         super.init(window: w)
+        Self.created = self
         w.contentView = buildContent()
         w.setContentSize(w.contentView?.fittingSize ?? w.frame.size)
         w.center()
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
+            Task { @MainActor in DockPresence.update() }
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -36,6 +43,7 @@ final class SettingsWindowController: NSWindowController {
         refreshFolder()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        DockPresence.update()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -62,6 +70,12 @@ final class SettingsWindowController: NSWindowController {
         folderLabel.translatesAutoresizingMaskIntoConstraints = false
         folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
         row("Save folder:", NSStackView(views: [folderLabel, choose]))
+
+        section("Editor")
+        row("Annotations:", checkbox("Drop shadow", Preferences.annotationShadow) {
+            Preferences.annotationShadow = $0
+            NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
+        })
 
         section("Selection")
         row("Screen:", checkbox("Freeze screen while selecting", Preferences.freezeScreen) { Preferences.freezeScreen = $0 })
