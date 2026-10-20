@@ -148,7 +148,7 @@ final class PillPopUp: PillButton {
     var itemArray: [NSMenuItem] { menu?.items ?? [] }
     var lastItem: NSMenuItem? { menu?.items.last }
     var selectedItem: NSMenuItem? { itemArray.indices.contains(indexOfSelectedItem) ? itemArray[indexOfSelectedItem] : nil }
-    func selectedTag() -> Int { selectedItem?.tag ?? -1 }
+    override func selectedTag() -> Int { selectedItem?.tag ?? -1 }
 
     func addItem(withTitle title: String) {
         let item = NSMenuItem(title: title, action: pullsDown ? nil : #selector(picked(_:)), keyEquivalent: "")
