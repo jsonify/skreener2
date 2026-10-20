@@ -85,6 +85,10 @@ enum ScrollMatcher {
         while footer < h - header && prev.diff(h - 1 - footer, new, h - 1 - footer) < same { footer += 1 }
         // Static rows past a quarter of the area are blank space that happens to look the same, not a real header
         // or footer; treat them as moving so the search range (and how far a frame may scroll) stays large.
+        // The row next to a header or footer carries its edge (each row's detail includes its change from the row
+        // above), so it never matches where the content shows elsewhere: count it with the header or footer.
+        if header > 0 { header += 1 }
+        if footer > 0 { footer += 1 }
         header = min(header, h / 4)
         footer = min(footer, h / 4)
         let band = h - header - footer
