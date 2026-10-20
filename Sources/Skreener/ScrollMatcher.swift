@@ -36,10 +36,11 @@ struct ScrollRows {
 enum ScrollMatch: Equatable {
     /// Nothing moved, or too little changed to tell.
     case unchanged
-    /// Row `y` of the new frame shows what row `y + shift` of the previous one showed. `header` rows at the top and
-    /// `footer` rows at the bottom stayed put (a sticky header or footer, or blank space that looks the same).
+    /// Row `y` of the new frame shows what row `y + shift` of the previous one showed (a negative shift: scrolled back
+    /// up). `header` rows at the top and `footer` rows at the bottom stayed put (a sticky header or footer, or blank
+    /// space that looks the same).
     case moved(shift: Int, header: Int, footer: Int)
-    /// No good match: scrolled too far, scrolled up, or the content changed.
+    /// No good match: scrolled too far, or the content changed.
     case lost
 }
 
@@ -49,10 +50,11 @@ enum ScrollMatcher {
     /// Rows with content (not blank on both sides) a score needs before it is trusted, when every row is looked at.
     private static let minEvidence = 6
 
-    /// Finds how far the content moved up from `prev` to `new`. Rows that stay put at the top and bottom are worked
+    /// Finds how far the content moved up from `prev` to `new`, or back down by up to half the area. Rows that stay put at the top and bottom are worked
     /// out for this pair of frames alone, so a header that appears, shrinks or grows a shadow later is still caught.
-    /// `hint` (the previous shift) is scored first, which usually lets the full search stop early.
-    static func match(_ prev: ScrollRows, _ new: ScrollRows, hint: Int? = nil) -> ScrollMatch {
+    /// `hint` (the previous shift) is scored first, which usually lets the full search stop early. `bridgeBlank` allows
+    /// the guess across blank stretches below; only safe when `prev` reached the end of what has been stitched.
+    static func match(_ prev: ScrollRows, _ new: ScrollRows, hint: Int? = nil, bridgeBlank: Bool = true) -> ScrollMatch {
         let h = min(prev.count, new.count)
         let same = sameRow * ScrollRows.bins
         var header = 0
@@ -71,53 +73,57 @@ enum ScrollMatcher {
         guard let still = cost(prev, new, header: header, end: h - footer, shift: 0, limit: .infinity, rowStep: 1),
               still >= 0.5 else { return .unchanged }
         let maxShift = band - minOverlap
+        // Scrolling back up is matched too (less far): the user going back a little, or Auto-Scroll taking back an
+        // overshoot that went a bit too far, would otherwise never match again.
+        let maxBack = band / 2
         var best = Double.infinity, bestShift = 0
-        if let hint, hint >= 1, hint <= maxShift,
-           let c = cost(prev, new, header: header, end: h - footer, shift: hint, limit: best, rowStep: 2) {
-            best = c; bestShift = hint
-        }
-        for shift in 1...maxShift where shift != bestShift {
-            if let c = cost(prev, new, header: header, end: h - footer, shift: shift, limit: best, rowStep: 2), c < best {
+        func consider(_ shift: Int, rowStep: Int) {
+            if shift != 0, shift >= -maxBack, shift <= maxShift,
+               let c = cost(prev, new, header: header, end: h - footer, shift: shift, limit: best, rowStep: rowStep), c < best {
                 best = c; bestShift = shift
             }
         }
+        if let hint { consider(hint, rowStep: 2) }
+        for shift in 1...maxShift { consider(shift, rowStep: 2) }
+        for shift in 1...maxBack { consider(-shift, rowStep: 2) }
         // The search above looks at every other row, so a neighbouring shift can tie; settle it on every row.
-        var fine = Double.infinity
-        if bestShift > 0 {
-            for shift in max(1, bestShift - 2)...min(maxShift, bestShift + 2) {
-                if let c = cost(prev, new, header: header, end: h - footer, shift: shift, limit: fine, rowStep: 1), c < fine {
-                    fine = c; bestShift = shift
-                }
-            }
+        if bestShift != 0 {
+            let coarse = bestShift
+            best = .infinity
+            for shift in (coarse - 2)...(coarse + 2) { consider(shift, rowStep: 1) }
         }
-        if fine < 4 && fine < still * 0.5 { return .moved(shift: bestShift, header: header, footer: footer) }
+        if bestShift != 0 && best < 4 && best < still * 0.5 { return .moved(shift: bestShift, header: header, footer: footer) }
 
         // Nothing lines up. If that is because the rows both frames share are (nearly all) blank, as when the old
         // content has scrolled out at the top and new content has come in at the bottom, there is too little to score:
         // take the smallest move under which every shared row is blank on both sides or the same. Blank space between
         // the old and new content may come out shorter than it was. Only moves of under half the moving rows count:
         // then what scrolled out (at the top) and what came in (at the bottom) can't sit on the same rows, so an
-        // animation on a blank page (a loading spinner) is never taken for scrolling.
-        for shift in 1..<min(maxShift + 1, band / 2) where (header..<(h - footer - shift)).allSatisfy({
-            new.blank($0, prev, $0 + shift) || new.diff($0, prev, $0 + shift) < same
-        }) {
-            return .moved(shift: shift, header: header, footer: footer)
+        // animation on a blank page (a loading spinner) is never taken for scrolling. If some move back up fits as
+        // well, it can't be told from scrolling up, so it doesn't count either.
+        guard bridgeBlank else { return .lost }
+        func fits(_ shift: Int) -> Bool {
+            (max(header, header - shift)..<min(h - footer, h - footer - shift)).allSatisfy {
+                new.blank($0, prev, $0 + shift) || new.diff($0, prev, $0 + shift) < same
+            }
         }
-        return .lost
+        guard let shift = (1..<min(maxShift + 1, band / 2)).first(where: fits),
+              !(1...maxShift).contains(where: { fits(-$0) }) else { return .lost }
+        return .moved(shift: shift, header: header, footer: footer)
     }
 
-    /// Mean difference per value between rows `y + shift` of `prev` and rows `y` of `new`, for `y` in
-    /// `header..<(end - shift)` (every `rowStep`th row), leaving out pairs that are both blank. Nil when too few rows
-    /// have content to tell, or (once it can't beat `limit`) a value ≥ `limit`.
+    /// Mean difference per value between rows `y + shift` of `prev` and rows `y` of `new`, for every `rowStep`th `y`
+    /// where both rows fall in `header..<end`, leaving out pairs that are both blank. Nil when too few rows have
+    /// content to tell, or (once it can't beat `limit`) a value ≥ `limit`.
     static func cost(_ prev: ScrollRows, _ new: ScrollRows, header: Int, end: Int, shift: Int, limit: Double,
                      rowStep: Int) -> Double? {
-        let to = end - shift
-        guard to > header else { return nil }
-        let rows = (to - header + rowStep - 1) / rowStep
+        let from = max(header, header - shift), to = min(end, end - shift)
+        guard to > from else { return nil }
+        let rows = (to - from + rowStep - 1) / rowStep
         // Skipped rows only lower the count, so the sum reaching this can no longer end below `limit`.
         let budget = limit * Double(rows * ScrollRows.bins)
         var sum = 0, counted = 0
-        var y = header
+        var y = from
         while y < to {
             if !new.blank(y, prev, y + shift) {
                 sum += new.diff(y, prev, y + shift)

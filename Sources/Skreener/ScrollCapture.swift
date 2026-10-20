@@ -10,7 +10,7 @@ import Carbon.HIToolbox
 /// Not thread-safe: the capture feeds it from one serial queue, off the main thread.
 final class ScrollStitcher: @unchecked Sendable {
     enum Step {
-        /// Content moved up by this many pixels.
+        /// Content moved up by this many pixels (negative: back down, after scrolling up).
         case moved(Int)
         /// Nothing moved (or it moved too little to tell).
         case unchanged
@@ -34,6 +34,8 @@ final class ScrollStitcher: @unchecked Sendable {
     private var lastRows: ScrollRows
     private var lastShift: Int?
     private var lastFooter = 0
+    /// Whether the last frame reached the end of what has been stitched (not after scrolling back up).
+    private var caughtUp = true
     private var offset = 0, contentEnd = 0
     /// Columns matched, from the left: an overlay scroll bar at the right edge fades in and moves against the content.
     private let matchWidth: Int
@@ -55,15 +57,23 @@ final class ScrollStitcher: @unchecked Sendable {
         if height >= Self.maxHeight { return .full }
         let rows = Self.rows(frame, width: matchWidth)
         let h = frameHeight
-        switch ScrollMatcher.match(lastRows, rows, hint: lastShift) {
+        switch ScrollMatcher.match(lastRows, rows, hint: lastShift, bridgeBlank: caughtUp) {
         case .unchanged:
             return .unchanged
         case .lost:
             return .lost
         case .moved(let shift, let header, let footer):
+            lastRows = rows
+            guard shift > 0 else {
+                // Scrolled back up: nothing new to add; just follow along until the view is past the end again.
+                offset += shift
+                caughtUp = false
+                return .moved(shift)
+            }
             if let firstFrame = first {
                 // First movement: the first frame above its footer is the top of the content.
                 if let piece = slice(firstFrame, top: 0, rows: h - footer) { pieces.append(piece) }
+                tail = slice(firstFrame, top: h - footer, rows: footer)
                 contentEnd = h - footer
                 first = nil
             } else if footer > lastFooter && contentEnd - offset == h - lastFooter {
@@ -73,7 +83,11 @@ final class ScrollStitcher: @unchecked Sendable {
                 contentEnd -= footer - lastFooter
             }
             offset += shift
+            lastShift = shift
             let start = max(header, contentEnd - offset), end = h - footer
+            // Still above the end of what was added (after scrolling back up): the tail stays as it was.
+            guard start <= end else { return .moved(shift) }
+            caughtUp = true
             if end > start, let strip = slice(frame, top: start, rows: end - start) {
                 pieces.append(strip)
                 contentEnd = offset + end
@@ -82,8 +96,6 @@ final class ScrollStitcher: @unchecked Sendable {
             let tailStart = max(end, contentEnd - offset)
             tail = slice(frame, top: tailStart, rows: h - tailStart)
             height = contentEnd + h - tailStart
-            lastRows = rows
-            lastShift = shift
             lastFooter = footer
             return height >= Self.maxHeight ? .full : .moved(shift)
         }
@@ -191,9 +203,16 @@ final class ScrollCaptureController {
     private var autoStarted = Date()
     private var autoMoved = false
     private var lastMove = Date()
+    /// Scrolling paused for a frame after one that didn't match: often the next one does (an image loading in, an
+    /// animation), and then nothing needs taking back.
+    private var paused = false
     /// Frames spent waiting for a taken-back overshoot to settle (0 = not recovering), and the speed before it.
     private var recovering = 0
     private var speedBeforeOvershoot: CGFloat = 0
+    /// The stitched height at the last take-back, and how many take-backs in a row added nothing since the one before:
+    /// a few of those mean it is stuck (often the end of the page with something animating), not going too fast.
+    private var heightAtTakeBack = -1
+    private var fruitlessTakeBacks = 0
     /// Time between captured frames (smoothed), to keep each frame's movement within what the stitcher matches.
     private var frameInterval: TimeInterval = 0.15
     private var lastFrameTime: Date?
@@ -336,7 +355,10 @@ final class ScrollCaptureController {
         autoMoved = false
         autoStarted = Date()
         measured = false
+        paused = false
         recovering = 0
+        heightAtTakeBack = -1
+        fruitlessTakeBacks = 0
         unposted = 0
         postedAtMatch = postedTotal
         lastTick = nil
@@ -360,7 +382,7 @@ final class ScrollCaptureController {
     private func scrollTick() {
         let now = Date()
         defer { lastTick = now }
-        guard autoScrolling, recovering == 0, let last = lastTick else { return }
+        guard autoScrolling, recovering == 0, !paused, let last = lastTick else { return }
         unposted += velocity * CGFloat(min(now.timeIntervalSince(last), 0.1))
         let whole = unposted.rounded(.down)
         guard whole >= 2 else { return }
@@ -374,11 +396,12 @@ final class ScrollCaptureController {
         var recovered = false
         switch step {
         case .moved, .unchanged:
+            paused = false
             if recovering > 0 {
-                // The take-back worked: carry on at half the speed.
+                // The take-back worked: carry on at half the speed, but not so slowly that the end seems reached.
                 recovering = 0
                 recovered = true
-                velocity = speedBeforeOvershoot / 2
+                velocity = max(speedBeforeOvershoot / 2, rect.height * 0.15, 40)
             }
         case .lost, .full:
             break
@@ -420,9 +443,22 @@ final class ScrollCaptureController {
                 if recovering > 8 { handOverLost(length) }
                 return
             }
+            guard paused else {
+                paused = true
+                return
+            }
+            paused = false
             // Everything posted since the matched frame was grabbed, including what went out after this frame.
             let overshoot = postedTotal - postedAtMatch
             guard overshoot > 0 else { handOverLost(length); return }
+            let height = stitcher?.height ?? 0
+            fruitlessTakeBacks = height <= heightAtTakeBack ? fruitlessTakeBacks + 1 : 0
+            heightAtTakeBack = height
+            if fruitlessTakeBacks >= 2 {
+                stopAutoScroll()
+                setStatus("\(length). Stuck here: click Done if this is the end, or scroll on by hand.")
+                return
+            }
             recovering = 1
             speedBeforeOvershoot = velocity
             unposted = 0
