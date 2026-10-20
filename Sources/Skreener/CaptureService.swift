@@ -82,12 +82,24 @@ enum CaptureService {
         return ctx.makeImage() ?? cg
     }
 
+    /// Normal app windows on screen, frontmost first, so a hit test picks the window you actually see under
+    /// the pointer. (ScreenCaptureKit's own list is not in stacking order, so a window behind could win.)
     static func onScreenWindows() async -> [SCWindow] {
         let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let me = Bundle.main.bundleIdentifier
-        return (content?.windows ?? []).filter {
+        let windows = (content?.windows ?? []).filter {
             $0.windowLayer == 0 && $0.frame.width > 40 && $0.frame.height > 40 &&
             $0.owningApplication?.bundleIdentifier != me
         }
+        // Core Graphics lists on-screen windows front to back. Fully transparent windows are left out: they
+        // can't be seen, but would still catch the click.
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        var rank: [CGWindowID: Int] = [:]
+        for (i, w) in info.enumerated() {
+            guard let id = (w[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { continue }
+            if ((w[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.01 { rank[id] = i }
+        }
+        guard !rank.isEmpty else { return windows }
+        return windows.filter { rank[$0.windowID] != nil }.sorted { (rank[$0.windowID] ?? .max) < (rank[$1.windowID] ?? .max) }
     }
 }

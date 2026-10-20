@@ -231,6 +231,7 @@ final class RecordAreaPicker: NSObject {
         let barSize = bar.fittingSize
         let bottom = screen.visibleFrame.minY - screen.frame.minY
         bar.frame = NSRect(x: v.bounds.midX - barSize.width / 2, y: bottom + 24, width: barSize.width, height: barSize.height)
+        guard sel.width.isFinite, sel.height.isFinite else { return }
         if widthField.currentEditor() == nil { widthField.integerValue = Int(sel.width.rounded()) }
         if heightField.currentEditor() == nil { heightField.integerValue = Int(sel.height.rounded()) }
     }
@@ -678,7 +679,10 @@ private final class AdjustView: NSView {
             let cursor: NSCursor = i % 2 == 0 ? .crosshair : (i == 1 || i == 5 ? .resizeUpDown : .resizeLeftRight)
             addCursorRect(handleRect(p), cursor: cursor)
         }
-        addCursorRect(selection.insetBy(dx: Self.grab, dy: Self.grab), cursor: .openHand)
+        // A new selection starts at 8 × 8: inset by the grab margin it would be a null rect (infinite origin),
+        // which crashes as a cursor rect. Only add the move cursor when there is an inside left.
+        let inside = selection.insetBy(dx: Self.grab, dy: Self.grab)
+        if !inside.isNull, !inside.isEmpty { addCursorRect(inside, cursor: .openHand) }
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -202,7 +202,9 @@ private final class SelectionView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if mode == .window {
-            if let w = hoverWindow { onFinish?(.window(w)) }
+            // Hit-test at the click itself: after Space switched modes there may have been no mouse move yet.
+            let p = convert(event.locationInWindow, from: nil)
+            if let w = windows.first(where: { viewRect(for: $0).contains(p) }) ?? hoverWindow { onFinish?(.window(w)) }
             return
         }
         window?.makeFirstResponder(self)
