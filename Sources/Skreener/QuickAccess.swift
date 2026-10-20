@@ -21,31 +21,39 @@ import AppKit
     private weak var editor: EditorWindowController?
     private let panel: NSPanel
 
+    // The app's capture flows (not main-actor isolated themselves) call these on the main thread.
+
     /// Adds a preview of `image` to the bottom of the stack. `editor` is the editor the capture opened in, if any.
-    static func show(_ image: NSImage, editor: EditorWindowController?) {
-        let qa = QuickAccessController(image: image, editor: editor)
-        screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-        live.append(qa)
-        layout(animated: true)
-        if !suspended { qa.panel.orderFrontRegardless() }
+    nonisolated static func show(_ image: NSImage, editor: EditorWindowController?) {
+        MainActor.assumeIsolated {
+            let qa = QuickAccessController(image: image, editor: editor)
+            screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+            live.append(qa)
+            layout(animated: true)
+            if !suspended { qa.panel.orderFrontRegardless() }
+        }
     }
 
     /// Fades every preview out, so it isn't in the way of (or in) the capture about to be taken.
-    static func suspend() {
-        generation += 1
-        suspended = true
-        for qa in live { qa.fade(in: false) }
+    nonisolated static func suspend() {
+        MainActor.assumeIsolated {
+            generation += 1
+            suspended = true
+            for qa in live { qa.fade(in: false) }
+        }
     }
 
     /// Brings the previews back after a capture; a little later, so a new editor gets to open first.
-    static func resume() {
-        guard suspended else { return }
-        let g = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            MainActor.assumeIsolated {
-                guard g == Self.generation else { return }
-                Self.suspended = false
-                for qa in Self.live { qa.fade(in: true) }
+    nonisolated static func resume() {
+        MainActor.assumeIsolated {
+            guard suspended else { return }
+            let g = generation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                MainActor.assumeIsolated {
+                    guard g == Self.generation else { return }
+                    Self.suspended = false
+                    for qa in Self.live { qa.fade(in: true) }
+                }
             }
         }
     }
