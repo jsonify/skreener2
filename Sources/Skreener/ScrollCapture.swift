@@ -1,14 +1,17 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Joins successive frames of a scrolling area into one tall image. Each frame is matched against the last accepted
-/// one to find how far the content moved up, and only the rows that scrolled into view are appended. Rows that stay
-/// put at the top or bottom of the area (a sticky header or footer) are detected on the first scroll, left out of
-/// the matching, and kept once: the header from the first frame, the footer from the last.
-final class ScrollStitcher {
+/// Joins successive frames of a scrolling area into one tall image. Each frame is matched against the last one that
+/// moved (see `ScrollMatcher`) and only the rows that scrolled into view are appended. Rows that stay put at the top or
+/// bottom of the area (a sticky header or footer) are worked out again for every frame and kept once: the header from
+/// the first frame, the footer from the latest. Positions are counted in content rows: `offset` is how far the latest
+/// frame has scrolled from the first one, `contentEnd` is the first content row not appended yet.
+///
+/// Not thread-safe: the capture feeds it from one serial queue, off the main thread.
+final class ScrollStitcher: @unchecked Sendable {
     enum Step {
-        /// Content moved up by this many pixels; that many new rows were added.
-        case added(Int)
+        /// Content moved up by this many pixels (negative: back down, after scrolling up).
+        case moved(Int)
         /// Nothing moved (or it moved too little to tell).
         case unchanged
         /// No good match: scrolled too fast, scrolled up, or the content changed.
@@ -22,90 +25,85 @@ final class ScrollStitcher {
     let width: Int
     let frameHeight: Int
     private(set) var height: Int
-    /// Copies of the strips that make up the result, top to bottom (the first frame, then each newly scrolled-in band).
-    private var strips: [CGImage]
-    private var lastFrame: CGImage
-    private var lastRows: [UInt8]
-    private var fixedTop = 0, fixedBottom = 0
-    private var fixedKnown = false
+    /// Copies of the content strips, top to bottom: the first frame above its footer, then each newly scrolled-in band.
+    private var pieces: [CGImage] = []
+    /// What goes under the pieces: the rows below the latest frame's content (a sticky footer, or blank space).
+    private var tail: CGImage?
+    /// The first frame, until something moves.
+    private var first: CGImage?
+    private var lastRows: ScrollRows
+    private var lastShift: Int?
+    private var lastFooter = 0
+    /// Whether the last frame reached the end of what has been stitched (not after scrolling back up).
+    private var caughtUp = true
+    private var offset = 0, contentEnd = 0
+    /// Columns matched, from the left: an overlay scroll bar at the right edge fades in and moves against the content.
+    private let matchWidth: Int
     private let space: CGColorSpace
 
-    /// Columns per row signature: each row is reduced to this many averaged gray values.
-    private static let bins = 96
-
-    init(first: CGImage) {
-        width = first.width
-        frameHeight = first.height
-        height = first.height
-        space = first.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)!
-        lastFrame = first
-        lastRows = Self.signature(first)
-        strips = []
-        if let copy = slice(first, top: 0, rows: first.height) { strips.append(copy) }
+    init(first frame: CGImage, ignoreRight: Int) {
+        width = frame.width
+        frameHeight = frame.height
+        height = frame.height
+        let matched = ignoreRight < frame.width / 2 ? frame.width - ignoreRight : frame.width
+        matchWidth = matched
+        space = frame.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        first = frame
+        lastRows = Self.rows(frame, width: matched)
     }
 
     func add(_ frame: CGImage) -> Step {
         guard frame.width == width, frame.height == frameHeight else { return .lost }
         if height >= Self.maxHeight { return .full }
-        let rows = Self.signature(frame)
-        let h = frameHeight, bins = Self.bins
-
-        // Rows that did not change at all, from the top and from the bottom.
-        var top = fixedTop, bottom = fixedBottom
-        if !fixedKnown {
-            top = 0
-            while top < h && Self.rowDiff(lastRows, top, rows, top) < 2 * bins { top += 1 }
-            if top == h { return .unchanged }
-            bottom = 0
-            while bottom < h - top && Self.rowDiff(lastRows, h - 1 - bottom, rows, h - 1 - bottom) < 2 * bins { bottom += 1 }
-            top = min(top, h / 3)
-            bottom = min(bottom, h / 3)
-        }
-        let band = h - top - bottom
-        let minOverlap = max(24, band / 6)
-        guard band > minOverlap + 1 else { return .unchanged }
-
-        // Average per-value difference with no movement, then the best upward shift.
-        let still = Self.cost(lastRows, rows, from: top, to: h - bottom, shift: 0, limit: .greatestFiniteMagnitude)
-        if still < 0.5 { return .unchanged }
-        var best = Double.greatestFiniteMagnitude, bestShift = 0
-        for shift in 1...(band - minOverlap) {
-            let c = Self.cost(lastRows, rows, from: top, to: h - bottom - shift, shift: shift, limit: best)
-            if c < best { best = c; bestShift = shift }
-        }
-        // Every other row is compared above, so a neighbouring shift can tie (solid areas); settle it on every row.
-        if bestShift > 0 {
-            var fine = Double.greatestFiniteMagnitude
-            for shift in max(1, bestShift - 2)...min(band - minOverlap, bestShift + 2) {
-                let c = Self.cost(lastRows, rows, from: top, to: h - bottom - shift, shift: shift, limit: fine, rowStep: 1)
-                if c < fine { fine = c; best = c; bestShift = shift }
+        let rows = Self.rows(frame, width: matchWidth)
+        let h = frameHeight
+        switch ScrollMatcher.match(lastRows, rows, hint: lastShift, bridgeBlank: caughtUp) {
+        case .unchanged:
+            return .unchanged
+        case .lost:
+            return .lost
+        case .moved(let shift, let header, let footer):
+            lastRows = rows
+            guard shift > 0 else {
+                // Scrolled back up: nothing new to add; just follow along until the view is past the end again.
+                offset += shift
+                caughtUp = false
+                return .moved(shift)
             }
-        }
-        guard bestShift > 0, best < 4, best < still * 0.5 else { return .lost }
-
-        if !fixedKnown {
-            fixedKnown = true
-            fixedTop = top
-            fixedBottom = bottom
-            // The first frame's footer comes off; the last frame's footer is added at the end.
-            if bottom > 0, let first = strips.first, let trimmed = first.cropping(to: CGRect(x: 0, y: 0, width: width, height: h - bottom)) {
-                strips[0] = trimmed
-                height -= bottom
+            if let firstFrame = first {
+                // First movement: the first frame above its footer is the top of the content.
+                if let piece = slice(firstFrame, top: 0, rows: h - footer) { pieces.append(piece) }
+                tail = slice(firstFrame, top: h - footer, rows: footer)
+                contentEnd = h - footer
+                first = nil
+            } else if footer > lastFooter && contentEnd - offset == h - lastFooter {
+                // A footer appeared or grew (a cookie bar, a toolbar). The rows it covers went in as content with the
+                // last frame; take them out again, and this frame adds back what was underneath.
+                dropLast(footer - lastFooter)
+                contentEnd -= footer - lastFooter
             }
+            offset += shift
+            lastShift = shift
+            let start = max(header, contentEnd - offset), end = h - footer
+            // Still above the end of what was added (after scrolling back up): the tail stays as it was.
+            guard start <= end else { return .moved(shift) }
+            caughtUp = true
+            if end > start, let strip = slice(frame, top: start, rows: end - start) {
+                pieces.append(strip)
+                contentEnd = offset + end
+            }
+            // The tail starts where the appended content ends, so rows already appended aren't repeated under it.
+            let tailStart = max(end, contentEnd - offset)
+            tail = slice(frame, top: tailStart, rows: h - tailStart)
+            height = contentEnd + h - tailStart
+            lastFooter = footer
+            return height >= Self.maxHeight ? .full : .moved(shift)
         }
-        let added = min(bestShift, Self.maxHeight - height)
-        guard let strip = slice(frame, top: h - fixedBottom - bestShift, rows: added) else { return .lost }
-        strips.append(strip)
-        height += added
-        lastFrame = frame
-        lastRows = rows
-        return height >= Self.maxHeight ? .full : .added(added)
     }
 
-    /// The stitched image, with the latest footer under it.
+    /// The stitched image, with the latest footer under it (the first frame alone if nothing moved).
     func makeImage() -> CGImage? {
-        var parts = strips
-        if fixedBottom > 0, let footer = slice(lastFrame, top: frameHeight - fixedBottom, rows: fixedBottom) { parts.append(footer) }
+        let parts = pieces.isEmpty ? [first].compactMap { $0 } : pieces + [tail].compactMap { $0 }
         let total = parts.reduce(0) { $0 + $1.height }
         guard total > 0, let ctx = context(height: total) else { return nil }
         var y = total
@@ -117,6 +115,20 @@ final class ScrollStitcher {
     }
 
     // MARK: Pixels
+
+    /// Removes `rows` rows from the bottom of the pieces.
+    private func dropLast(_ rows: Int) {
+        var left = rows
+        while left > 0, let last = pieces.last {
+            if last.height <= left {
+                pieces.removeLast()
+                left -= last.height
+            } else {
+                if let cut = last.cropping(to: CGRect(x: 0, y: 0, width: width, height: last.height - left)) { pieces[pieces.count - 1] = cut }
+                left = 0
+            }
+        }
+    }
 
     /// An independent copy of `rows` rows starting at `top` (so the full frame can be released).
     private func slice(_ image: CGImage, top: Int, rows: Int) -> CGImage? {
@@ -131,68 +143,47 @@ final class ScrollStitcher {
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
     }
 
-    /// Each row squeezed into `bins` gray values (row 0 = top), for comparing rows quickly.
-    private static func signature(_ image: CGImage) -> [UInt8] {
-        let h = image.height
+    /// The leftmost `width` columns of each row squeezed into `ScrollRows.bins` gray values (row 0 = top).
+    private static func rows(_ image: CGImage, width: Int) -> ScrollRows {
+        let h = image.height, bins = ScrollRows.bins
+        let source = width < image.width ? image.cropping(to: CGRect(x: 0, y: 0, width: width, height: h)) ?? image : image
         var data = [UInt8](repeating: 0, count: bins * h)
         data.withUnsafeMutableBytes { buf in
             guard let ctx = CGContext(data: buf.baseAddress, width: bins, height: h, bitsPerComponent: 8, bytesPerRow: bins,
                                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
             else { return }
             ctx.interpolationQuality = .medium
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: bins, height: h))
+            ctx.draw(source, in: CGRect(x: 0, y: 0, width: bins, height: h))
         }
-        return data
-    }
-
-    /// Sum of absolute differences between row `a` of `p` and row `b` of `n`.
-    private static func rowDiff(_ p: [UInt8], _ a: Int, _ n: [UInt8], _ b: Int) -> Int {
-        var sum = 0
-        let pa = a * bins, nb = b * bins
-        for i in 0..<bins { sum += abs(Int(p[pa + i]) - Int(n[nb + i])) }
-        return sum
-    }
-
-    /// Mean difference per value between rows `y + shift` of the previous frame and rows `y` of the new one, for
-    /// `y` in `from..<to` (every `rowStep`th row). Stops early, returning a value ≥ `limit`, once it can't beat `limit`.
-    private static func cost(_ p: [UInt8], _ n: [UInt8], from: Int, to: Int, shift: Int, limit: Double, rowStep: Int = 2) -> Double {
-        let count = (to - from + rowStep - 1) / rowStep
-        guard count > 0 else { return .greatestFiniteMagnitude }
-        let budget = limit * Double(count * bins)
-        var sum = 0
-        var y = from
-        while y < to {
-            sum += rowDiff(p, y + shift, n, y)
-            if Double(sum) >= budget { return limit }
-            y += rowStep
-        }
-        return Double(sum) / Double(count * bins)
+        return ScrollRows(gray: data)
     }
 }
 
-/// Scrolling capture: after an area is picked, a dashed frame marks it and a small control panel sits beside it.
-/// Scroll the content inside the area yourself, or click Auto-Scroll; Skreener grabs it several times a second and
-/// stitches the frames. Auto-scroll keeps scrolling down until the content stops moving (the end), then finishes,
-/// or until Stop Scrolling. Done (or ⌃⇧8 again) finishes, Esc or Cancel throws it away.
+/// Scrolling capture: after an area is picked, a dashed frame marks it and a small control panel sits inside its top.
+/// Scroll the content inside the area yourself, or click Auto-Scroll; Skreener grabs it about eight times a second
+/// and stitches the frames (off the main thread). Auto-scroll keeps scrolling down until the content stops moving
+/// (the end), then finishes, or until Stop Scrolling. Done (or ⌃⇧8 again) finishes, Esc or Cancel throws it away.
 final class ScrollCaptureController {
     private(set) var isRunning = false
     private var screen: NSScreen?
     private var rect: CGRect = .zero
     private var stitcher: ScrollStitcher?
+    /// Stitching runs here, one frame at a time; finishing queues up behind the frame in progress.
+    private let work = DispatchQueue(label: "skreener.scroll-stitch", qos: .userInitiated)
     private var frameWindow: NSPanel?
     private var controls: NSPanel?
     private let status = NSTextField(labelWithString: "")
     private var escHotKey: UInt32?
     private var completion: ((NSImage?) -> Void)?
-    private var actions: [ScrollAction] = []
     /// Bumped on every start, so a previous capture's frame loop stops even if a new one has begun.
     private var session = 0
 
     // Auto-scroll: a steady stream of small scroll events (about 60 a second) sent straight to the app under the
     // area, so the pointer stays free. The speed is set from how far the content really moves per point scrolled.
     private var autoScrolling = false
-    private var autoButton: NSButton?
+    private var autoButton: PillButton?
     private var scrollTimer: Timer?
+    private var lastTick: Date?
     /// The app and window under the middle of the area.
     private var targetPID: pid_t?
     private var targetWindow: CGWindowID = 0
@@ -201,17 +192,28 @@ final class ScrollCaptureController {
     /// Scroll speed in points per second, and the part of it not posted yet (events carry whole points).
     private var velocity: CGFloat = 0
     private var unposted: CGFloat = 0
-    /// Points posted since the last frame that moved: measures the speed, and is what an overshoot takes back.
-    private var postedSinceMove: CGFloat = 0
+    /// Points posted so far (a take-back counts as negative), and the total when the frame the stitcher last matched
+    /// was grabbed. The difference is how far the view was asked to move since that frame, which is what a moved frame
+    /// is measured against and what an overshoot takes back.
+    private var postedTotal: CGFloat = 0
+    private var postedAtMatch: CGFloat = 0
     private var measured = false
-    /// Whether the content has moved since auto-scroll started, and for how many frames it hasn't moved.
+    /// When auto-scroll started, whether the content has moved since, and when it last moved.
+    private var autoStarted = Date()
     private var autoMoved = false
-    private var stillFrames = 0
+    private var lastMove = Date()
+    /// Scrolling paused for a frame after one that didn't match: often the next one does (an image loading in, an
+    /// animation), and then nothing needs taking back.
+    private var paused = false
     /// Frames spent waiting for a taken-back overshoot to settle (0 = not recovering), and the speed before it.
     private var recovering = 0
     private var speedBeforeOvershoot: CGFloat = 0
+    /// The stitched height at the last take-back, and how many take-backs in a row added nothing since the one before:
+    /// a few of those mean it is stuck (often the end of the page with something animating), not going too fast.
+    private var heightAtTakeBack = -1
+    private var fruitlessTakeBacks = 0
     /// Time between captured frames (smoothed), to keep each frame's movement within what the stitcher matches.
-    private var frameInterval: TimeInterval = 0.2
+    private var frameInterval: TimeInterval = 0.15
     private var lastFrameTime: Date?
 
     func start(screen: NSScreen, rect: CGRect, completion: @escaping (NSImage?) -> Void) {
@@ -239,26 +241,48 @@ final class ScrollCaptureController {
         }
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)   // let the selection overlay leave the screen
+            var grabber: CaptureService.AreaGrabber?
             while true {
                 guard let self, self.isRunning, self.session == current, let screen = self.screen else { return }
-                let frame = try? await CaptureService.captureScreenImage(screen, globalRect: self.rect, showsCursor: false,
-                                                                         excludingSelf: true)
-                if let frame, self.isRunning, self.session == current { self.add(frame) }
-                try? await Task.sleep(nanoseconds: 120_000_000)
+                let began = Date()
+                if grabber == nil { grabber = try? await CaptureService.AreaGrabber(screen: screen, globalRect: self.rect) }
+                let posted = self.postedTotal
+                if let frame = try? await grabber?.grab() {
+                    guard self.isRunning, self.session == current else { return }
+                    if let stitcher = self.stitcher {
+                        let step = await self.onWorkQueue { stitcher.add(frame) }
+                        guard self.isRunning, self.session == current else { return }
+                        self.handle(step, posted: posted)
+                    } else {
+                        let edge = Int(16 * screen.backingScaleFactor)
+                        let started = await self.onWorkQueue { ScrollStitcher(first: frame, ignoreRight: edge) }
+                        guard self.isRunning, self.session == current else { return }
+                        self.stitcher = started
+                    }
+                } else {
+                    grabber = nil   // set up again next time (the display may have changed)
+                }
+                // About eight frames a second, counting the time the grab and the stitching took.
+                let wait = max(0.02, 0.12 - Date().timeIntervalSince(began))
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             }
         }
     }
 
     func finish() {
         guard isRunning else { return }
-        let image = stitcher?.makeImage().flatMap { cg -> NSImage? in
-            let scale = screen?.backingScaleFactor ?? 2
-            return NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width) / scale, height: CGFloat(cg.height) / scale))
-        }
-        let done = completion
+        let stitcher = self.stitcher, done = completion
+        let scale = screen?.backingScaleFactor ?? 2
         stop()
-        if image == nil { NSSound.beep() }
-        done?(image)
+        // On the stitching queue, after any frame still being added.
+        work.async {
+            let cg = stitcher?.makeImage()
+            DispatchQueue.main.async {
+                let image = cg.map { NSImage(cgImage: $0, size: NSSize(width: CGFloat($0.width) / scale, height: CGFloat($0.height) / scale)) }
+                if image == nil { NSSound.beep() }
+                done?(image)
+            }
+        }
     }
 
     func cancel() {
@@ -278,26 +302,26 @@ final class ScrollCaptureController {
         controls?.orderOut(nil); controls = nil
         autoButton = nil
         if let id = escHotKey { HotKeys.shared.unregister(id); escHotKey = nil }
-        actions.removeAll()
     }
 
-    private func add(_ frame: CGImage) {
-        guard let screen else { return }
+    /// Runs `job` on the stitching queue and hands back its result.
+    private func onWorkQueue<T>(_ job: @escaping () -> T) async -> T {
+        await withCheckedContinuation { done in work.async { done.resume(returning: job()) } }
+    }
+
+    /// One frame's result. `posted` is `postedTotal` when the frame was grabbed.
+    private func handle(_ step: ScrollStitcher.Step, posted: CGFloat) {
+        guard let screen, let stitcher else { return }
         let now = Date()
         if let last = lastFrameTime { frameInterval = frameInterval * 0.7 + now.timeIntervalSince(last) * 0.3 }
         lastFrameTime = now
-        guard let stitcher else {
-            stitcher = ScrollStitcher(first: frame)
-            return
-        }
-        let step = stitcher.add(frame)
         let length = "\(Int((CGFloat(stitcher.height) / screen.backingScaleFactor).rounded())) pt tall"
         if autoScrolling {
-            autoScrollStep(step, length: length, scale: CGFloat(stitcher.frameHeight) / max(rect.height, 1))
+            autoScrollStep(step, posted: posted, length: length, scale: CGFloat(stitcher.frameHeight) / max(rect.height, 1))
             return
         }
         switch step {
-        case .added: setStatus("\(length). Keep scrolling, or click Done.")
+        case .moved: setStatus("\(length). Keep scrolling, or click Done.")
         case .unchanged: break
         case .lost: setStatus("\(length). Lost track: scroll back a little and go slower.")
         case .full: setStatus("\(length). That's the maximum length: click Done.")
@@ -327,13 +351,17 @@ final class ScrollCaptureController {
         viaPointer = false
         autoScrolling = true
         autoMoved = false
-        stillFrames = 0
+        autoStarted = Date()
         measured = false
+        paused = false
         recovering = 0
+        heightAtTakeBack = -1
+        fruitlessTakeBacks = 0
         unposted = 0
-        postedSinceMove = 0
+        postedAtMatch = postedTotal
+        lastTick = nil
         velocity = max(rect.height * 0.25, 40)   // a slow start; measured and sped up over the first frames
-        autoButton?.title = "Stop Scrolling"
+        autoButton?.setContent(title: "Stop", symbol: "stop.fill")
         setStatus("Scrolling…")
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.scrollTick() }
         RunLoop.main.add(timer, forMode: .common)
@@ -344,75 +372,95 @@ final class ScrollCaptureController {
         autoScrolling = false
         scrollTimer?.invalidate()
         scrollTimer = nil
-        autoButton?.title = "Auto-Scroll"
+        autoButton?.setContent(title: "Auto-Scroll", symbol: "arrow.down")
     }
 
-    /// Posts the next bit of the steady scroll (at least 2 points at a time, so apps that scale events down still move).
+    /// Posts the next bit of the steady scroll, from the time since the last tick (ticks run late while the main thread
+    /// is busy). At least 2 points at a time, so apps that scale events down still move.
     private func scrollTick() {
-        guard autoScrolling, recovering == 0 else { return }
-        unposted += velocity / 60
+        let now = Date()
+        defer { lastTick = now }
+        guard autoScrolling, recovering == 0, !paused, let last = lastTick else { return }
+        unposted += velocity * CGFloat(min(now.timeIntervalSince(last), 0.1))
         let whole = unposted.rounded(.down)
         guard whole >= 2 else { return }
         unposted -= whole
-        postedSinceMove += whole
         post(scrollPoints: whole)
     }
 
     /// After each frame: tune the speed; finish once the content has moved and then stopped (the end). Never scrolls
     /// up, except to take back what was scrolled since the last match when it went further than can be matched.
-    private func autoScrollStep(_ step: ScrollStitcher.Step, length: String, scale: CGFloat) {
+    private func autoScrollStep(_ step: ScrollStitcher.Step, posted: CGFloat, length: String, scale: CGFloat) {
+        var recovered = false
         switch step {
-        case .added, .unchanged:
+        case .moved, .unchanged:
+            paused = false
             if recovering > 0 {
-                // The take-back worked: carry on at half the speed.
+                // The take-back worked: carry on at half the speed, but not so slowly that the end seems reached.
                 recovering = 0
-                velocity = speedBeforeOvershoot / 2
-                postedSinceMove = 0
+                recovered = true
+                velocity = max(speedBeforeOvershoot / 2, rect.height * 0.15, 40)
             }
         case .lost, .full:
             break
         }
         switch step {
-        case .added(let pixels):
+        case .moved(let pixels):
             // Aim for a fifth of the area per frame and at most one area height a second, from how far the scrolled
-            // points really moved (apps scale and animate scroll events differently). Speed up gradually.
-            if postedSinceMove > 0 {
-                let ratio = CGFloat(pixels) / scale / postedSinceMove
+            // points really moved (apps scale and animate scroll events differently). Speed up gradually. Only points
+            // posted before this frame was grabbed count; right after a take-back the numbers are too small to trust.
+            let asked = posted - postedAtMatch
+            if asked > 0 && !recovered {
+                let ratio = CGFloat(pixels) / scale / asked
                 if ratio > 0.05 {
                     let target = min(rect.height, rect.height * 0.2 / CGFloat(max(frameInterval, 0.05))) / ratio
                     velocity = min(target, velocity * (measured ? 1.5 : 3))
                     measured = true
                 }
             }
-            postedSinceMove = 0
+            postedAtMatch = posted
             autoMoved = true
-            stillFrames = 0
+            lastMove = Date()
             setStatus("\(length). Scrolling…")
         case .unchanged:
-            stillFrames += 1
-            if autoMoved && stillFrames >= 8 {
+            let still = Date().timeIntervalSince(autoMoved ? lastMove : autoStarted)
+            if autoMoved && still >= 2 {
                 finish()   // scrolled and then stopped moving: the end
-            } else if !autoMoved && stillFrames == 6 && !viaPointer {
+            } else if !autoMoved && still >= 1 && !viaPointer {
                 // The app didn't react to events sent to it: scroll at the pointer instead (it isn't moved).
                 viaPointer = true
                 setStatus("Rest the pointer on the content (below this bar) to keep scrolling.")
-            } else if !autoMoved && stillFrames >= 15 {
+            } else if !autoMoved && still >= 3 {
                 stopAutoScroll()
                 setStatus("Auto-Scroll couldn't move this content. Scroll it by hand instead.")
             }
         case .lost:
             if recovering > 0 {
-                // Give a take-back a few frames to settle (apps animate scrolling) before handing over.
+                // Give a take-back a moment to settle (apps animate scrolling) before handing over.
                 recovering += 1
-                if recovering > 5 { handOverLost(length) }
+                if recovering > 8 { handOverLost(length) }
                 return
             }
-            guard postedSinceMove > 0 else { handOverLost(length); return }
+            guard paused else {
+                paused = true
+                return
+            }
+            paused = false
+            // Everything posted since the matched frame was grabbed, including what went out after this frame.
+            let overshoot = postedTotal - postedAtMatch
+            guard overshoot > 0 else { handOverLost(length); return }
+            let height = stitcher?.height ?? 0
+            fruitlessTakeBacks = height <= heightAtTakeBack ? fruitlessTakeBacks + 1 : 0
+            heightAtTakeBack = height
+            if fruitlessTakeBacks >= 2 {
+                stopAutoScroll()
+                setStatus("\(length). Stuck here: click Done if this is the end, or scroll on by hand.")
+                return
+            }
             recovering = 1
             speedBeforeOvershoot = velocity
-            post(scrollPoints: -postedSinceMove)
-            postedSinceMove = 0
             unposted = 0
+            post(scrollPoints: -overshoot)
             setStatus("\(length). Slowing down…")
         case .full:
             stopAutoScroll()
@@ -456,6 +504,7 @@ final class ScrollCaptureController {
         guard delta != 0, let pid = targetPID,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)
         else { return }
+        postedTotal -= CGFloat(delta)
         if viaPointer {
             if let pointer = CGEvent(source: nil)?.location { event.location = pointer }   // never move the pointer
             event.post(tap: .cghidEventTap)
@@ -514,22 +563,27 @@ final class ScrollCaptureController {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.appearance = NSAppearance(named: .darkAqua)
 
+        // A dark capsule, like an iOS floating toolbar.
         let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
         bg.material = .hudWindow; bg.state = .active; bg.wantsLayer = true
-        bg.layer?.cornerRadius = 10; bg.layer?.masksToBounds = true
+        bg.layer?.cornerRadius = size.height / 2; bg.layer?.cornerCurve = .continuous; bg.layer?.masksToBounds = true
+        bg.layer?.borderWidth = 0.5; bg.layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
 
-        status.font = .systemFont(ofSize: 12)
+        status.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
-        let auto = button("Auto-Scroll") { [weak self] in self?.toggleAutoScroll() }
+        let auto = PillButton(title: "Auto-Scroll", symbol: "arrow.down", style: .tinted) { [weak self] in self?.toggleAutoScroll() }
         auto.toolTip = "Scroll automatically until the end of the content"
         autoButton = auto
-        let cancel = button("Cancel") { [weak self] in self?.cancel() }
-        let done = button("Done") { [weak self] in self?.finish() }
-        done.bezelColor = .controlAccentColor
+        let cancel = PillButton(title: nil, symbol: "xmark", style: .tinted) { [weak self] in self?.cancel() }
+        cancel.toolTip = "Cancel (Esc)"
+        let done = PillButton(title: "Done", symbol: "checkmark", style: .filled) { [weak self] in self?.finish() }
         let row = NSStackView(views: [status, auto, cancel, done])
         row.spacing = 8
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 10)
+        row.setCustomSpacing(14, after: status)
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 7)
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         status.setContentHuggingPriority(.defaultLow, for: .horizontal)
         row.frame = bg.bounds
@@ -539,21 +593,77 @@ final class ScrollCaptureController {
         p.orderFrontRegardless()
         controls = p
     }
-
-    private func button(_ title: String, _ run: @escaping () -> Void) -> NSButton {
-        let a = ScrollAction(run)
-        actions.append(a)
-        let b = NSButton(title: title, target: a, action: #selector(ScrollAction.fire))
-        b.bezelStyle = .rounded
-        b.controlSize = .small
-        return b
-    }
 }
 
-private final class ScrollAction: NSObject {
-    let run: () -> Void
-    init(_ run: @escaping () -> Void) { self.run = run }
-    @objc func fire() { run() }
+/// A capsule button in the style of iOS: filled with the accent colour, or a translucent tint over the dark bar; an
+/// SF Symbol with an optional title (no title makes it a circle). Dims while pressed.
+private final class PillButton: NSButton {
+    enum Style { case filled, tinted }
+
+    private let run: () -> Void
+    private let style: Style
+    private var pressed = false { didSet { applyColors() } }
+    private var widthConstraint: NSLayoutConstraint?
+
+    init(title: String?, symbol: String, style: Style, run: @escaping () -> Void) {
+        self.run = run
+        self.style = style
+        super.init(frame: .zero)
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+        contentTintColor = .white
+        target = self
+        action = #selector(fire)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 30).isActive = true
+        setContent(title: title, symbol: symbol)
+        applyColors()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func setContent(title: String?, symbol: String) {
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(config)
+        attributedTitle = NSAttributedString(string: title.map { " " + $0 } ?? "", attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white,
+        ])
+        imagePosition = title == nil ? .imageOnly : .imageLeading
+        setAccessibilityLabel(title ?? toolTip)
+        widthConstraint?.isActive = false
+        // Room either side of the content, or a circle when there is only a symbol.
+        widthConstraint = title == nil ? widthAnchor.constraint(equalToConstant: 30)
+                                       : widthAnchor.constraint(equalToConstant: super.intrinsicContentSize.width + 28)
+        widthConstraint?.isActive = true
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.height / 2
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        pressed = true
+        super.mouseDown(with: event)   // tracks the click until the button is released
+        pressed = false
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        let base: NSColor = style == .filled ? .controlAccentColor : NSColor.white.withAlphaComponent(0.16)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = (pressed ? base.blended(withFraction: 0.3, of: .black) ?? base : base).cgColor
+        }
+    }
+
+    @objc private func fire() { run() }
 }
 
 private final class DashedFrameView: NSView {
