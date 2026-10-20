@@ -513,11 +513,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         toastTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, let self else { return }
-            await NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.3
-                self.toastBox.animator().alphaValue = 0
-            }
+            self.toastBox.animator().alphaValue = 0   // fades over the default animation duration
             // Hidden once faded, so it stops taking clicks meant for the canvas.
+            try? await Task.sleep(for: .seconds(0.4))
             if !Task.isCancelled { self.toastBox.isHidden = true }
         }
     }
