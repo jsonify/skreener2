@@ -73,6 +73,14 @@ final class ScrollStitcher {
             let c = Self.cost(lastRows, rows, from: top, to: h - bottom - shift, shift: shift, limit: best)
             if c < best { best = c; bestShift = shift }
         }
+        // Every other row is compared above, so a neighbouring shift can tie (solid areas); settle it on every row.
+        if bestShift > 0 {
+            var fine = Double.greatestFiniteMagnitude
+            for shift in max(1, bestShift - 2)...min(band - minOverlap, bestShift + 2) {
+                let c = Self.cost(lastRows, rows, from: top, to: h - bottom - shift, shift: shift, limit: fine, rowStep: 1)
+                if c < fine { fine = c; best = c; bestShift = shift }
+            }
+        }
         guard bestShift > 0, best < 4, best < still * 0.5 else { return .lost }
 
         if !fixedKnown {
@@ -146,9 +154,9 @@ final class ScrollStitcher {
     }
 
     /// Mean difference per value between rows `y + shift` of the previous frame and rows `y` of the new one, for
-    /// `y` in `from..<to` (every other row). Stops early, returning a value ≥ `limit`, once it can't beat `limit`.
-    private static func cost(_ p: [UInt8], _ n: [UInt8], from: Int, to: Int, shift: Int, limit: Double) -> Double {
-        let count = (to - from + 1) / 2
+    /// `y` in `from..<to` (every `rowStep`th row). Stops early, returning a value ≥ `limit`, once it can't beat `limit`.
+    private static func cost(_ p: [UInt8], _ n: [UInt8], from: Int, to: Int, shift: Int, limit: Double, rowStep: Int = 2) -> Double {
+        let count = (to - from + rowStep - 1) / rowStep
         guard count > 0 else { return .greatestFiniteMagnitude }
         let budget = limit * Double(count * bins)
         var sum = 0
@@ -156,7 +164,7 @@ final class ScrollStitcher {
         while y < to {
             sum += rowDiff(p, y + shift, n, y)
             if Double(sum) >= budget { return limit }
-            y += 2
+            y += rowStep
         }
         return Double(sum) / Double(count * bins)
     }
@@ -164,8 +172,8 @@ final class ScrollStitcher {
 
 /// Scrolling capture: after an area is picked, a dashed frame marks it and a small control panel sits beside it.
 /// Scroll the content inside the area yourself, or click Auto-Scroll; Skreener grabs it several times a second and
-/// stitches the frames. Auto-scroll keeps going until the content stops moving (the end), then finishes, or until
-/// Stop Scrolling. Done (or ⌃⇧8 again) finishes, Esc or Cancel throws it away.
+/// stitches the frames. Auto-scroll keeps scrolling down until the content stops moving (the end), then finishes,
+/// or until Stop Scrolling. Done (or ⌃⇧8 again) finishes, Esc or Cancel throws it away.
 final class ScrollCaptureController {
     private(set) var isRunning = false
     private var screen: NSScreen?
@@ -180,15 +188,16 @@ final class ScrollCaptureController {
     /// Bumped on every start, so a previous capture's frame loop stops even if a new one has begun.
     private var session = 0
 
-    // Auto-scroll: posts a scroll event after each frame, sized to stay well inside what the stitcher can match.
+    // Auto-scroll: scrolls down a little after each frame, sized from how far the previous scroll actually moved.
     private var autoScrolling = false
     private var autoButton: NSButton?
-    /// Points per scroll event; halved whenever the stitcher loses track.
+    /// Points per scroll event, adapted so each frame moves about a quarter of the area.
     private var scrollStep: CGFloat = 0
-    /// +1 scrolls further down the page; flipped once if the first scrolls move nothing.
-    private var scrollDirection: CGFloat = 1
-    private var directionFlipped = false
-    /// Whether the content has moved since auto-scroll started, and how many frames in a row it hasn't.
+    /// The last scroll posted, in points (0 = none since the last frame that moved).
+    private var lastScroll: CGFloat = 0
+    /// Whether a scroll's real movement has been measured yet (until then steps are small probes).
+    private var measured = false
+    /// Whether the content has moved since auto-scroll started, and for how many frames it hasn't moved.
     private var autoMoved = false
     private var stillFrames = 0
 
@@ -213,7 +222,7 @@ final class ScrollCaptureController {
                                                                          excludingSelf: true)
                 if let frame, self.isRunning, self.session == current { self.add(frame) }
                 // Auto-scroll gives the app a little longer to draw (many animate their scrolling).
-                try? await Task.sleep(nanoseconds: self.autoScrolling ? 200_000_000 : 120_000_000)
+                try? await Task.sleep(nanoseconds: self.autoScrolling ? 250_000_000 : 120_000_000)
             }
         }
     }
@@ -246,8 +255,6 @@ final class ScrollCaptureController {
         frameWindow?.orderOut(nil); frameWindow = nil
         controls?.orderOut(nil); controls = nil
         autoButton = nil
-        scrollDirection = 1
-        directionFlipped = false
         if let id = escHotKey { HotKeys.shared.unregister(id); escHotKey = nil }
         actions.removeAll()
     }
@@ -256,13 +263,13 @@ final class ScrollCaptureController {
         guard let screen else { return }
         guard let stitcher else {
             stitcher = ScrollStitcher(first: frame)
-            if autoScrolling { scroll(by: scrollStep) }
+            if autoScrolling { scrollDown(scrollStep) }
             return
         }
         let step = stitcher.add(frame)
         let length = "\(Int((CGFloat(stitcher.height) / screen.backingScaleFactor).rounded())) pt tall"
         if autoScrolling {
-            autoScrollStep(step, length: length)
+            autoScrollStep(step, length: length, scale: CGFloat(stitcher.frameHeight) / max(rect.height, 1))
             return
         }
         switch step {
@@ -290,12 +297,14 @@ final class ScrollCaptureController {
         autoScrolling = true
         autoMoved = false
         stillFrames = 0
-        scrollStep = min(max(rect.height * 0.4, 40), 400)
+        scrollStep = 10   // a small first scroll measures how far this app moves per scroll event
+        measured = false
         autoButton?.title = "Stop Scrolling"
         setStatus("Scrolling…")
-        // Scroll events go to the window under the pointer, so put it in the middle of the area.
+        // Scroll events go to the window under the pointer, so put it in the middle of the area, and start right away.
         _ = CGWarpMouseCursorPosition(scrollPoint)
         _ = CGAssociateMouseAndMouseCursorPosition(1)
+        scrollDown(scrollStep)
     }
 
     private func stopAutoScroll() {
@@ -303,33 +312,47 @@ final class ScrollCaptureController {
         autoButton?.title = "Auto-Scroll"
     }
 
-    /// After each frame: scroll on, back off when the stitcher lost track, finish when the content stops moving.
-    private func autoScrollStep(_ step: ScrollStitcher.Step, length: String) {
+    /// After each frame: keep scrolling down; finish once the content has stopped moving (the end). Never scrolls up,
+    /// except to take back a single scroll that went further than the stitcher can match.
+    private func autoScrollStep(_ step: ScrollStitcher.Step, length: String, scale: CGFloat) {
         switch step {
-        case .added:
+        case .added(let pixels):
+            // Aim for a quarter of the area per frame, from how far the last scroll really moved (apps scale and
+            // animate scroll events differently); after the first measurement, grow by at most half each time.
+            if lastScroll > 0 {
+                let ratio = CGFloat(pixels) / scale / lastScroll
+                if ratio > 0.05 {
+                    let target = max(rect.height * 0.25 / ratio, 5)
+                    scrollStep = measured ? min(target, scrollStep * 1.5) : target
+                    measured = true
+                }
+            }
             autoMoved = true
             stillFrames = 0
             setStatus("\(length). Scrolling…")
-            scroll(by: scrollStep)
+            scrollDown(scrollStep)
         case .unchanged:
+            // The app may still be drawing (or animating) the last scroll: nudge again only every third frame.
             stillFrames += 1
-            guard stillFrames >= 3 else { return }
-            if !autoMoved && !directionFlipped {
-                // Nothing moved at all: the events may be going the wrong way (e.g. a reversed scroll setting).
-                directionFlipped = true
-                scrollDirection = -scrollDirection
-                stillFrames = 0
-                scroll(by: scrollStep)
-            } else {
-                finish()   // reached the end
+            if autoMoved && stillFrames >= 6 {
+                finish()   // scrolled and then stopped moving: the end
+            } else if !autoMoved && stillFrames >= 12 {
+                stopAutoScroll()
+                setStatus("Auto-Scroll couldn't move this content. Click inside it once and try again, or scroll by hand.")
+            } else if stillFrames % 3 == 0 {
+                scrollDown(scrollStep)
             }
-        case .lost where directionFlipped && !autoMoved:
-            // The reversed scrolls moved the content back up: it was already at the end.
-            finish()
         case .lost:
-            // Scrolled past what can be matched: go back half a step and use smaller steps from now on.
-            scroll(by: -scrollStep / 2)
-            scrollStep = max(scrollStep / 2, 40)
+            // The last scroll went too far to match: take exactly that one back and use smaller steps.
+            guard lastScroll > 0 else {
+                // Taking it back didn't help (or the content changed): hand over rather than guess.
+                stopAutoScroll()
+                setStatus("\(length). Lost track: scroll back up a little by hand, then Auto-Scroll again.")
+                return
+            }
+            post(scrollPoints: -lastScroll)
+            lastScroll = 0
+            scrollStep = max(scrollStep / 2, 5)
             setStatus("\(length). Slowing down…")
         case .full:
             stopAutoScroll()
@@ -343,9 +366,15 @@ final class ScrollCaptureController {
         return CGPoint(x: rect.midX, y: primaryHeight - rect.midY)
     }
 
-    /// Posts a pixel scroll at the middle of the area; positive `points` moves further down the content.
-    private func scroll(by points: CGFloat) {
-        let delta = Int32((-points * scrollDirection).rounded())
+    /// Scrolls the content under the area further down by `points`.
+    private func scrollDown(_ points: CGFloat) {
+        lastScroll = points
+        post(scrollPoints: points)
+    }
+
+    /// Posts a pixel scroll at the middle of the area; positive moves further down the content.
+    private func post(scrollPoints points: CGFloat) {
+        let delta = Int32((-points).rounded())
         guard delta != 0,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)
         else { return }
