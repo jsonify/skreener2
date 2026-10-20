@@ -136,13 +136,13 @@ private final class DragPill: NSView, NSDraggingSource {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // A pill bar like the editor's others.
+        // Outlined rather than raised: it is dragged, not clicked.
         let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
-        PillButton.barColor.setFill(); pill.fill()
-        PillButton.barBorderColor.setStroke(); pill.lineWidth = 1; pill.stroke()
+        NSColor.controlBackgroundColor.withAlphaComponent(0.5).setFill(); pill.fill()
+        NSColor.separatorColor.setStroke(); pill.lineWidth = 1; pill.stroke()
 
         // Grip: three short lines either side of the label.
-        NSColor.white.withAlphaComponent(0.4).setStroke()
+        NSColor.tertiaryLabelColor.setStroke()
         for side in [bounds.minX + 12, bounds.maxX - 22] {
             for i in 0..<3 {
                 let y = bounds.midY - 3 + CGFloat(i) * 3
@@ -151,8 +151,8 @@ private final class DragPill: NSView, NSDraggingSource {
             }
         }
         let text = "Drag Me" as NSString
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                                                    .foregroundColor: NSColor.white]
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                                                    .foregroundColor: NSColor.labelColor]
         let size = text.size(withAttributes: attrs)
         text.draw(at: NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2), withAttributes: attrs)
     }
@@ -175,8 +175,9 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
 private let pillHeight: CGFloat = 26
 
 /// A symbol-only pill (a circle) that sends `action` to `target`.
-@MainActor private func iconButton(_ sym: String, _ tip: String, _ target: AnyObject?, _ action: Selector) -> PillButton {
-    let b = PillButton(title: nil, symbol: sym, height: pillHeight)
+@MainActor private func iconButton(_ sym: String, _ tip: String, _ target: AnyObject?, _ action: Selector,
+                                   style: PillButton.Style = .raised, height: CGFloat = pillHeight) -> PillButton {
+    let b = PillButton(title: nil, symbol: sym, style: style, height: height)
     b.target = target; b.action = action
     b.toolTip = tip
     b.setAccessibilityLabel(tip)
@@ -185,7 +186,7 @@ private let pillHeight: CGFloat = 26
 
 /// A titled pill that sends `action` to `target`; `filled` for the main action.
 @MainActor private func textButton(_ title: String, _ target: AnyObject?, _ action: Selector, filled: Bool = false) -> PillButton {
-    let b = PillButton(title: title, symbol: nil, style: filled ? .filled : .tinted, height: pillHeight)
+    let b = PillButton(title: title, symbol: nil, style: filled ? .filled : .raised, height: pillHeight)
     b.target = target; b.action = action
     return b
 }
@@ -201,10 +202,19 @@ private let pillHeight: CGFloat = 26
     return b
 }
 
-/// A toolbar item that shows `views` on a pill bar.
-@MainActor private func groupItem(_ id: NSToolbarItem.Identifier, _ label: String, _ views: [NSView]) -> NSToolbarItem {
+/// Raised pills side by side, with room around them for their shadows.
+@MainActor private func pillRow(_ views: [NSView], spacing: CGFloat = 6) -> NSStackView {
+    let row = NSStackView(views: views)
+    row.spacing = spacing
+    row.edgeInsets = NSEdgeInsets(top: 3, left: 2, bottom: 3, right: 2)
+    return row
+}
+
+/// A toolbar item that shows `views` side by side, or on a grey group capsule (for `.plain` pills).
+@MainActor private func groupItem(_ id: NSToolbarItem.Identifier, _ label: String, _ views: [NSView],
+                                  grouped: Bool = false) -> NSToolbarItem {
     let item = NSToolbarItem(itemIdentifier: id)
-    item.view = PillBar(views); item.label = label
+    item.view = grouped ? PillBar(views) : pillRow(views); item.label = label
     return item
 }
 
@@ -247,7 +257,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let strokePopup = PillPopUp(pullsDown: false)
     private let fontPopup = PillPopUp(pullsDown: false)
     private let sizePopup = PillPopUp(pullsDown: false)
-    private let boldButton = PillButton(title: nil, symbol: "bold", height: pillHeight)
+    private let boldButton = PillButton(title: nil, symbol: "bold", style: .raised, height: pillHeight)
     private let pixelPopup = PillPopUp(pullsDown: false)
     private let cornerStylePopup = PillPopUp(pullsDown: false)
     private let arrowStylePopup = PillPopUp(pullsDown: false)
@@ -260,13 +270,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         didSet { refreshStrip() }
     }
     private let cropBar = NSStackView()
-    private var attributesCapsule: PillBar?
     private let textAreaBar = NSStackView()
     private let backgroundBar = NSStackView()
     private let fillPopup = PillPopUp(pullsDown: false)
     private let paddingPopup = PillPopUp(pullsDown: false)
     private let cornerPopup = PillPopUp(pullsDown: false)
-    private let bgShadowBox = PillButton(title: "Shadow", symbol: "shadow", height: pillHeight)
+    private let bgShadowBox = PillButton(title: "Shadow", symbol: "shadow", style: .raised, height: pillHeight)
     private static let fontChoices = [("System", ""), ("Helvetica Neue", "Helvetica Neue"), ("Avenir Next", "Avenir Next"),
                                       ("Georgia", "Georgia"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
                                       ("Chalkboard SE", "Chalkboard SE")]
@@ -524,12 +533,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesTitle.font = .systemFont(ofSize: 12, weight: .semibold)
         attributesTitle.textColor = .secondaryLabelColor
         attributesHint.font = .systemFont(ofSize: 12)
-        attributesHint.textColor = .secondaryLabelColor
-        // The options sit on a pill bar; the labels get the bar's rounded ends as margin.
-        let row = PillBar([attributesTitle, attributesBar, attributesHint, cropBar, textAreaBar, backgroundBar], spacing: 10)
-        row.row.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 0)
-        attributesCapsule = row
-        row.heightAnchor.constraint(equalToConstant: pillHeight + 6).isActive = true
+        attributesHint.textColor = .tertiaryLabelColor
+        let row = pillRow([attributesTitle, attributesBar, attributesHint, cropBar, textAreaBar, backgroundBar], spacing: 10)
+        row.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox(); line.boxType = .separator
         line.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(row); bar.addSubview(line)
@@ -557,7 +563,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             zoomButton.menu?.addItem(item)
         }
         zoomButton.toolTip = "Zoom"
-        let zoomBar = PillBar([zoomButton])
+        let zoomBar = pillRow([zoomButton])
+        zoomBar.translatesAutoresizingMaskIntoConstraints = false
 
         let pill = DragPill()
         pill.imageProvider = { [weak self] in self?.canvas.flattened() ?? NSImage() }
@@ -567,17 +574,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                        ("pin", "Pin to Screen", #selector(pinIt)),
                        ("doc.on.doc", "Copy", #selector(copyIt)),
                        ("square.and.arrow.down", "Save", #selector(saveIt))].map { sym, tip, sel in
-            let b = PillButton(title: nil, symbol: sym, height: 28)
-            b.target = self; b.action = sel
-            b.toolTip = tip
-            b.setAccessibilityLabel(tip)
-            return b
+            iconButton(sym, tip, self, sel, height: 28)
         }
-        let right = PillBar(actions)
+        let right = pillRow(actions, spacing: 8)
+        right.translatesAutoresizingMaskIntoConstraints = false
 
         [zoomBar, pill, right].forEach(bar.addSubview)
         NSLayoutConstraint.activate([
-            zoomBar.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
+            zoomBar.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 14),
             zoomBar.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             pill.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
             pill.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
@@ -656,11 +660,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             // One pill per tool; the current one is filled.
             toolPills = toolButtons.map { b in
                 let key = Tool.shortcuts.first { $0.value == b.tool }.map { " (\($0.key.uppercased()))" } ?? ""
-                let pill = iconButton(b.symbol, b.tool.name + key, self, #selector(toolChanged(_:)))
+                let pill = iconButton(b.symbol, b.tool.name + key, self, #selector(toolChanged(_:)), style: .plain)
                 pill.isOn = b.tool == canvas.tool
                 return pill
             }
-            let item = groupItem(id, "Tools", toolPills)
+            let item = groupItem(id, "Tools", toolPills, grouped: true)
             item.view?.setAccessibilityLabel("Tools")
             return item
         case .undoRedoItem:
@@ -683,7 +687,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesBar.orientation = .horizontal
         attributesBar.spacing = 6
 
-        attributesBar.spacing = 2
+        attributesBar.spacing = 6
         colorWell.target = self; colorWell.action = #selector(colorChanged(_:)); colorWell.toolTip = "Color"
 
         func setUp(_ popup: PillPopUp, _ tip: String, _ choices: [(String, Int)], _ action: Selector) {
@@ -730,12 +734,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private func buildCropBar() {
         let hint = NSTextField(labelWithString: "Drag the corners or draw a new area · Return to apply · Esc to cancel")
         hint.font = .systemFont(ofSize: 12)
-        hint.textColor = .secondaryLabelColor
+        hint.textColor = .tertiaryLabelColor
         let reset = textButton("Reset", self, #selector(cropReset))
         let cancel = textButton("Cancel", self, #selector(cropCancel))
         let apply = textButton("Apply", self, #selector(cropApply), filled: true)
         [hint, reset, cancel, apply].forEach(cropBar.addArrangedSubview)
-        cropBar.spacing = 2
+        cropBar.spacing = 6
         cropBar.setCustomSpacing(10, after: hint)
         cropBar.isHidden = true
     }
@@ -743,11 +747,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private func buildTextAreaBar() {
         let hint = NSTextField(labelWithString: "Drag over the text to copy it · Esc to cancel")
         hint.font = .systemFont(ofSize: 12)
-        hint.textColor = .secondaryLabelColor
+        hint.textColor = .tertiaryLabelColor
         let all = textButton("Copy All Text", canvas, #selector(CanvasView.copyAllText(_:)))
         let cancel = textButton("Cancel", self, #selector(textAreaCancel))
         [hint, all, cancel].forEach(textAreaBar.addArrangedSubview)
-        textAreaBar.spacing = 2
+        textAreaBar.spacing = 6
         textAreaBar.setCustomSpacing(10, after: hint)
         textAreaBar.isHidden = true
     }
@@ -779,7 +783,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
         bgShadowBox.target = self; bgShadowBox.action = #selector(backgroundShadowToggled)
         [fillPopup, paddingPopup, cornerPopup, bgShadowBox].forEach(backgroundBar.addArrangedSubview)
-        backgroundBar.spacing = 2
+        backgroundBar.spacing = 6
         backgroundBar.isHidden = true
     }
 
@@ -831,9 +835,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             bgShadowBox.isOn = bg?.shadow ?? true
             [paddingPopup, cornerPopup, bgShadowBox].forEach { $0.isEnabled = bg != nil }
         }
-        // An empty options row would leave a double gap; a label at the end needs the same margin as at the start.
+        // An empty options row would leave a double gap.
         if stripMode == .tools, attributesBar.arrangedSubviews.allSatisfy(\.isHidden) { attributesBar.isHidden = true }
-        attributesCapsule?.row.edgeInsets.right = attributesHint.isHidden ? 0 : 10
     }
 
     /// Shows the controls for `tool` and loads them with `style`.

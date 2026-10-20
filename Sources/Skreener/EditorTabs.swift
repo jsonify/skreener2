@@ -101,48 +101,28 @@ final class EditorWindow: NSWindow {
     }
 }
 
-/// The row of editor tabs: a dark capsule holding a pill per tab, the one showing filled with the accent colour.
+/// The row of editor tabs: a faint grey capsule holding a pill per tab, the one showing raised (white, soft shadow).
 /// Click a tab to show it; its × or a middle click closes it; right-click for more.
 final class EditorTabStrip: NSView {
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
     var menuForTab: ((Int) -> NSMenu?)?
 
-    private let capsule = NSView()
-    private let row = NSStackView()
+    private let capsule = PillBar([], spacing: 4, inset: 4)
+    private var row: NSStackView { capsule.row }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        capsule.wantsLayer = true
-        capsule.appearance = NSAppearance(named: .darkAqua)
-        capsule.layer?.backgroundColor = PillButton.barColor.cgColor
-        capsule.layer?.cornerCurve = .continuous
-        capsule.layer?.borderWidth = 0.5
-        capsule.layer?.borderColor = PillButton.barBorderColor.cgColor
-        capsule.translatesAutoresizingMaskIntoConstraints = false
-        row.orientation = .horizontal
         row.distribution = .fillEqually
-        row.spacing = 6
-        row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(capsule)
-        capsule.addSubview(row)
         NSLayoutConstraint.activate([
             capsule.centerXAnchor.constraint(equalTo: centerXAnchor),
             capsule.centerYAnchor.constraint(equalTo: centerYAnchor),
-            capsule.heightAnchor.constraint(equalToConstant: 40),
             capsule.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
             capsule.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
-            row.leadingAnchor.constraint(equalTo: capsule.leadingAnchor, constant: 5),
-            row.trailingAnchor.constraint(equalTo: capsule.trailingAnchor, constant: -5),
-            row.centerYAnchor.constraint(equalTo: capsule.centerYAnchor),
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override func layout() {
-        super.layout()
-        capsule.layer?.cornerRadius = capsule.bounds.height / 2
-    }
 
     func show(_ titles: [String], selected: Int) {
         row.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -181,8 +161,7 @@ private final class TabPill: NSView {
         setAccessibilitySelected(selected)
 
         label.stringValue = title
-        label.font = .systemFont(ofSize: 12, weight: .semibold)
-        label.textColor = .white
+        label.font = .systemFont(ofSize: 12, weight: .medium)
         label.lineBreakMode = .byTruncatingTail
         label.alignment = .center
         label.setContentCompressionResistancePriority(.init(1), for: .horizontal)
@@ -191,7 +170,7 @@ private final class TabPill: NSView {
         let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
         closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?.withSymbolConfiguration(config)
         closeButton.isBordered = false
-        closeButton.contentTintColor = .white
+        closeButton.contentTintColor = .secondaryLabelColor
         closeButton.toolTip = "Close Tab"
         closeButton.target = self
         closeButton.action = #selector(closeTab)
@@ -204,7 +183,7 @@ private final class TabPill: NSView {
         let minimum = widthAnchor.constraint(greaterThanOrEqualToConstant: 64)
         minimum.priority = .init(700)
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 30),
+            heightAnchor.constraint(equalToConstant: 28),
             preferred, minimum,
             closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -222,6 +201,7 @@ private final class TabPill: NSView {
     override func layout() {
         super.layout()
         layer?.cornerRadius = bounds.height / 2
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: bounds.height / 2, cornerHeight: bounds.height / 2, transform: nil)
     }
 
     override func updateTrackingAreas() {
@@ -250,14 +230,19 @@ private final class TabPill: NSView {
         applyState()
     }
 
+    /// The tab showing is raised like the editor's buttons; the others are bare, with a faint grey under the pointer.
     private func applyState() {
         closeButton.isHidden = !selected && !hovering
-        let base: NSColor = selected ? .controlAccentColor : PillButton.tintColor
-        let fill = !selected && hovering ? base.withAlphaComponent(0.26) : base
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         effectiveAppearance.performAsCurrentDrawingAppearance {
+            let fill = selected ? PillButton.raisedColor(dark: dark) : hovering ? NSColor.labelColor.withAlphaComponent(0.06) : .clear
             layer?.backgroundColor = fill.cgColor
+            layer?.shadowColor = NSColor.black.cgColor
+            layer?.shadowOpacity = selected ? (dark ? 0.35 : 0.16) : 0
+            layer?.shadowRadius = 1.5
+            layer?.shadowOffset = CGSize(width: 0, height: -0.5)
         }
-        label.textColor = selected ? .white : NSColor.white.withAlphaComponent(0.85)
+        label.textColor = selected ? .labelColor : .secondaryLabelColor
     }
 
     @objc private func closeTab() { onClose?() }

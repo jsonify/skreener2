@@ -1,19 +1,31 @@
 import AppKit
 
-/// A capsule button in the style of iOS: filled with the accent colour, or a translucent tint over the dark bar; an
-/// SF Symbol and/or a title (a symbol alone makes it a circle). Dims while pressed. `isOn` fills a tinted button with
-/// the accent colour too, for the current tool or a toggle that is on.
+/// A capsule button: an SF Symbol and/or a title (a symbol alone makes it a circle). Dims while pressed. `isOn` fills
+/// it with the accent colour, for the current tool or a toggle that is on.
 class PillButton: NSButton {
-    enum Style { case filled, tinted }
+    enum Style {
+        /// Accent colour, white content: the main action.
+        case filled
+        /// Translucent white over the dark bar (the scrolling-capture bar).
+        case tinted
+        /// A white button with a soft shadow on the window background (a lighter grey in dark mode), like CleanShot's.
+        case raised
+        /// No fill of its own, on a `PillBar` group (the editor's tools).
+        case plain
+    }
 
     /// Space between the symbol and the title, the same on every pill button. The symbol and title are laid out
     /// here rather than by the button cell, whose own spacing is wider and varies with the content.
     static let iconGap: CGFloat = 5
-    /// The dark capsule the buttons sit on (the scrolling-capture bar, the editor's bars and tab row).
+    /// The dark capsule `.tinted` buttons sit on (the scrolling-capture bar; also the editor's toast).
     static let barColor = NSColor(white: 0.12, alpha: 0.94)
     static let barBorderColor = NSColor.white.withAlphaComponent(0.15)
     /// The `.tinted` fill: a translucent white over the dark bar.
     static let tintColor = NSColor.white.withAlphaComponent(0.16)
+    /// The `.raised` fill.
+    static func raisedColor(dark: Bool) -> NSColor { dark ? NSColor(white: 1, alpha: 0.13) : .white }
+    /// A `PillBar` group's fill: a faint grey on the window background.
+    static func groupColor(dark: Bool) -> NSColor { dark ? NSColor(white: 1, alpha: 0.07) : NSColor(white: 0, alpha: 0.055) }
 
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
@@ -45,13 +57,10 @@ class PillButton: NSButton {
         self.title = ""
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        icon.contentTintColor = .white
-        label.font = .systemFont(ofSize: height >= 30 ? 13 : 12, weight: .semibold)
-        label.textColor = .white
+        label.font = .systemFont(ofSize: height >= 30 ? 13 : 12, weight: style == .raised || style == .plain ? .medium : .semibold)
         label.lineBreakMode = .byTruncatingTail
         let chevronConfig = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
         chevron.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?.withSymbolConfiguration(chevronConfig)
-        chevron.contentTintColor = NSColor.white.withAlphaComponent(0.75)
         chevron.isHidden = true
         content.addArrangedSubview(icon)
         content.addArrangedSubview(label)
@@ -102,6 +111,7 @@ class PillButton: NSButton {
     override func layout() {
         super.layout()
         layer?.cornerRadius = bounds.height / 2
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: bounds.height / 2, cornerHeight: bounds.height / 2, transform: nil)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -121,9 +131,26 @@ class PillButton: NSButton {
     }
 
     private func applyColors() {
-        let base: NSColor = style == .filled || isOn ? .controlAccentColor : Self.tintColor
+        let accent = style == .filled || isOn
+        let onDark = accent || style == .tinted
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let content: NSColor = onDark ? .white : .labelColor
+        icon.contentTintColor = content
+        label.textColor = content
+        chevron.contentTintColor = onDark ? NSColor.white.withAlphaComponent(0.75) : .secondaryLabelColor
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = (pressed ? base.blended(withFraction: 0.3, of: .black) ?? base : base).cgColor
+            var fill: NSColor
+            if accent { fill = .controlAccentColor }
+            else if style == .tinted { fill = Self.tintColor }
+            else if style == .raised { fill = Self.raisedColor(dark: dark) }
+            else { fill = pressed ? NSColor.labelColor.withAlphaComponent(0.1) : .clear }   // plain: grey only while pressed
+            if pressed, accent || style != .plain { fill = fill.blended(withFraction: dark ? 0.15 : 0.12, of: .black) ?? fill }
+            layer?.backgroundColor = fill.cgColor
+            // Raised pills cast a soft shadow.
+            layer?.shadowColor = NSColor.black.cgColor
+            layer?.shadowOpacity = style == .raised ? (dark ? 0.35 : 0.16) : 0
+            layer?.shadowRadius = 1.5
+            layer?.shadowOffset = CGSize(width: 0, height: -0.5)
         }
     }
 
@@ -139,7 +166,7 @@ final class PillPopUp: PillButton {
 
     init(pullsDown: Bool, height: CGFloat = 26) {
         self.pullsDown = pullsDown
-        super.init(title: nil, symbol: nil, height: height)
+        super.init(title: nil, symbol: nil, style: .raised, height: height)
         menu = NSMenu()
         showsChevron = true
     }
@@ -196,18 +223,14 @@ final class PillPopUp: PillButton {
     }
 }
 
-/// The dark capsule pill buttons sit on, like the scrolling-capture bar: its views in a row, inset from the edges.
+/// A faint grey capsule grouping `.plain` pills (the editor's tools, its tabs): its views in a row, inset from the edges.
 final class PillBar: NSView {
     let row = NSStackView()
 
     init(_ views: [NSView], spacing: CGFloat = 2, inset: CGFloat = 3) {
         super.init(frame: .zero)
         wantsLayer = true
-        appearance = NSAppearance(named: .darkAqua)
-        layer?.backgroundColor = PillButton.barColor.cgColor
         layer?.cornerCurve = .continuous
-        layer?.borderWidth = 0.5
-        layer?.borderColor = PillButton.barBorderColor.cgColor
         translatesAutoresizingMaskIntoConstraints = false
         row.orientation = .horizontal
         row.spacing = spacing
@@ -227,35 +250,39 @@ final class PillBar: NSView {
         super.layout()
         layer?.cornerRadius = bounds.height / 2
     }
+
+    override func updateLayer() {
+        super.updateLayer()
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        layer?.backgroundColor = PillButton.groupColor(dark: dark).cgColor
+    }
+    override var wantsUpdateLayer: Bool { true }
 }
 
-/// A round swatch of the current colour. Clicking it offers a few colours and More Colors… (the colour panel); a
-/// change goes to its target/action.
-final class ColorPill: NSButton {
-    var color: NSColor = .systemRed { didSet { needsDisplay = true } }
+/// A raised pill showing the current colour as a dot, with a ▾. Clicking it offers a few colours and More Colors… (the
+/// colour panel); a change goes to its target/action.
+final class ColorPill: PillButton {
+    var color: NSColor = .systemRed { didSet { setContent(title: nil, image: Self.dot(color)) } }
     private static let presets: [(String, NSColor)] = [
         ("Red", .systemRed), ("Orange", .systemOrange), ("Yellow", .systemYellow), ("Green", .systemGreen),
         ("Blue", .systemBlue), ("Purple", .systemPurple), ("Pink", .systemPink), ("Black", .black), ("White", .white),
     ]
 
     init(size: CGFloat = 26) {
-        super.init(frame: .zero)
-        isBordered = false
-        title = ""
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: size).isActive = true
-        heightAnchor.constraint(equalToConstant: size).isActive = true
+        super.init(title: nil, symbol: nil, style: .raised, height: size)
+        showsChevron = true
+        setContent(title: nil, image: Self.dot(color))
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
-        PillButton.tintColor.setFill(); ring.fill()
-        let dot = NSBezierPath(ovalIn: bounds.insetBy(dx: 5, dy: 5))
-        color.setFill(); dot.fill()
-        NSColor.white.withAlphaComponent(0.5).setStroke(); dot.lineWidth = 1; dot.stroke()
+    /// A filled circle with a hairline edge (so white shows on white).
+    private static func dot(_ c: NSColor, size: CGFloat = 14) -> NSImage {
+        NSImage(size: NSSize(width: size, height: size), flipped: false) { r in
+            let p = NSBezierPath(ovalIn: r.insetBy(dx: 0.5, dy: 0.5))
+            c.setFill(); p.fill()
+            NSColor.black.withAlphaComponent(0.15).setStroke(); p.lineWidth = 1; p.stroke()
+            return true
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -264,19 +291,16 @@ final class ColorPill: NSButton {
             let item = NSMenuItem(title: name, action: #selector(presetPicked(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = c
-            item.image = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { r in
-                let p = NSBezierPath(ovalIn: r.insetBy(dx: 0.5, dy: 0.5))
-                c.setFill(); p.fill()
-                NSColor.separatorColor.setStroke(); p.stroke()
-                return true
-            }
+            item.image = Self.dot(c)
             m.addItem(item)
         }
         m.addItem(.separator())
         let more = NSMenuItem(title: "More Colors…", action: #selector(showPanel), keyEquivalent: "")
         more.target = self
         m.addItem(more)
+        pressed = true
         _ = m.popUp(positioning: nil, at: NSPoint(x: 0, y: isFlipped ? bounds.height + 4 : -4), in: self)
+        pressed = false
     }
 
     @objc private func presetPicked(_ item: NSMenuItem) {
