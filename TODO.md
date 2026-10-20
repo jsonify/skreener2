@@ -85,4 +85,4 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [ ] CI: macOS runner `swift build` + unit tests (Package has no test target yet) — S
 - [ ] Unit tests: coordinate conversion, filename formatting, OCR on fixture — M
 - [ ] Developer-ID signing + notarisation script — M
-- [ ] App icon and menu-bar template image — S
+- [~] App icon and menu-bar template image — S

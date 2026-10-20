@@ -13,8 +13,10 @@ APP=build/Skreener.app
 BUILD=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
 # A running copy keeps the old code (and its hotkeys), so quit it before replacing the bundle.
 pkill -x Skreener 2>/dev/null && sleep 0.5 || true
-rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Skreener "$APP/Contents/MacOS/Skreener"
+# App icon and menu bar template image (regenerate with Scripts/make_icons.py).
+cp Resources/AppIcon.icns Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -22,6 +24,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Skreener</string>
   <key>CFBundleIdentifier</key><string>com.skreener.app</string>
   <key>CFBundleExecutable</key><string>Skreener</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
