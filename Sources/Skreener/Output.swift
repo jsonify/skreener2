@@ -89,8 +89,23 @@ enum Output {
         if panel.runModal() == .OK, let url = panel.url, let data = fileData(image) { try? data.write(to: url) }
     }
 
-    /// The share sheet (AirDrop, Mail, Messages…) under `view`.
-    static func share(_ items: [Any], from view: NSView) {
-        NSSharingServicePicker(items: items).show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+    /// Writes the image to a temporary file named like a saved screenshot, for Drag Me and the share sheet.
+    static func temporaryFile(_ image: NSImage) -> URL? {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Skreener Export", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = uniqueURL(in: dir, name: filename(), ext: Preferences.imageFormat.fileExtension)
+        guard let data = fileData(image) else { return nil }
+        do { try data.write(to: url); return url } catch { NSLog("Export failed: \(error)"); return nil }
+    }
+
+    /// The share sheet (AirDrop, Mail, Messages…) under `view`. Shares a file rather than the bare image, so the
+    /// sheet's header shows its thumbnail and name and receivers get a properly named PNG/JPEG.
+    static func share(_ image: NSImage, from view: NSView) {
+        guard let url = temporaryFile(image) else { NSSound.beep(); return }
+        share(url, from: view)
+    }
+
+    static func share(_ file: URL, from view: NSView) {
+        NSSharingServicePicker(items: [file]).show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
     }
 }

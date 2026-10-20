@@ -353,7 +353,7 @@ private final class HistoryCell: NSView, NSDraggingSource {
         let share = HoverButton(symbol: "square.and.arrow.up", tip: "Share…")
         share.onClick = { [weak self, weak share] in
             guard let self, let share else { return }
-            Output.share([self.entry.url], from: share)
+            Output.share(self.entry.url, from: share)
         }
         views.insert(share, at: 3)
         let row = NSStackView(views: views)

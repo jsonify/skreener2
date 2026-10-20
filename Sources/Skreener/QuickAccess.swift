@@ -53,7 +53,7 @@ final class QuickAccessController {
     @objc private func saveIt() { Output.saveAs(image) }
     @objc private func shareIt(_ sender: NSButton) {
         timer?.invalidate()   // don't slide away while the share menu is open
-        Output.share([image], from: sender)
+        Output.share(image, from: sender)
     }
     @objc private func pinIt() { onPin?(image); closeIt() }
     @objc private func editIt() { onAnnotate?(image); closeIt() }

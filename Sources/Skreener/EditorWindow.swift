@@ -44,10 +44,7 @@ private final class DragPill: NSView, NSDraggingSource {
         guard !dragStarted else { return }
         dragStarted = true
         let image = imageProvider()
-        guard let data = Output.fileData(image) else { return }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(Output.filename())
-            .appendingPathExtension(Preferences.imageFormat.fileExtension)
-        do { try data.write(to: url) } catch { NSLog("Drag export failed: \(error)"); return }
+        guard let url = Output.temporaryFile(image) else { return }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         let h: CGFloat = 72, w = h * image.size.width / max(image.size.height, 1)
         item.setDraggingFrame(NSRect(x: 0, y: 0, width: min(w, 160), height: h), contents: image)
@@ -694,7 +691,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func copyIt() { Output.copy(canvas.flattened()) }
     @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
-    @objc private func shareIt(_ sender: NSButton) { Output.share([canvas.flattened()], from: sender) }
+    @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
     @objc private func cropIt() {

@@ -326,7 +326,7 @@ final class RecordingQuickAccess {
     }
     @objc private func shareIt(_ sender: NSButton) {
         timer?.invalidate(); timer = nil   // don't slide away while the share menu is open
-        Output.share([url], from: sender)
+        Output.share(url, from: sender)
     }
     @objc private func closeIt() {
         timer?.invalidate(); timer = nil

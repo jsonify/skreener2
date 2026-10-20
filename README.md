@@ -16,7 +16,7 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 - Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close)
 - Open… / Open from Clipboard into the editor, Pin to the Screen… from a file or the clipboard
 - Show/Hide Desktop Icons toggle (or hide them only while capturing), About panel
-- Settings window (⌘, the menu bar icon, or the editor's gear button): launch at login, annotation drop shadow, copy/save after capture, save folder, file format (PNG/JPEG), file name template, save Retina captures at 1×, freeze screen, cursor, desktop icons, window capture style, shortcut list, and the running version + build commit
+- Settings window (⌘, the menu bar icon, or the editor's gear button), CleanShot-style with a sidebar: General (launch at login, freeze screen, cursor, desktop icons, export location), After Capture (copy / save / open editor, capture history), Shortcuts, Screenshots (PNG/JPEG, save Retina captures at 1×, file name template, window capture style), Screen Recording (audio, frame rate, cursor), Annotate (drop shadow, editor tabs), About (version + build commit)
 
 ## Build
 ```
