@@ -46,7 +46,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M
 - [~] Select/move/resize/delete existing annotations (object model, not baked pixels); double-click text to edit; recolor selection; arrow-key nudge — L
 - [~] Undo/redo of every edit (⌘Z / ⇧⌘Z), keyboard shortcuts per tool (V A R O L P T X) — S
-- [~] Mouse-wheel zoom around the pointer (trackpad still pans; ⌘+scroll and pinch zoom) — S
+- [~] Mouse navigation: wheel scrolls vertically, Shift + wheel horizontally, ⌘ + wheel zooms around the pointer, middle-button (wheel held down) drag pans; trackpad still pans, pinch zooms — S
 - [~] Inline text editing on the canvas (type in place, live preview; Esc / ⌘Return / click outside to finish) — S
 - [~] Contextual attributes bar: color for all tools, stroke width (shapes/pen), font/size/bold (text), pixel size (pixelate); applies to the selection or to new annotations — M
 - [~] Filled rectangle (F), numbered step counter (N; renumbers when one is deleted), highlighter (H; multiply blend) — M
@@ -59,7 +59,10 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Rotate left/right, flip horizontal/vertical (toolbar menu or Image menu; annotations follow, undoable) — S
 - [~] Rounded rectangles (corner popup for rect/filled rect/spotlight), arrow styles (filled, open, double-headed) — M
 - [~] Compact toolbar: small bordered buttons (tools as one segmented control) so everything fits the 990 pt minimum; smaller style bar and footer — S
+- [~] Pill style throughout the editor, in CleanShot's subtle colors: white raised pills with a soft shadow (grey in dark mode); tools as plain icons on a faint grey capsule, the current one in the accent color; Save as / Apply filled; outlined Drag Me; pop-ups are pills with a ▾; color is a dot pill with presets + More Colors…; tabs on the same grey capsule, the current one raised — M
 - [~] Editors open as tabs of one window instead of a window per screenshot (Settings → Editor toggle; ⇧⌘[ / ⇧⌘] switch tabs, Window menu: move tab to new window, merge all windows) — S
+- [~] Own tab row instead of AppKit's tab bar: pill tabs on a dark capsule (like the scrolling-capture bar), × / middle-click closes, right-click: close others, move to new window — M
+- [~] Copy Text via OCR in the editor: all text, or drag over an area (⇧⌘T, toolbar or Image menu); a toast says how many lines were copied — S
 - [~] Redact via OCR: all text, email addresses, phone numbers, links → editable pixelate boxes (toolbar or Image menu) — M
 - [~] Drag Me: Skreener hides while dragging, with a 100×85 pt preview card under the pointer (pointer over its bottom-right quadrant); a cancelled drag brings it back, after a drop the Dock icon / ⌘-Tab does. Pinned screenshots and Quick Access stay on screen — S
 

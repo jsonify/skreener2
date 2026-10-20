@@ -227,7 +227,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
     private var cachedBackdrop: NSColor?
     var tool: Tool = .arrow {
-        didSet { if tool != oldValue { finishTextEditing(); notifyContext() } }
+        didSet { if tool != oldValue { finishTextEditing(); endTextAreaPick(); notifyContext() } }
     }
     /// Style given to new annotations.
     private(set) var style = Style()
@@ -308,6 +308,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if textEditor != nil { finishTextEditing(); return }   // a click outside the text box ends typing
         window?.makeFirstResponder(self)
         let p = convert(event.locationInWindow, from: nil)
+        if isPickingTextArea { textAreaAnchor = p; textAreaDraft = nil; return }
         if let r = cropDraft { drag = cropDrag(in: r, at: p); return }
         beforeDrag = snapshot
 
@@ -337,6 +338,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     override func mouseDragged(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
+        if let a = textAreaAnchor {
+            textAreaDraft = NSRect(x: min(a.x, p.x), y: min(a.y, p.y), width: abs(p.x - a.x), height: abs(p.y - a.y))
+            return
+        }
         switch drag {
         case .draw?:
             draft?.end = p; draft?.points.append(p)
@@ -378,6 +383,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if textAreaAnchor != nil {
+            let r = textAreaDraft
+            endTextAreaPick()
+            // A click without a drag just leaves the mode.
+            if let r, r.width >= 4, r.height >= 4 { copyText(in: r) }
+            return
+        }
         guard let d = drag else { return }   // text add/edit records its own undo step
         if isCropping { drag = nil; return }  // the crop is recorded when it is applied
         if case .draw = d, let a = draft, isMeaningful(a) {
@@ -404,6 +416,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {
+        if isPickingTextArea {
+            if event.keyCode == 53 { endTextAreaPick() }   // Esc
+            return
+        }
         if isCropping {
             switch event.keyCode {
             case 36, 76: applyCrop()     // Return / Enter
@@ -677,6 +693,80 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             self.mutate { self.items += added }
             self.selectedID = nil
         }
+    }
+
+    // MARK: Copy text (OCR on the screenshot; the text goes to the clipboard)
+
+    /// Called with the text Copy Text found (empty when there was none); it is already on the clipboard.
+    var onTextCopied: ((String) -> Void)?
+    /// Called when picking an area for Copy Text from Area starts (true) or ends (false).
+    var onTextAreaModeChange: ((Bool) -> Void)?
+    private(set) var isPickingTextArea = false {
+        didSet {
+            guard isPickingTextArea != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+            onTextAreaModeChange?(isPickingTextArea)
+        }
+    }
+    private var textAreaAnchor: NSPoint?
+    /// The area dragged so far (image coordinates).
+    private var textAreaDraft: NSRect? {
+        didSet { needsDisplay = true }
+    }
+
+    @objc func copyAllText(_ sender: Any?) {
+        endTextAreaPick()
+        copyText(in: nil)
+    }
+
+    /// Drag over the screenshot to copy the text in that area; Esc cancels.
+    @objc func copyTextFromArea(_ sender: Any?) {
+        finishTextEditing()
+        applyCrop()
+        clearSelection()
+        isPickingTextArea = true
+        window?.makeFirstResponder(self)
+    }
+
+    func endTextAreaPick() {
+        textAreaAnchor = nil
+        textAreaDraft = nil
+        isPickingTextArea = false
+    }
+
+    static let textCommands: [(String, Selector)] = [
+        ("Copy Text from Area…", #selector(CanvasView.copyTextFromArea(_:))), ("Copy All Text", #selector(CanvasView.copyAllText(_:))),
+    ]
+
+    /// Reads the text in `area` of the screenshot (all of it when nil), copies it and reports it.
+    private func copyText(in area: NSRect?) {
+        let image = base
+        let size = base.size
+        var region: CGRect?
+        if let area {
+            let r = area.intersection(imageRect)
+            guard !r.isEmpty, size.width > 0, size.height > 0 else { onTextCopied?(""); return }
+            region = CGRect(x: r.minX / size.width, y: r.minY / size.height, width: r.width / size.width, height: r.height / size.height)
+        }
+        Task { @MainActor [weak self] in
+            let text = await TextRecognizer.recognize(image, region: region)
+            if !text.isEmpty { TextRecognizer.copyText(text) }
+            self?.onTextCopied?(text)
+        }
+    }
+
+    override func resetCursorRects() {
+        if isPickingTextArea { addCursorRect(visibleRect, cursor: .crosshair) }
+    }
+
+    private func drawTextAreaOverlay(_ r: NSRect) {
+        let path = NSBezierPath(rect: r)
+        NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+        path.fill()
+        path.lineWidth = 1.5 / zoom
+        path.setLineDash([6 / zoom, 4 / zoom], count: 2, phase: 0)
+        NSColor.controlAccentColor.setStroke()
+        path.stroke()
     }
 
     // MARK: Crop
@@ -1003,6 +1093,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         drawSpotlights(all.filter { $0.tool == .spotlight })
         ctx?.restoreGState()
         if let r = cropDraft { drawCropOverlay(r) }
+        if !exporting, let r = textAreaDraft { drawTextAreaOverlay(r) }
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
     }
 
