@@ -8,8 +8,8 @@ enum ClickStyle {
     static var color: NSColor { colors.indices.contains(Preferences.clickHighlightColor) ? colors[Preferences.clickHighlightColor].1 : .systemYellow }
 }
 
-/// Keystroke display needs Accessibility access to see key presses in other apps.
-enum KeystrokeAccess {
+/// Accessibility access: keystroke display needs it to see key presses in other apps, auto-scroll to post scroll events.
+enum AccessibilityAccess {
     static var granted: Bool { AXIsProcessTrusted() }
     /// Shows the system prompt (once per app identity) that leads to Privacy & Security → Accessibility.
     @discardableResult static func request() -> Bool {

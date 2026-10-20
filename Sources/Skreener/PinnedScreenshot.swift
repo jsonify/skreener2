@@ -29,6 +29,7 @@ final class PinnedScreenshotController: NSObject {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.isMovableByWindowBackground = true
+        p.canHide = false   // stays put while Skreener hides (e.g. during a Drag Me drag)
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isReleasedWhenClosed = false
 

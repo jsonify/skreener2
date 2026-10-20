@@ -61,10 +61,12 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Compact toolbar: small bordered buttons (tools as one segmented control) so everything fits the 990 pt minimum; smaller style bar and footer — S
 - [~] Editors open as tabs of one window instead of a window per screenshot (Settings → Editor toggle; ⇧⌘[ / ⇧⌘] switch tabs, Window menu: move tab to new window, merge all windows) — S
 - [~] Redact via OCR: all text, email addresses, phone numbers, links → editable pixelate boxes (toolbar or Image menu) — M
-- [ ] Drag Me: when a drag starts, hide the editor window and drag a small preview of the screenshot (85×100 px, cursor over its bottom-right quadrant, like CleanShot) instead of the large image; bring the window back if the drop is cancelled — S
+- [~] Drag Me: Skreener hides while dragging, with a 100×85 pt preview card under the pointer (pointer over its bottom-right quadrant); a cancelled drag brings it back, after a drop the Dock icon / ⌘-Tab does. Pinned screenshots and Quick Access stay on screen — S
 
 ## Batch 5 — capture modes
-- [ ] Scrolling capture (stitching) — L
+- [~] Scrolling capture (Capture Scrolling ⌃⇧8): pick an area, scroll it yourself; frames are grabbed ~8×/s and stitched by matching rows (sticky header/footer kept once, max 30,000 px); Done / ⌃⇧8 finishes, Esc / Cancel throws it away — L
+- [~] Scrolling capture: Auto-Scroll button (needs Accessibility): a steady ~60/s stream of small scroll events sent straight to the app under the area, so the pointer stays free; speed measured from how far the content really moves (about a fifth of the area per frame, at most one area height a second); only scrolls down, apart from taking back an overshoot; finishes when the content stops moving; Stop Scrolling or Esc hands back control (a second Esc cancels); the control bar sits inside the top tenth of the area (left out of the capture) so the pointer starts over the content — M
+- [ ] Scrolling capture: live preview of the stitched image beside the area — S
 - [ ] All-in-one capture mode picker — M
 - [~] Capture history: panel slides down from the top (menu / ⌃⇧H); edit, copy, save, pin, delete, drag out; last 100 kept; Settings toggle — M
 - [ ] Capture history: restore editable annotations (save the editor document, not just the flattened capture) — M

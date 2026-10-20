@@ -23,6 +23,7 @@ final class QuickAccessController {
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = true
+        p.canHide = false   // stays put while Skreener hides (e.g. during a Drag Me drag)
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))

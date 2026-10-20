@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
+    private let scrollCapture = ScrollCaptureController()
 
     /// The bundled template glyph (falls back to an SF Symbol when run outside the .app, e.g. `swift run`).
     private lazy var menuBarIcon: NSImage? = {
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotKeys.shared.register(keyCode: kVK_ANSI_5, modifiers: mods) { [weak self] in self?.captureWindow() }
         HotKeys.shared.register(keyCode: kVK_ANSI_6, modifiers: mods) { [weak self] in self?.captureAreaAndPin() }
         HotKeys.shared.register(keyCode: kVK_ANSI_7, modifiers: mods) { [weak self] in self?.recordScreen() }
+        HotKeys.shared.register(keyCode: kVK_ANSI_8, modifiers: mods) { [weak self] in self?.captureScrolling() }
         HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
         recording.onTick = { [weak self] time in
@@ -62,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Capture Area & Pin", #selector(captureAreaAndPin), "6")
         add("Capture Fullscreen", #selector(captureFullscreen), "3")
         add("Capture Window", #selector(captureWindow), "5")
+        add("Capture Scrolling", #selector(captureScrolling), "8")
         add("Capture Text (OCR)", #selector(captureText), "2")
         let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
         let timerMenu = NSMenu()
@@ -230,6 +233,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.restoreIcons(); return }
                 lastArea = (screen, rect)
                 run(areaCapture(screen, rect, frozen)) { CaptureHistory.add($0); PinnedScreenshotController.pin($0) }
+            }
+        }
+    }
+
+    // MARK: Scrolling capture
+
+    /// Pick an area, then scroll its content while Skreener stitches it into one tall image. The same command
+    /// (⌃⇧8) finishes; the result goes through the usual after-capture steps.
+    @objc func captureScrolling() {
+        if scrollCapture.isRunning { scrollCapture.finish(); return }
+        prepareCapture { [weak self] in
+            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, _)? = sel else { self?.restoreIcons(); return }
+                scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
+                    guard let self else { return }
+                    restoreIcons()
+                    if let image { finish(image) }
+                }
             }
         }
     }

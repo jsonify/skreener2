@@ -49,7 +49,7 @@ final class RecordingController {
 
     private func capture(_ r: ScreenRecorder, screen: NSScreen, rect: CGRect?, gif: Bool) {
         effects.start(area: rect ?? screen.frame, clicks: Preferences.recordHighlightClicks,
-                      keys: Preferences.recordShowKeystrokes && KeystrokeAccess.granted)
+                      keys: Preferences.recordShowKeystrokes && AccessibilityAccess.granted)
         var options = ScreenRecorder.Options()
         if gif { options.systemAudio = false; options.microphone = false }
         let keep = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
