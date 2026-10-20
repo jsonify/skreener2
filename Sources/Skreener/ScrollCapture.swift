@@ -155,7 +155,7 @@ final class ScrollStitcher: @unchecked Sendable {
             ctx.interpolationQuality = .medium
             ctx.draw(source, in: CGRect(x: 0, y: 0, width: bins, height: h))
         }
-        return ScrollRows(values: data)
+        return ScrollRows(gray: data)
     }
 }
 
@@ -175,14 +175,13 @@ final class ScrollCaptureController {
     private let status = NSTextField(labelWithString: "")
     private var escHotKey: UInt32?
     private var completion: ((NSImage?) -> Void)?
-    private var actions: [ScrollAction] = []
     /// Bumped on every start, so a previous capture's frame loop stops even if a new one has begun.
     private var session = 0
 
     // Auto-scroll: a steady stream of small scroll events (about 60 a second) sent straight to the app under the
     // area, so the pointer stays free. The speed is set from how far the content really moves per point scrolled.
     private var autoScrolling = false
-    private var autoButton: NSButton?
+    private var autoButton: PillButton?
     private var scrollTimer: Timer?
     private var lastTick: Date?
     /// The app and window under the middle of the area.
@@ -303,7 +302,6 @@ final class ScrollCaptureController {
         controls?.orderOut(nil); controls = nil
         autoButton = nil
         if let id = escHotKey { HotKeys.shared.unregister(id); escHotKey = nil }
-        actions.removeAll()
     }
 
     /// Runs `job` on the stitching queue and hands back its result.
@@ -363,7 +361,7 @@ final class ScrollCaptureController {
         postedAtMatch = postedTotal
         lastTick = nil
         velocity = max(rect.height * 0.25, 40)   // a slow start; measured and sped up over the first frames
-        autoButton?.title = "Stop Scrolling"
+        autoButton?.setContent(title: "Stop", symbol: "stop.fill")
         setStatus("Scrolling…")
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.scrollTick() }
         RunLoop.main.add(timer, forMode: .common)
@@ -374,7 +372,7 @@ final class ScrollCaptureController {
         autoScrolling = false
         scrollTimer?.invalidate()
         scrollTimer = nil
-        autoButton?.title = "Auto-Scroll"
+        autoButton?.setContent(title: "Auto-Scroll", symbol: "arrow.down")
     }
 
     /// Posts the next bit of the steady scroll, from the time since the last tick (ticks run late while the main thread
@@ -565,22 +563,27 @@ final class ScrollCaptureController {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.appearance = NSAppearance(named: .darkAqua)
 
+        // A dark capsule, like an iOS floating toolbar.
         let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
         bg.material = .hudWindow; bg.state = .active; bg.wantsLayer = true
-        bg.layer?.cornerRadius = 10; bg.layer?.masksToBounds = true
+        bg.layer?.cornerRadius = size.height / 2; bg.layer?.cornerCurve = .continuous; bg.layer?.masksToBounds = true
+        bg.layer?.borderWidth = 0.5; bg.layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
 
-        status.font = .systemFont(ofSize: 12)
+        status.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
-        let auto = button("Auto-Scroll") { [weak self] in self?.toggleAutoScroll() }
+        let auto = PillButton(title: "Auto-Scroll", symbol: "arrow.down", style: .tinted) { [weak self] in self?.toggleAutoScroll() }
         auto.toolTip = "Scroll automatically until the end of the content"
         autoButton = auto
-        let cancel = button("Cancel") { [weak self] in self?.cancel() }
-        let done = button("Done") { [weak self] in self?.finish() }
-        done.bezelColor = .controlAccentColor
+        let cancel = PillButton(title: nil, symbol: "xmark", style: .tinted) { [weak self] in self?.cancel() }
+        cancel.toolTip = "Cancel (Esc)"
+        let done = PillButton(title: "Done", symbol: "checkmark", style: .filled) { [weak self] in self?.finish() }
         let row = NSStackView(views: [status, auto, cancel, done])
         row.spacing = 8
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 10)
+        row.setCustomSpacing(14, after: status)
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 7)
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         status.setContentHuggingPriority(.defaultLow, for: .horizontal)
         row.frame = bg.bounds
@@ -590,21 +593,77 @@ final class ScrollCaptureController {
         p.orderFrontRegardless()
         controls = p
     }
-
-    private func button(_ title: String, _ run: @escaping () -> Void) -> NSButton {
-        let a = ScrollAction(run)
-        actions.append(a)
-        let b = NSButton(title: title, target: a, action: #selector(ScrollAction.fire))
-        b.bezelStyle = .rounded
-        b.controlSize = .small
-        return b
-    }
 }
 
-private final class ScrollAction: NSObject {
-    let run: () -> Void
-    init(_ run: @escaping () -> Void) { self.run = run }
-    @objc func fire() { run() }
+/// A capsule button in the style of iOS: filled with the accent colour, or a translucent tint over the dark bar; an
+/// SF Symbol with an optional title (no title makes it a circle). Dims while pressed.
+private final class PillButton: NSButton {
+    enum Style { case filled, tinted }
+
+    private let run: () -> Void
+    private let style: Style
+    private var pressed = false { didSet { applyColors() } }
+    private var widthConstraint: NSLayoutConstraint?
+
+    init(title: String?, symbol: String, style: Style, run: @escaping () -> Void) {
+        self.run = run
+        self.style = style
+        super.init(frame: .zero)
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+        contentTintColor = .white
+        target = self
+        action = #selector(fire)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 30).isActive = true
+        setContent(title: title, symbol: symbol)
+        applyColors()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func setContent(title: String?, symbol: String) {
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(config)
+        attributedTitle = NSAttributedString(string: title.map { " " + $0 } ?? "", attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white,
+        ])
+        imagePosition = title == nil ? .imageOnly : .imageLeading
+        setAccessibilityLabel(title ?? toolTip)
+        widthConstraint?.isActive = false
+        // Room either side of the content, or a circle when there is only a symbol.
+        widthConstraint = title == nil ? widthAnchor.constraint(equalToConstant: 30)
+                                       : widthAnchor.constraint(equalToConstant: super.intrinsicContentSize.width + 28)
+        widthConstraint?.isActive = true
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.height / 2
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        pressed = true
+        super.mouseDown(with: event)   // tracks the click until the button is released
+        pressed = false
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        let base: NSColor = style == .filled ? .controlAccentColor : NSColor.white.withAlphaComponent(0.16)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = (pressed ? base.blended(withFraction: 0.3, of: .black) ?? base : base).cgColor
+        }
+    }
+
+    @objc private func fire() { run() }
 }
 
 private final class DashedFrameView: NSView {

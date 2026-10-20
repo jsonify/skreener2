@@ -1,16 +1,34 @@
 /// The rows of one scrolling-capture frame, reduced for matching: each row (top first) squeezed into `bins` gray
-/// values. A flat row (one colour all the way across, like the gaps between paragraphs) lines up with any other flat
-/// row of that colour, so it says nothing about how far the content moved and is left out of the scoring.
+/// values, of which only the detail is kept (see `init`). A flat row (no detail, like the gaps between paragraphs)
+/// lines up with any other flat row, so it says nothing about how far the content moved and is left out of the scoring.
 struct ScrollRows {
     static let bins = 96
+    /// Bins either side that a value is compared with to find its detail.
+    private static let reach = 4
     let values: [UInt8]
     let flat: [Bool]
 
     var count: Int { flat.count }
 
-    init(values: [UInt8]) {
+    /// `gray` holds each row squeezed into `bins` gray values. What is kept is each value minus the average of its
+    /// neighbours in the row, plus its change from the row above (around 128): text, edges and lines. A smooth
+    /// background drops out, even one that changes from frame to frame (Messages' animated backgrounds), as does a
+    /// change in brightness; it would otherwise swamp the content that moves.
+    init(gray: [UInt8]) {
+        let bins = Self.bins, reach = Self.reach, h = gray.count / bins
+        var values = [UInt8](repeating: 128, count: gray.count)
+        var sums = [Int](repeating: 0, count: bins + 1)
+        for y in 0..<h {
+            let row = y * bins, above = y > 0 ? row - bins : row
+            for x in 0..<bins { sums[x + 1] = sums[x] + Int(gray[row + x]) }
+            for x in 0..<bins {
+                let from = max(x - reach, 0), to = min(x + reach + 1, bins)
+                let mean = (sums[to] - sums[from]) / (to - from)
+                let v = Int(gray[row + x])
+                values[row + x] = UInt8(clamping: 128 + (v - mean) + (v - Int(gray[above + x])))
+            }
+        }
         self.values = values
-        let bins = Self.bins
         flat = (0..<(values.count / bins)).map { y in
             var lo = UInt8.max, hi = UInt8.min
             for v in values[(y * bins)..<((y + 1) * bins)] { lo = min(lo, v); hi = max(hi, v) }
@@ -26,7 +44,7 @@ struct ScrollRows {
         return sum
     }
 
-    /// Whether row `a` here and row `b` of `other` are both flat and the same colour.
+    /// Whether row `a` here and row `b` of `other` are both flat and alike.
     func blank(_ a: Int, _ other: ScrollRows, _ b: Int) -> Bool {
         flat[a] && other.flat[b] && abs(Int(values[a * Self.bins]) - Int(other.values[b * Self.bins])) <= 3
     }
@@ -47,6 +65,9 @@ enum ScrollMatch: Equatable {
 enum ScrollMatcher {
     /// Average difference per value below which two rows count as the same.
     private static let sameRow = 2
+    /// Average difference per value a match may have at most (content behind an animated background never matches
+    /// exactly).
+    private static let maxCost = 6.0
     /// Rows with content (not blank on both sides) a score needs before it is trusted, when every row is looked at.
     private static let minEvidence = 6
 
@@ -92,7 +113,7 @@ enum ScrollMatcher {
             best = .infinity
             for shift in (coarse - 2)...(coarse + 2) { consider(shift, rowStep: 1) }
         }
-        if bestShift != 0 && best < 4 && best < still * 0.5 { return .moved(shift: bestShift, header: header, footer: footer) }
+        if bestShift != 0 && best < maxCost && best < still * 0.5 { return .moved(shift: bestShift, header: header, footer: footer) }
 
         // Nothing lines up. If that is because the rows both frames share are (nearly all) blank, as when the old
         // content has scrolled out at the top and new content has come in at the bottom, there is too little to score:
