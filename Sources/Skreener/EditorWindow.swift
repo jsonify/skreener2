@@ -325,13 +325,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         nc.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
             guard let self else { return }
             EditorWindowController.live.removeAll { $0 === self }
-            self.tabGroup.remove(self)
+            // Posted on the main thread (and delivered on the main queue).
+            MainActor.assumeIsolated { self.tabGroup.remove(self) }
             Task { @MainActor in DockPresence.update() }
         }
         // Picked in the Window menu while it was a hidden tab: show it in place of the current one.
         nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in
-            guard let self, self.tabGroup.selected !== self else { return }
-            self.tabGroup.select(self)
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                if self.tabGroup.selected !== self { self.tabGroup.select(self) }
+            }
         }
         nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in
             if self?.fitMode == true { self?.applyFit() }
@@ -510,12 +513,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         toastTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, let self else { return }
-            NSAnimationContext.runAnimationGroup { ctx in
+            await NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.3
                 self.toastBox.animator().alphaValue = 0
             }
             // Hidden once faded, so it stops taking clicks meant for the canvas.
-            try? await Task.sleep(for: .seconds(0.3))
             if !Task.isCancelled { self.toastBox.isHidden = true }
         }
     }
