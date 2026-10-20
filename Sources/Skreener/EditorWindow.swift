@@ -91,7 +91,7 @@ private final class DragPill: NSView, NSDraggingSource {
     /// The drag preview's size, with the pointer over its bottom-right quadrant.
     private static let previewSize = NSSize(width: 100, height: 85)
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 104, height: 26) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 112, height: 34) }
     override func mouseDown(with event: NSEvent) { dragStarted = false }
 
     override func mouseDragged(with event: NSEvent) {
@@ -136,12 +136,13 @@ private final class DragPill: NSView, NSDraggingSource {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        // A pill bar like the editor's others.
         let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
-        NSColor.controlBackgroundColor.withAlphaComponent(0.85).setFill(); pill.fill()
-        NSColor.separatorColor.setStroke(); pill.lineWidth = 1; pill.stroke()
+        PillButton.barColor.setFill(); pill.fill()
+        PillButton.barBorderColor.setStroke(); pill.lineWidth = 1; pill.stroke()
 
         // Grip: three short lines either side of the label.
-        NSColor.tertiaryLabelColor.setStroke()
+        NSColor.white.withAlphaComponent(0.4).setStroke()
         for side in [bounds.minX + 12, bounds.maxX - 22] {
             for i in 0..<3 {
                 let y = bounds.midY - 3 + CGFloat(i) * 3
@@ -150,8 +151,8 @@ private final class DragPill: NSView, NSDraggingSource {
             }
         }
         let text = "Drag Me" as NSString
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium),
-                                                    .foregroundColor: NSColor.labelColor]
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                                                    .foregroundColor: NSColor.white]
         let size = text.size(withAttributes: attrs)
         text.draw(at: NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2), withAttributes: attrs)
     }
@@ -170,52 +171,40 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
         ?? NSImage(systemSymbolName: "questionmark.square", accessibilityDescription: nil) ?? NSImage()
 }
 
-/// Small control size (with the matching font) for the editor's controls, so the toolbar, style bar and
-/// footer fit the minimum window size.
-@MainActor private func compact<C: NSControl>(_ c: C) -> C {
-    c.controlSize = .small
-    c.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
-    return c
-}
+/// Height of the editor's pills: small enough for everything to fit the minimum window width.
+private let pillHeight: CGFloat = 26
 
-/// `compact`, plus a visible bezel so the button reads as a button rather than a bare icon.
-@MainActor private func bordered<B: NSButton>(_ b: B) -> B {
-    b.bezelStyle = .texturedRounded
-    return compact(b)
-}
-
-/// An image-only bordered button, `width` points wide.
-@MainActor private func iconButton(_ sym: String, _ tip: String, _ target: AnyObject?, _ action: Selector, width: CGFloat = 30) -> NSButton {
-    let b = bordered(NSButton(image: symbol(sym, tip), target: target, action: action))
-    b.imagePosition = .imageOnly
+/// A symbol-only pill (a circle) that sends `action` to `target`.
+@MainActor private func iconButton(_ sym: String, _ tip: String, _ target: AnyObject?, _ action: Selector) -> PillButton {
+    let b = PillButton(title: nil, symbol: sym, height: pillHeight)
+    b.target = target; b.action = action
     b.toolTip = tip
     b.setAccessibilityLabel(tip)
-    b.translatesAutoresizingMaskIntoConstraints = false
-    b.widthAnchor.constraint(equalToConstant: width).isActive = true
     return b
 }
 
-/// An image-only bordered pull-down button that opens `menu` (its first item is the button face).
-@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu) -> NSPopUpButton {
-    let b = bordered(NSPopUpButton(frame: .zero, pullsDown: true))
-    let face = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    face.image = symbol(sym, tip)
-    menu.insertItem(face, at: 0)
+/// A titled pill that sends `action` to `target`; `filled` for the main action.
+@MainActor private func textButton(_ title: String, _ target: AnyObject?, _ action: Selector, filled: Bool = false) -> PillButton {
+    let b = PillButton(title: title, symbol: nil, style: filled ? .filled : .tinted, height: pillHeight)
+    b.target = target; b.action = action
+    return b
+}
+
+/// A symbol pill with a ▾ that opens `menu`.
+@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu) -> PillPopUp {
+    let b = PillPopUp(pullsDown: true, height: pillHeight)
+    menu.insertItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""), at: 0)   // the pull-down's face
     b.menu = menu
-    b.imagePosition = .imageOnly
+    b.setContent(title: nil, symbol: sym)
     b.toolTip = tip
     b.setAccessibilityLabel(tip)
-    b.translatesAutoresizingMaskIntoConstraints = false
-    b.widthAnchor.constraint(equalToConstant: 42).isActive = true
     return b
 }
 
-/// A toolbar item that shows `views` side by side.
-@MainActor private func groupItem(_ id: NSToolbarItem.Identifier, _ label: String, _ views: [NSView], spacing: CGFloat = 4) -> NSToolbarItem {
-    let row = NSStackView(views: views)
-    row.spacing = spacing
+/// A toolbar item that shows `views` on a pill bar.
+@MainActor private func groupItem(_ id: NSToolbarItem.Identifier, _ label: String, _ views: [NSView]) -> NSToolbarItem {
     let item = NSToolbarItem(itemIdentifier: id)
-    item.view = row; item.label = label
+    item.view = PillBar(views); item.label = label
     return item
 }
 
@@ -247,22 +236,22 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let image: NSImage
     private let canvas: CanvasView
     private let scroll = ZoomingScrollView()
-    private let zoomButton = NSPopUpButton(frame: .zero, pullsDown: true)
-    private var toolSegments: NSSegmentedControl?
+    private let zoomButton = PillPopUp(pullsDown: true, height: 28)
+    private var toolPills: [PillButton] = []
     // Contextual attributes bar under the toolbar: only the controls that apply to the current tool or
     // selection are shown. It lives outside the toolbar so the tool buttons always have room.
     private let attributesBar = NSStackView()
     private let attributesTitle = NSTextField(labelWithString: "")
     private let attributesHint = NSTextField(labelWithString: "Select an annotation to change its style")
-    private let colorWell = NSColorWell(style: .minimal)
-    private let strokePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let boldButton = NSButton()
-    private let pixelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let cornerStylePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let arrowStylePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let arrangeButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let colorWell = ColorPill(size: pillHeight)
+    private let strokePopup = PillPopUp(pullsDown: false)
+    private let fontPopup = PillPopUp(pullsDown: false)
+    private let sizePopup = PillPopUp(pullsDown: false)
+    private let boldButton = PillButton(title: nil, symbol: "bold", height: pillHeight)
+    private let pixelPopup = PillPopUp(pullsDown: false)
+    private let cornerStylePopup = PillPopUp(pullsDown: false)
+    private let arrowStylePopup = PillPopUp(pullsDown: false)
+    private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
     // Crop and Background replace the tool options in the same strip while they are active.
@@ -271,12 +260,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         didSet { refreshStrip() }
     }
     private let cropBar = NSStackView()
+    private var attributesCapsule: PillBar?
     private let textAreaBar = NSStackView()
     private let backgroundBar = NSStackView()
-    private let fillPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let paddingPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let cornerPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let bgShadowBox = NSButton(checkboxWithTitle: "Shadow", target: nil, action: nil)
+    private let fillPopup = PillPopUp(pullsDown: false)
+    private let paddingPopup = PillPopUp(pullsDown: false)
+    private let cornerPopup = PillPopUp(pullsDown: false)
+    private let bgShadowBox = PillButton(title: "Shadow", symbol: "shadow", height: pillHeight)
     private static let fontChoices = [("System", ""), ("Helvetica Neue", "Helvetica Neue"), ("Avenir Next", "Avenir Next"),
                                       ("Georgia", "Georgia"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
                                       ("Chalkboard SE", "Chalkboard SE")]
@@ -468,7 +458,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             strip.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
             strip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             strip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            strip.heightAnchor.constraint(equalToConstant: 34),
+            strip.heightAnchor.constraint(equalToConstant: 42),
             scroll.topAnchor.constraint(equalTo: strip.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -476,7 +466,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             footer.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            footer.heightAnchor.constraint(equalToConstant: 44),
+            footer.heightAnchor.constraint(equalToConstant: 50),
             toast.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             toast.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -16),
             toast.heightAnchor.constraint(equalToConstant: 32),
@@ -531,13 +521,15 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         bar.material = .windowBackground
         bar.blendingMode = .withinWindow
         bar.state = .followsWindowActiveState
-        attributesTitle.font = .systemFont(ofSize: 11, weight: .semibold)
+        attributesTitle.font = .systemFont(ofSize: 12, weight: .semibold)
         attributesTitle.textColor = .secondaryLabelColor
-        attributesHint.font = .systemFont(ofSize: 11)
-        attributesHint.textColor = .tertiaryLabelColor
-        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint, cropBar, textAreaBar, backgroundBar])
-        row.spacing = 10
-        row.translatesAutoresizingMaskIntoConstraints = false
+        attributesHint.font = .systemFont(ofSize: 12)
+        attributesHint.textColor = .secondaryLabelColor
+        // The options sit on a pill bar; the labels get the bar's rounded ends as margin.
+        let row = PillBar([attributesTitle, attributesBar, attributesHint, cropBar, textAreaBar, backgroundBar], spacing: 10)
+        row.row.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 0)
+        attributesCapsule = row
+        row.heightAnchor.constraint(equalToConstant: pillHeight + 6).isActive = true
         let line = NSBox(); line.boxType = .separator
         line.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(row); bar.addSubview(line)
@@ -558,16 +550,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         bar.state = .followsWindowActiveState
 
         // Zoom popup (pull-down: item 0 shows the current zoom).
-        _ = bordered(zoomButton)
-        zoomButton.menu = NSMenu()
         zoomButton.menu?.addItem(withTitle: "100%", action: nil, keyEquivalent: "")
         for (title, tag) in [("Fit", 0), ("25%", 25), ("50%", 50), ("100%", 100), ("200%", 200), ("400%", 400)] {
             let item = NSMenuItem(title: title, action: #selector(zoomPicked(_:)), keyEquivalent: "")
             item.target = self; item.tag = tag
             zoomButton.menu?.addItem(item)
         }
-        zoomButton.translatesAutoresizingMaskIntoConstraints = false
-        zoomButton.widthAnchor.constraint(equalToConstant: 68).isActive = true
+        zoomButton.toolTip = "Zoom"
+        let zoomBar = PillBar([zoomButton])
 
         let pill = DragPill()
         pill.imageProvider = { [weak self] in self?.canvas.flattened() ?? NSImage() }
@@ -577,19 +567,21 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                        ("pin", "Pin to Screen", #selector(pinIt)),
                        ("doc.on.doc", "Copy", #selector(copyIt)),
                        ("square.and.arrow.down", "Save", #selector(saveIt))].map { sym, tip, sel in
-            iconButton(sym, tip, self, sel, width: 34)
+            let b = PillButton(title: nil, symbol: sym, height: 28)
+            b.target = self; b.action = sel
+            b.toolTip = tip
+            b.setAccessibilityLabel(tip)
+            return b
         }
-        let right = NSStackView(views: actions)
-        right.spacing = 6
-        right.translatesAutoresizingMaskIntoConstraints = false
+        let right = PillBar(actions)
 
-        [zoomButton, pill, right].forEach(bar.addSubview)
+        [zoomBar, pill, right].forEach(bar.addSubview)
         NSLayoutConstraint.activate([
-            zoomButton.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
-            zoomButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            zoomBar.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
+            zoomBar.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             pill.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
             pill.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-            pill.widthAnchor.constraint(equalToConstant: 104), pill.heightAnchor.constraint(equalToConstant: 26),
+            pill.widthAnchor.constraint(equalToConstant: 112), pill.heightAnchor.constraint(equalToConstant: 34),
             right.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -16),
             right.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
         ])
@@ -630,7 +622,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        // Compact bordered controls (rather than standard toolbar items) so everything fits the minimum width.
+        // Pill bars (rather than standard toolbar items), small enough for everything to fit the minimum width.
         [.imageActionsItem, .toolsItem, .undoRedoItem, .flexibleSpace, .settingsItem, .saveAsItem]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -661,19 +653,15 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                 iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR)", commands(CanvasView.textCommands)),
             ])
         case .toolsItem:
-            let seg = compact(NSSegmentedControl(images: toolButtons.map { symbol($0.symbol, $0.tool.name) },
-                                                 trackingMode: .selectOne, target: self, action: #selector(toolChanged)))
-            seg.segmentStyle = .separated
-            for (i, b) in toolButtons.enumerated() {
+            // One pill per tool; the current one is filled.
+            toolPills = toolButtons.map { b in
                 let key = Tool.shortcuts.first { $0.value == b.tool }.map { " (\($0.key.uppercased()))" } ?? ""
-                seg.setToolTip(b.tool.name + key, forSegment: i)
-                seg.setWidth(26, forSegment: i)
+                let pill = iconButton(b.symbol, b.tool.name + key, self, #selector(toolChanged(_:)))
+                pill.isOn = b.tool == canvas.tool
+                return pill
             }
-            seg.selectedSegment = toolButtons.firstIndex { $0.tool == canvas.tool } ?? 0
-            seg.setAccessibilityLabel("Tools")
-            toolSegments = seg
-            let item = NSToolbarItem(itemIdentifier: id)
-            item.view = seg; item.label = "Tools"
+            let item = groupItem(id, "Tools", toolPills)
+            item.view?.setAccessibilityLabel("Tools")
             return item
         case .undoRedoItem:
             return groupItem(id, "Undo", [iconButton("arrow.uturn.backward", "Undo (⌘Z)", self, #selector(undoIt)),
@@ -681,12 +669,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .settingsItem:
             return groupItem(id, "Settings", [iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings))])
         case .saveAsItem:
-            let b = compact(NSButton(title: "Save as…", target: self, action: #selector(saveIt)))
-            b.bezelStyle = .rounded
-            b.bezelColor = .controlAccentColor
-            b.attributedTitle = NSAttributedString(string: "Save as…", attributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .semibold),
-                .foregroundColor: NSColor.white])
+            let b = textButton("Save as…", self, #selector(saveIt), filled: true)
             b.keyEquivalent = "s"; b.keyEquivalentModifierMask = [.command, .shift]
             b.toolTip = "Save as… (⇧⌘S)"
             return groupItem(id, "Save as…", [b])
@@ -700,13 +683,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesBar.orientation = .horizontal
         attributesBar.spacing = 6
 
+        attributesBar.spacing = 2
         colorWell.target = self; colorWell.action = #selector(colorChanged(_:)); colorWell.toolTip = "Color"
-        colorWell.translatesAutoresizingMaskIntoConstraints = false
-        colorWell.widthAnchor.constraint(equalToConstant: 30).isActive = true
-        colorWell.heightAnchor.constraint(equalToConstant: 22).isActive = true
 
-        func setUp(_ popup: NSPopUpButton, _ tip: String, _ choices: [(String, Int)], _ action: Selector) {
-            _ = bordered(popup)
+        func setUp(_ popup: PillPopUp, _ tip: String, _ choices: [(String, Int)], _ action: Selector) {
             popup.toolTip = tip
             popup.target = self; popup.action = action
             for (title, tag) in choices { popup.addItem(withTitle: title); popup.lastItem?.tag = tag }
@@ -727,17 +707,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             }
         }
 
-        boldButton.image = symbol("bold", "Bold")
-        boldButton.setButtonType(.pushOnPushOff)
-        _ = bordered(boldButton)
-        boldButton.imagePosition = .imageOnly
         boldButton.toolTip = "Bold"
+        boldButton.setAccessibilityLabel("Bold")
         boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
 
-        _ = bordered(arrangeButton)
         arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
         arrangeButton.addItem(withTitle: "Arrange")
         arrangeButton.lastItem?.image = symbol("square.3.layers.3d", "Arrange")
+        arrangeButton.synchronizeTitleAndSelectedItem()
         // Shortcuts live in the Arrange menu bar menu; repeating them here would fire twice.
         for (title, action, _, _) in CanvasView.arrangeCommands {
             arrangeButton.addItem(withTitle: title)
@@ -752,34 +729,33 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     private func buildCropBar() {
         let hint = NSTextField(labelWithString: "Drag the corners or draw a new area · Return to apply · Esc to cancel")
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .tertiaryLabelColor
-        let reset = NSButton(title: "Reset", target: self, action: #selector(cropReset))
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cropCancel))
-        let apply = NSButton(title: "Apply", target: self, action: #selector(cropApply))
-        apply.bezelColor = .controlAccentColor
-        [reset, cancel, apply].forEach { _ = bordered($0) }
+        hint.font = .systemFont(ofSize: 12)
+        hint.textColor = .secondaryLabelColor
+        let reset = textButton("Reset", self, #selector(cropReset))
+        let cancel = textButton("Cancel", self, #selector(cropCancel))
+        let apply = textButton("Apply", self, #selector(cropApply), filled: true)
         [hint, reset, cancel, apply].forEach(cropBar.addArrangedSubview)
-        cropBar.spacing = 8
+        cropBar.spacing = 2
+        cropBar.setCustomSpacing(10, after: hint)
         cropBar.isHidden = true
     }
 
     private func buildTextAreaBar() {
         let hint = NSTextField(labelWithString: "Drag over the text to copy it · Esc to cancel")
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .tertiaryLabelColor
-        let all = bordered(NSButton(title: "Copy All Text", target: canvas, action: #selector(CanvasView.copyAllText(_:))))
-        let cancel = bordered(NSButton(title: "Cancel", target: self, action: #selector(textAreaCancel)))
+        hint.font = .systemFont(ofSize: 12)
+        hint.textColor = .secondaryLabelColor
+        let all = textButton("Copy All Text", canvas, #selector(CanvasView.copyAllText(_:)))
+        let cancel = textButton("Cancel", self, #selector(textAreaCancel))
         [hint, all, cancel].forEach(textAreaBar.addArrangedSubview)
-        textAreaBar.spacing = 8
+        textAreaBar.spacing = 2
+        textAreaBar.setCustomSpacing(10, after: hint)
         textAreaBar.isHidden = true
     }
 
     private func buildBackgroundBar() {
-        _ = bordered(fillPopup)
         fillPopup.toolTip = "Fill"
         fillPopup.target = self; fillPopup.action = #selector(backgroundChanged)
-        fillPopup.autoenablesItems = false
+        fillPopup.menu?.autoenablesItems = false
         fillPopup.addItem(withTitle: "None"); fillPopup.lastItem?.tag = -1
         for (i, preset) in Background.presets.enumerated() {
             fillPopup.addItem(withTitle: preset.name)
@@ -797,15 +773,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         fillPopup.lastItem?.tag = Background.wallpaperFill
         refreshWallpaperItem()
         for (popup, tip, choices) in [(paddingPopup, "Padding", [16, 32, 48, 64, 96, 128]), (cornerPopup, "Corner radius", [0, 6, 10, 16, 24])] {
-            _ = bordered(popup)
             popup.toolTip = tip
             popup.target = self; popup.action = #selector(backgroundChanged)
             for v in choices { popup.addItem(withTitle: "\(tip == "Padding" ? "Padding" : "Corners") \(v) pt"); popup.lastItem?.tag = v }
         }
-        _ = compact(bgShadowBox)
-        bgShadowBox.target = self; bgShadowBox.action = #selector(backgroundChanged)
+        bgShadowBox.target = self; bgShadowBox.action = #selector(backgroundShadowToggled)
         [fillPopup, paddingPopup, cornerPopup, bgShadowBox].forEach(backgroundBar.addArrangedSubview)
-        backgroundBar.spacing = 8
+        backgroundBar.spacing = 2
         backgroundBar.isHidden = true
     }
 
@@ -854,9 +828,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             fillPopup.selectItem(withTag: bg?.fill ?? -1)
             paddingPopup.selectItem(withTag: Int(bg?.padding ?? Background().padding))
             cornerPopup.selectItem(withTag: Int(bg?.cornerRadius ?? Background().cornerRadius))
-            bgShadowBox.state = bg?.shadow ?? true ? .on : .off
+            bgShadowBox.isOn = bg?.shadow ?? true
             [paddingPopup, cornerPopup, bgShadowBox].forEach { $0.isEnabled = bg != nil }
         }
+        // An empty options row would leave a double gap; a label at the end needs the same margin as at the start.
+        if stripMode == .tools, attributesBar.arrangedSubviews.allSatisfy(\.isHidden) { attributesBar.isHidden = true }
+        attributesCapsule?.row.edgeInsets.right = attributesHint.isHidden ? 0 : 10
     }
 
     /// Shows the controls for `tool` and loads them with `style`.
@@ -883,34 +860,38 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         if let i = fontPopup.itemArray.firstIndex(where: { $0.representedObject as? String == style.fontName }) {
             fontPopup.selectItem(at: i)
         }
-        boldButton.state = style.bold ? .on : .off
+        boldButton.isOn = style.bold
     }
 
-    @objc private func colorChanged(_ w: NSColorWell) { canvas.updateStyle { $0.color = w.color } }
-    @objc private func strokePicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.lineWidth = CGFloat(p.selectedTag()) } }
-    @objc private func sizePicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.fontSize = CGFloat(p.selectedTag()) } }
-    @objc private func pixelPicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.pixelSize = CGFloat(p.selectedTag()) } }
-    @objc private func cornerPicked(_ p: NSPopUpButton) { canvas.updateStyle { $0.cornerRadius = CGFloat(p.selectedTag()) } }
-    @objc private func arrowStylePicked(_ p: NSPopUpButton) {
+    @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
+    @objc private func strokePicked(_ p: PillPopUp) { canvas.updateStyle { $0.lineWidth = CGFloat(p.selectedTag()) } }
+    @objc private func sizePicked(_ p: PillPopUp) { canvas.updateStyle { $0.fontSize = CGFloat(p.selectedTag()) } }
+    @objc private func pixelPicked(_ p: PillPopUp) { canvas.updateStyle { $0.pixelSize = CGFloat(p.selectedTag()) } }
+    @objc private func cornerPicked(_ p: PillPopUp) { canvas.updateStyle { $0.cornerRadius = CGFloat(p.selectedTag()) } }
+    @objc private func arrowStylePicked(_ p: PillPopUp) {
         canvas.updateStyle { $0.arrowStyle = ArrowStyle(rawValue: p.selectedTag()) ?? .filled }
     }
-    @objc private func fontPicked(_ p: NSPopUpButton) {
+    @objc private func fontPicked(_ p: PillPopUp) {
         let name = p.selectedItem?.representedObject as? String ?? ""
         canvas.updateStyle { $0.fontName = name }
     }
-    @objc private func boldToggled(_ b: NSButton) { canvas.updateStyle { $0.bold = b.state == .on } }
+    @objc private func boldToggled(_ b: PillButton) {
+        b.isOn.toggle()
+        canvas.updateStyle { $0.bold = b.isOn }
+    }
 
     // MARK: Actions
 
-    @objc private func toolChanged() {
-        guard let i = toolSegments?.selectedSegment, toolButtons.indices.contains(i) else { return }
+    @objc private func toolChanged(_ sender: PillButton) {
+        guard let i = toolPills.firstIndex(where: { $0 === sender }) else { return }
+        selectToolButton(toolButtons[i].tool)
         canvas.applyCrop()
         canvas.tool = toolButtons[i].tool
         if stripMode == .background { stripMode = .tools }
         window?.makeFirstResponder(canvas)
     }
     private func selectToolButton(_ t: Tool) {
-        if let i = toolButtons.firstIndex(where: { $0.tool == t }) { toolSegments?.selectedSegment = i }
+        for (pill, b) in zip(toolPills, toolButtons) { pill.isOn = b.tool == t }
     }
     @objc private func copyIt() { Output.copy(canvas.flattened()) }
     @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
@@ -1010,7 +991,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func backgroundChanged() {
         let fill = fillPopup.selectedTag()
         let padding = CGFloat(paddingPopup.selectedTag()), corner = CGFloat(cornerPopup.selectedTag())
-        let shadow = bgShadowBox.state == .on
+        let shadow = bgShadowBox.isOn
         canvas.updateBackground { bg in
             guard fill >= 0 else { bg = nil; return }
             bg = Background(fill: fill, padding: padding, cornerRadius: corner, shadow: shadow)
@@ -1018,4 +999,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         refreshStrip()
     }
     @objc private func redoIt() { canvas.redo() }
+    @objc private func backgroundShadowToggled() {
+        bgShadowBox.isOn.toggle()
+        backgroundChanged()
+    }
 }

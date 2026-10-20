@@ -59,6 +59,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Rotate left/right, flip horizontal/vertical (toolbar menu or Image menu; annotations follow, undoable) — S
 - [~] Rounded rectangles (corner popup for rect/filled rect/spotlight), arrow styles (filled, open, double-headed) — M
 - [~] Compact toolbar: small bordered buttons (tools as one segmented control) so everything fits the 990 pt minimum; smaller style bar and footer — S
+- [~] Pill style throughout the editor (like the scrolling-capture bar): toolbar groups, tools (current one filled), style bar, crop / copy-text / background options, footer and Drag Me sit on dark capsules with pill buttons; pop-ups are pills with a ▾; color is a round swatch with a preset menu + More Colors… — M
 - [~] Editors open as tabs of one window instead of a window per screenshot (Settings → Editor toggle; ⇧⌘[ / ⇧⌘] switch tabs, Window menu: move tab to new window, merge all windows) — S
 - [~] Own tab row instead of AppKit's tab bar: pill tabs on a dark capsule (like the scrolling-capture bar), × / middle-click closes, right-click: close others, move to new window — M
 - [~] Copy Text via OCR in the editor: all text, or drag over an area (⇧⌘T, toolbar or Image menu); a toast says how many lines were copied — S
