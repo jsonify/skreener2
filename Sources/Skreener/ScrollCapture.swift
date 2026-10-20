@@ -188,18 +188,31 @@ final class ScrollCaptureController {
     /// Bumped on every start, so a previous capture's frame loop stops even if a new one has begun.
     private var session = 0
 
-    // Auto-scroll: scrolls down a little after each frame, sized from how far the previous scroll actually moved.
+    // Auto-scroll: a steady stream of small scroll events (about 60 a second) sent straight to the app under the
+    // area, so the pointer stays free. The speed is set from how far the content really moves per point scrolled.
     private var autoScrolling = false
     private var autoButton: NSButton?
-    /// Points per scroll event, adapted so each frame moves about a quarter of the area.
-    private var scrollStep: CGFloat = 0
-    /// The last scroll posted, in points (0 = none since the last frame that moved).
-    private var lastScroll: CGFloat = 0
-    /// Whether a scroll's real movement has been measured yet (until then steps are small probes).
+    private var scrollTimer: Timer?
+    /// The app and window under the middle of the area.
+    private var targetPID: pid_t?
+    private var targetWindow: CGWindowID = 0
+    /// Fallback when the app ignores events sent to it directly: scroll at the pointer (which must be over the area).
+    private var viaPointer = false
+    /// Scroll speed in points per second, and the part of it not posted yet (events carry whole points).
+    private var velocity: CGFloat = 0
+    private var unposted: CGFloat = 0
+    /// Points posted since the last frame that moved: measures the speed, and is what an overshoot takes back.
+    private var postedSinceMove: CGFloat = 0
     private var measured = false
     /// Whether the content has moved since auto-scroll started, and for how many frames it hasn't moved.
     private var autoMoved = false
     private var stillFrames = 0
+    /// Frames spent waiting for a taken-back overshoot to settle (0 = not recovering), and the speed before it.
+    private var recovering = 0
+    private var speedBeforeOvershoot: CGFloat = 0
+    /// Time between captured frames (smoothed), to keep each frame's movement within what the stitcher matches.
+    private var frameInterval: TimeInterval = 0.2
+    private var lastFrameTime: Date?
 
     func start(screen: NSScreen, rect: CGRect, completion: @escaping (NSImage?) -> Void) {
         guard !isRunning else { return }
@@ -213,7 +226,17 @@ final class ScrollCaptureController {
         showFrame()
         showControls()
         setStatus("Scroll down slowly inside the frame…")
-        escHotKey = HotKeys.shared.register(keyCode: kVK_Escape, modifiers: 0) { [weak self] in self?.cancel() }
+        lastFrameTime = nil
+        // Esc stops auto-scroll first; otherwise it cancels the capture.
+        escHotKey = HotKeys.shared.register(keyCode: kVK_Escape, modifiers: 0) { [weak self] in
+            guard let self else { return }
+            if self.autoScrolling {
+                self.stopAutoScroll()
+                self.setStatus("Stopped. Scroll by hand, Auto-Scroll again, or click Done.")
+            } else {
+                self.cancel()
+            }
+        }
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)   // let the selection overlay leave the screen
             while true {
@@ -221,8 +244,7 @@ final class ScrollCaptureController {
                 let frame = try? await CaptureService.captureScreenImage(screen, globalRect: self.rect, showsCursor: false,
                                                                          excludingSelf: true)
                 if let frame, self.isRunning, self.session == current { self.add(frame) }
-                // Auto-scroll gives the app a little longer to draw (many animate their scrolling).
-                try? await Task.sleep(nanoseconds: self.autoScrolling ? 250_000_000 : 120_000_000)
+                try? await Task.sleep(nanoseconds: 120_000_000)
             }
         }
     }
@@ -261,9 +283,11 @@ final class ScrollCaptureController {
 
     private func add(_ frame: CGImage) {
         guard let screen else { return }
+        let now = Date()
+        if let last = lastFrameTime { frameInterval = frameInterval * 0.7 + now.timeIntervalSince(last) * 0.3 }
+        lastFrameTime = now
         guard let stitcher else {
             stitcher = ScrollStitcher(first: frame)
-            if autoScrolling { scrollDown(scrollStep) }
             return
         }
         let step = stitcher.add(frame)
@@ -294,70 +318,112 @@ final class ScrollCaptureController {
             setStatus("Allow Skreener in Privacy & Security → Accessibility, then click Auto-Scroll again.")
             return
         }
+        guard let target = Self.window(at: scrollPoint) else {
+            setStatus("Couldn't find the window under the area. Scroll by hand instead.")
+            return
+        }
+        targetPID = target.pid
+        targetWindow = target.window
+        viaPointer = false
         autoScrolling = true
         autoMoved = false
         stillFrames = 0
-        scrollStep = 10   // a small first scroll measures how far this app moves per scroll event
         measured = false
+        recovering = 0
+        unposted = 0
+        postedSinceMove = 0
+        velocity = max(rect.height * 0.25, 40)   // a slow start; measured and sped up over the first frames
         autoButton?.title = "Stop Scrolling"
         setStatus("Scrolling…")
-        // Scroll events go to the window under the pointer, so put it in the middle of the area, and start right away.
-        _ = CGWarpMouseCursorPosition(scrollPoint)
-        _ = CGAssociateMouseAndMouseCursorPosition(1)
-        scrollDown(scrollStep)
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.scrollTick() }
+        RunLoop.main.add(timer, forMode: .common)
+        scrollTimer = timer
     }
 
     private func stopAutoScroll() {
         autoScrolling = false
+        scrollTimer?.invalidate()
+        scrollTimer = nil
         autoButton?.title = "Auto-Scroll"
     }
 
-    /// After each frame: keep scrolling down; finish once the content has stopped moving (the end). Never scrolls up,
-    /// except to take back a single scroll that went further than the stitcher can match.
+    /// Posts the next bit of the steady scroll (at least 2 points at a time, so apps that scale events down still move).
+    private func scrollTick() {
+        guard autoScrolling, recovering == 0 else { return }
+        unposted += velocity / 60
+        let whole = unposted.rounded(.down)
+        guard whole >= 2 else { return }
+        unposted -= whole
+        postedSinceMove += whole
+        post(scrollPoints: whole)
+    }
+
+    /// After each frame: tune the speed; finish once the content has moved and then stopped (the end). Never scrolls
+    /// up, except to take back what was scrolled since the last match when it went further than can be matched.
     private func autoScrollStep(_ step: ScrollStitcher.Step, length: String, scale: CGFloat) {
         switch step {
+        case .added, .unchanged:
+            if recovering > 0 {
+                // The take-back worked: carry on at half the speed.
+                recovering = 0
+                velocity = speedBeforeOvershoot / 2
+                postedSinceMove = 0
+            }
+        case .lost, .full:
+            break
+        }
+        switch step {
         case .added(let pixels):
-            // Aim for a quarter of the area per frame, from how far the last scroll really moved (apps scale and
-            // animate scroll events differently); after the first measurement, grow by at most half each time.
-            if lastScroll > 0 {
-                let ratio = CGFloat(pixels) / scale / lastScroll
+            // Aim for a fifth of the area per frame and at most one area height a second, from how far the scrolled
+            // points really moved (apps scale and animate scroll events differently). Speed up gradually.
+            if postedSinceMove > 0 {
+                let ratio = CGFloat(pixels) / scale / postedSinceMove
                 if ratio > 0.05 {
-                    let target = max(rect.height * 0.25 / ratio, 5)
-                    scrollStep = measured ? min(target, scrollStep * 1.5) : target
+                    let target = min(rect.height, rect.height * 0.2 / CGFloat(max(frameInterval, 0.05))) / ratio
+                    velocity = min(target, velocity * (measured ? 1.5 : 3))
                     measured = true
                 }
             }
+            postedSinceMove = 0
             autoMoved = true
             stillFrames = 0
             setStatus("\(length). Scrolling…")
-            scrollDown(scrollStep)
         case .unchanged:
-            // The app may still be drawing (or animating) the last scroll: nudge again only every third frame.
             stillFrames += 1
-            if autoMoved && stillFrames >= 6 {
+            if autoMoved && stillFrames >= 8 {
                 finish()   // scrolled and then stopped moving: the end
-            } else if !autoMoved && stillFrames >= 12 {
+            } else if !autoMoved && stillFrames == 6 && !viaPointer {
+                // The app didn't react to events sent to it: scroll at the pointer instead (it isn't moved).
+                viaPointer = true
+                setStatus("Rest the pointer over the area to keep scrolling, or click Stop Scrolling.")
+            } else if !autoMoved && stillFrames >= 15 {
                 stopAutoScroll()
-                setStatus("Auto-Scroll couldn't move this content. Click inside it once and try again, or scroll by hand.")
-            } else if stillFrames % 3 == 0 {
-                scrollDown(scrollStep)
+                setStatus("Auto-Scroll couldn't move this content. Scroll it by hand instead.")
             }
         case .lost:
-            // The last scroll went too far to match: take exactly that one back and use smaller steps.
-            guard lastScroll > 0 else {
-                // Taking it back didn't help (or the content changed): hand over rather than guess.
-                stopAutoScroll()
-                setStatus("\(length). Lost track: scroll back up a little by hand, then Auto-Scroll again.")
+            if recovering > 0 {
+                // Give a take-back a few frames to settle (apps animate scrolling) before handing over.
+                recovering += 1
+                if recovering > 5 { handOverLost(length) }
                 return
             }
-            post(scrollPoints: -lastScroll)
-            lastScroll = 0
-            scrollStep = max(scrollStep / 2, 5)
+            guard postedSinceMove > 0 else { handOverLost(length); return }
+            recovering = 1
+            speedBeforeOvershoot = velocity
+            post(scrollPoints: -postedSinceMove)
+            postedSinceMove = 0
+            unposted = 0
             setStatus("\(length). Slowing down…")
         case .full:
             stopAutoScroll()
             setStatus("\(length). That's the maximum length: click Done.")
         }
+    }
+
+    private func handOverLost(_ length: String) {
+        stopAutoScroll()
+        recovering = 0
+        setStatus("\(length). Lost track: scroll back up a little by hand, then Auto-Scroll again.")
     }
 
     /// The middle of the area in Core Graphics' global coordinates (top-left origin).
@@ -366,20 +432,39 @@ final class ScrollCaptureController {
         return CGPoint(x: rect.midX, y: primaryHeight - rect.midY)
     }
 
-    /// Scrolls the content under the area further down by `points`.
-    private func scrollDown(_ points: CGFloat) {
-        lastScroll = points
-        post(scrollPoints: points)
+    /// The app and window ID of the frontmost normal window at `point` (Core Graphics coordinates), other than Skreener's.
+    private static func window(at point: CGPoint) -> (pid: pid_t, window: CGWindowID)? {
+        let me = getpid()
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for w in info {   // front to back
+            guard (w[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  let pid = (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, pid != me,
+                  let bounds = w[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary), frame.contains(point),
+                  let id = (w[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            else { continue }
+            return (pid: pid, window: id)
+        }
+        return nil
     }
 
-    /// Posts a pixel scroll at the middle of the area; positive moves further down the content.
+    /// Sends a pixel scroll (positive moves further down the content) straight to the app under the area, aimed at
+    /// the middle of the area. Posting to the app, not the system event stream, leaves the pointer where the user
+    /// has it. In the `viaPointer` fallback it goes into the system stream at the pointer's current position.
     private func post(scrollPoints points: CGFloat) {
         let delta = Int32((-points).rounded())
-        guard delta != 0,
+        guard delta != 0, let pid = targetPID,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)
         else { return }
+        if viaPointer {
+            if let pointer = CGEvent(source: nil)?.location { event.location = pointer }   // never move the pointer
+            event.post(tap: .cghidEventTap)
+            return
+        }
         event.location = scrollPoint
-        event.post(tap: .cghidEventTap)
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(targetWindow))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(targetWindow))
+        event.postToPid(pid)
     }
 
     private func setStatus(_ text: String) { status.stringValue = text }
