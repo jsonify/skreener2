@@ -23,10 +23,22 @@ enum CaptureService {
 
     /// Capture a screen, or a sub-rect given in global (bottom-left origin) screen coordinates.
     static func captureScreen(_ screen: NSScreen, globalRect: CGRect? = nil, showsCursor: Bool = Preferences.showCursor) async throws -> NSImage {
+        let cg = try await captureScreenImage(screen, globalRect: globalRect, showsCursor: showsCursor)
+        return image(cg, scale: screen.backingScaleFactor)
+    }
+
+    /// Like `captureScreen`, as a CGImage at the screen's pixel scale. `excludingSelf` leaves Skreener's own windows
+    /// out (e.g. the scrolling capture's frame and controls).
+    static func captureScreenImage(_ screen: NSScreen, globalRect: CGRect? = nil, showsCursor: Bool = Preferences.showCursor,
+                                   excludingSelf: Bool = false) async throws -> CGImage {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let id = displayID(screen), let display = content.displays.first(where: { $0.displayID == id })
         else { throw CaptureError.noDisplay }
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let me = Bundle.main.bundleIdentifier
+        let filter = excludingSelf
+            ? SCContentFilter(display: display, excludingApplications: content.applications.filter { $0.bundleIdentifier == me },
+                              exceptingWindows: [])
+            : SCContentFilter(display: display, excludingWindows: [])
         let scale = screen.backingScaleFactor
         let cfg: SCStreamConfiguration
         if let r = globalRect {
@@ -38,8 +50,7 @@ enum CaptureService {
         } else {
             cfg = makeConfig(width: screen.frame.width, height: screen.frame.height, scale: scale, showsCursor: showsCursor)
         }
-        let cg = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-        return image(cg, scale: scale)
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
     }
 
     /// Cut a global (bottom-left origin) rect out of a full-display frame grabbed earlier, e.g. a frozen screen.

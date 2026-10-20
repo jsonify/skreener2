@@ -33,9 +33,13 @@ private final class ZoomingScrollView: NSScrollView {
 }
 
 /// The centered "Drag Me" pill: drag it to drop the annotated image as a file (PNG or JPEG, per Settings) anywhere.
+/// While dragging, Skreener hides so the drop target is visible, and a small preview rides under the pointer;
+/// a cancelled drag brings it back. After a drop it stays hidden (Dock icon or ⌘-Tab shows the editor again).
 private final class DragPill: NSView, NSDraggingSource {
     var imageProvider: () -> NSImage = { NSImage() }
     private var dragStarted = false
+    /// The drag preview's size, with the pointer over its bottom-right quadrant.
+    private static let previewSize = NSSize(width: 100, height: 85)
 
     override var intrinsicContentSize: NSSize { NSSize(width: 104, height: 26) }
     override func mouseDown(with event: NSEvent) { dragStarted = false }
@@ -46,12 +50,40 @@ private final class DragPill: NSView, NSDraggingSource {
         let image = imageProvider()
         guard let url = Output.temporaryFile(image) else { return }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
-        let h: CGFloat = 72, w = h * image.size.width / max(image.size.height, 1)
-        item.setDraggingFrame(NSRect(x: 0, y: 0, width: min(w, 160), height: h), contents: image)
-        beginDraggingSession(with: [item], event: event, source: self)
+        let size = Self.previewSize
+        let p = convert(event.locationInWindow, from: nil)
+        item.setDraggingFrame(NSRect(x: p.x - size.width * 0.75, y: p.y - size.height * 0.25, width: size.width, height: size.height),
+                              contents: Self.preview(image, size: size))
+        let session = beginDraggingSession(with: [item], event: event, source: self)
+        session.animatesToStartingPositionsOnCancelOrFail = false
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+
+    func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        NSApp.hide(nil)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        if operation.isEmpty { NSApp.unhide(nil) }
+    }
+
+    /// The screenshot filling a small rounded card (cropped to the card's shape), with a hairline border.
+    private static func preview(_ image: NSImage, size: NSSize) -> NSImage {
+        NSImage(size: size, flipped: false) { r in
+            let card = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+            NSGraphicsContext.saveGraphicsState()
+            card.addClip()
+            let scale = max(r.width / max(image.size.width, 1), r.height / max(image.size.height, 1))
+            let w = image.size.width * scale, h = image.size.height * scale
+            image.draw(in: NSRect(x: r.midX - w / 2, y: r.midY - h / 2, width: w, height: h))
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.white.withAlphaComponent(0.6).setStroke()
+            card.lineWidth = 1
+            card.stroke()
+            return true
+        }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)

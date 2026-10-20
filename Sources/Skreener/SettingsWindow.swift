@@ -17,7 +17,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private static let shortcuts = [("⌃⇧4", "Capture Area"), ("⌃⇧1", "Capture Previous Area"), ("⌃⇧6", "Capture Area & Pin"),
-                                    ("⌃⇧3", "Capture Fullscreen"), ("⌃⇧5", "Capture Window"), ("⌃⇧2", "Capture Text (OCR)"),
+                                    ("⌃⇧3", "Capture Fullscreen"), ("⌃⇧5", "Capture Window"), ("⌃⇧2", "Capture Text (OCR)"), ("⌃⇧8", "Capture Scrolling / Finish"),
                                     ("⌃⇧7", "Record Screen / Stop Recording"),
                                     ("⌃⇧H", "Capture History")]
 
