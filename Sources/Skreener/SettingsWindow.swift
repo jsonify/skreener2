@@ -257,8 +257,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Screenshots", [
                     toggle("Copy to clipboard", nil, Preferences.copyToClipboard) { Preferences.copyToClipboard = $0 },
                     toggle("Save to the export location", nil, Preferences.autoSave) { Preferences.autoSave = $0 },
-                    toggle("Open in the editor", "When off, a Quick Access thumbnail appears instead.",
+                    toggle("Open in the editor", nil,
                            Preferences.openEditorAfterCapture) { Preferences.openEditorAfterCapture = $0 },
+                    toggle("Show Quick Access preview",
+                           "A thumbnail in the bottom-left corner that stays until you copy, save, edit, pin, share or close it.",
+                           Preferences.showQuickAccess) { Preferences.showQuickAccess = $0 },
                 ], note: "Capture Text and Capture Area & Pin skip these."),
                 group("History", [
                     toggle("Keep capture history", "The last \(CaptureHistory.limit) captures, in the History panel (⌃⇧H).",

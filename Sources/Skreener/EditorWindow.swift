@@ -359,6 +359,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Shows this editor again (its tab, if it is one of several), e.g. from its capture's Quick Access preview.
+    func reveal() {
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
+        tabGroup.select(self)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func present() {
         DockPresence.update()
         if let w = window, Preferences.editorTabs, let host = Self.tabHost(excluding: w)?.windowController as? EditorWindowController {

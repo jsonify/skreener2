@@ -205,15 +205,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Desktop icons during capture
 
-    /// Runs `go` once desktop icons are hidden (if that option is on); Finder needs a moment to redraw.
+    /// Runs `go` once desktop icons are hidden (if that option is on); Finder needs a moment to redraw. Quick Access
+    /// previews fade away until `endCapture()`.
     private func prepareCapture(_ go: @escaping () -> Void) {
+        QuickAccessController.suspend()
         guard Preferences.hideIconsWhileCapturing, !iconsHiddenForCapture, DesktopIcons.visible else { go(); return }
         iconsHiddenForCapture = true
         DesktopIcons.setVisible(false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: go)
     }
 
-    private func restoreIcons() {
+    /// Every capture flow ends here, whether it captured something or was cancelled.
+    private func endCapture() {
+        QuickAccessController.resume()
         guard iconsHiddenForCapture else { return }
         iconsHiddenForCapture = false
         DesktopIcons.setVisible(true)
@@ -234,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func captureAreaAndPin() {
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
-                guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.restoreIcons(); return }
+                guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
                 lastArea = (screen, rect)
                 run(areaCapture(screen, rect, frozen)) { CaptureHistory.add($0); PinnedScreenshotController.pin($0) }
             }
@@ -249,10 +253,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if scrollCapture.isRunning { scrollCapture.finish(); return }
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
-                guard let self, case .area(let screen, let rect, _)? = sel else { self?.restoreIcons(); return }
+                guard let self, case .area(let screen, let rect, _)? = sel else { self?.endCapture(); return }
                 scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
                     guard let self else { return }
-                    restoreIcons()
+                    endCapture()
                     if let image { finish(image) }
                 }
             }
@@ -299,10 +303,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         a.frame.intersection(rect).width * a.frame.intersection(rect).height
                             < b.frame.intersection(rect).width * b.frame.intersection(rect).height
                     }
-                    guard let screen else { restoreIcons(); return }
+                    guard let screen else { endCapture(); return }
                     showRecordPicker(screen, rect.intersection(screen.frame))
                 case nil:
-                    restoreIcons()
+                    endCapture()
                 }
             }
         }
@@ -315,7 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func handle(_ pick: RecordPick?) {
         switch pick {
         case nil:
-            restoreIcons()
+            endCapture()
         case .video(let screen, let rect)?:
             Preferences.lastRecordRect = rect
             recording.start(screen: screen, rect: rect)
@@ -331,7 +335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lastArea = (screen, rect)
             selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
                 self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) }
-            }, cancelled: { [weak self] in self?.restoreIcons() })
+            }, cancelled: { [weak self] in self?.endCapture() })
         case .fullscreenShot?:
             captureFullscreen()
         case .window?:
@@ -354,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             button.toolTip = "Stop Recording (⌃⇧7)"
             button.target = self; button.action = #selector(stopRecording)
         } else {
-            restoreIcons()
+            endCapture()
             button.image = menuBarIcon
             button.contentTintColor = nil
             button.title = ""
@@ -375,11 +379,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func timedArea() {
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
-                guard let self, case .area(let screen, let rect, _)? = sel else { self?.restoreIcons(); return }
+                guard let self, case .area(let screen, let rect, _)? = sel else { self?.endCapture(); return }
                 lastArea = (screen, rect)
                 selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
                     self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) }
-                }, cancelled: { [weak self] in self?.restoreIcons() })
+                }, cancelled: { [weak self] in self?.endCapture() })
             }
         }
     }
@@ -389,10 +393,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Task { @MainActor in
                 let wins = await CaptureService.onScreenWindows()
                 self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in
-                    guard let self, case .window(let w)? = sel else { self?.restoreIcons(); return }
+                    guard let self, case .window(let w)? = sel else { self?.endCapture(); return }
                     selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
                         self?.run { try await CaptureService.captureWindow(w) }
-                    }, cancelled: { [weak self] in self?.restoreIcons() })
+                    }, cancelled: { [weak self] in self?.endCapture() })
                 }
             }
         }
@@ -401,7 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func captureText() {
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
-                guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.restoreIcons(); return }
+                guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
                 run(areaCapture(screen, rect, frozen), then: copyText)
             }
         }
@@ -431,7 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func handle(_ sel: Selection?) {
-        guard let sel else { restoreIcons(); return }
+        guard let sel else { endCapture(); return }
         switch sel {
         case .area(let screen, let rect, let frozen):
             lastArea = (screen, rect)
@@ -441,7 +445,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Area capture for the editor's Add Image → Capture Area: no Quick Access, just the image (nil if cancelled).
-    private func captureAreaImage(_ done: @escaping (NSImage?) -> Void) {
+    private func captureAreaImage(_ completion: @escaping (NSImage?) -> Void) {
+        QuickAccessController.suspend()
+        let done: (NSImage?) -> Void = { QuickAccessController.resume(); completion($0) }
         // Give the hidden editor window a moment to leave the screen first.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else { done(nil); return }
@@ -470,10 +476,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
             do {
                 let image = try await capture()
-                restoreIcons()
+                endCapture()
                 (then ?? self.finish)(image)
             } catch {
-                restoreIcons()
+                endCapture()
                 NSLog("Capture failed: \(error)")
                 NSSound.beep()
             }
@@ -485,15 +491,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if Preferences.copyToClipboard { Output.copy(image) }
         if Preferences.autoSave { Output.save(image) }
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
+        var editor: EditorWindowController?
         if Preferences.openEditorAfterCapture {
-            EditorWindowController(image: image).present()
-            return
+            editor = EditorWindowController(image: image)
+            editor?.present()
         }
-        let qa = QuickAccessController(image: image)
-        qa.onAnnotate = { EditorWindowController(image: $0).present() }
-        qa.onPin = { PinnedScreenshotController.pin($0) }
-        QuickAccessController.live.append(qa)
-        qa.show()
+        if Preferences.showQuickAccess { QuickAccessController.show(image, editor: editor) }
     }
 }
 

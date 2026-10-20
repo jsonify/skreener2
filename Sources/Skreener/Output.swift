@@ -100,12 +100,15 @@ enum Output {
 
     /// The share sheet (AirDrop, Mail, Messages…) under `view`. Shares a file rather than the bare image, so the
     /// sheet's header shows its thumbnail and name and receivers get a properly named PNG/JPEG.
-    static func share(_ image: NSImage, from view: NSView) {
+    /// `delegate` hears which service was picked (Quick Access closes once one is).
+    static func share(_ image: NSImage, from view: NSView, delegate: NSSharingServicePickerDelegate? = nil) {
         guard let url = temporaryFile(image) else { NSSound.beep(); return }
-        share(url, from: view)
+        share(url, from: view, delegate: delegate)
     }
 
-    static func share(_ file: URL, from view: NSView) {
-        NSSharingServicePicker(items: [file]).show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+    static func share(_ file: URL, from view: NSView, delegate: NSSharingServicePickerDelegate? = nil) {
+        let picker = NSSharingServicePicker(items: [file])
+        picker.delegate = delegate
+        picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
     }
 }

@@ -70,10 +70,15 @@ enum Preferences {
         get { d.bool(forKey: "matchExtensionColor") }
         set { d.set(newValue, forKey: "matchExtensionColor") }
     }
-    /// Open each screenshot straight in the editor instead of the Quick Access thumbnail.
+    /// Open each screenshot in the editor.
     static var openEditorAfterCapture: Bool {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }
         set { d.set(newValue, forKey: "openEditorAfterCapture") }
+    }
+    /// Show a Quick Access preview of each screenshot in the bottom-left corner (as well as the editor, if that opens).
+    static var showQuickAccess: Bool {
+        get { d.object(forKey: "showQuickAccess") as? Bool ?? true }
+        set { d.set(newValue, forKey: "showQuickAccess") }
     }
     /// Open each new editor as a tab of the editor window that is already open, instead of its own window.
     static var editorTabs: Bool {
