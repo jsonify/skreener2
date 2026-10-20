@@ -65,6 +65,11 @@ enum Preferences {
         get { d.object(forKey: "annotationShadow") as? Bool ?? true }
         set { d.set(newValue, forKey: "annotationShadow") }
     }
+    /// Fill the area an annotation grows the canvas into with the image's top-left pixel colour instead of white.
+    static var matchExtensionColor: Bool {
+        get { d.bool(forKey: "matchExtensionColor") }
+        set { d.set(newValue, forKey: "matchExtensionColor") }
+    }
     /// Open each screenshot straight in the editor instead of the Quick Access thumbnail.
     static var openEditorAfterCapture: Bool {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }
