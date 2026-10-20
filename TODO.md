@@ -65,7 +65,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 
 ## Batch 5 — capture modes
 - [~] Scrolling capture (Capture Scrolling ⌃⇧8): pick an area, scroll it yourself; frames are grabbed ~8×/s and stitched by matching rows (sticky header/footer kept once, max 30,000 px); Done / ⌃⇧8 finishes, Esc / Cancel throws it away — L
-- [~] Scrolling capture: Auto-Scroll button (needs Accessibility): a steady ~60/s stream of small scroll events sent straight to the app under the area, so the pointer stays free; speed measured from how far the content really moves (about a fifth of the area per frame, at most one area height a second); only scrolls down, apart from taking back an overshoot; finishes when the content stops moving; Stop Scrolling or Esc hands back control (a second Esc cancels) — M
+- [~] Scrolling capture: Auto-Scroll button (needs Accessibility): a steady ~60/s stream of small scroll events sent straight to the app under the area, so the pointer stays free; speed measured from how far the content really moves (about a fifth of the area per frame, at most one area height a second); only scrolls down, apart from taking back an overshoot; finishes when the content stops moving; Stop Scrolling or Esc hands back control (a second Esc cancels); the control bar sits inside the top tenth of the area (left out of the capture) so the pointer starts over the content — M
 - [ ] Scrolling capture: live preview of the stitched image beside the area — S
 - [ ] All-in-one capture mode picker — M
 - [~] Capture history: panel slides down from the top (menu / ⌃⇧H); edit, copy, save, pin, delete, drag out; last 100 kept; Settings toggle — M

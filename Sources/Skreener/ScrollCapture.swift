@@ -395,7 +395,7 @@ final class ScrollCaptureController {
             } else if !autoMoved && stillFrames == 6 && !viaPointer {
                 // The app didn't react to events sent to it: scroll at the pointer instead (it isn't moved).
                 viaPointer = true
-                setStatus("Rest the pointer over the area to keep scrolling, or click Stop Scrolling.")
+                setStatus("Rest the pointer on the content (below this bar) to keep scrolling.")
             } else if !autoMoved && stillFrames >= 15 {
                 stopAutoScroll()
                 setStatus("Auto-Scroll couldn't move this content. Scroll it by hand instead.")
@@ -486,15 +486,27 @@ final class ScrollCaptureController {
         frameWindow = p
     }
 
-    /// Status, Auto-Scroll and Done / Cancel, under the area (or above it, or inside its bottom edge when there's no room).
+    /// Status, Auto-Scroll and Done / Cancel: inside the top of the area, or next to it when the area is small.
     private func showControls() {
         guard let screen else { return }
-        let size = NSSize(width: 540, height: 44)
         let visible = screen.visibleFrame
-        var y = rect.minY - size.height - 12
-        if y < visible.minY { y = rect.maxY + 12 }
-        if y + size.height > visible.maxY { y = rect.minY + 12 }
-        let x = min(max(rect.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
+        var size = NSSize(width: 540, height: 44)
+        var origin: NSPoint
+        if rect.width >= 316 && rect.height >= size.height * 4 {
+            // Inside the area, about a tenth of the way down: clicking Auto-Scroll leaves the pointer over the content.
+            // (Skreener's windows are left out of the frames, so the panel never shows up in the capture.)
+            size.width = min(size.width, rect.width - 16)
+            let y = min(rect.maxY - rect.height * 0.1 - size.height / 2, rect.maxY - size.height - 8)
+            origin = NSPoint(x: rect.midX - size.width / 2, y: y)
+        } else {
+            // Too small to share: under the area, or above it, or inside its bottom edge when there's no room.
+            var y = rect.minY - size.height - 12
+            if y < visible.minY { y = rect.maxY + 12 }
+            if y + size.height > visible.maxY { y = rect.minY + 12 }
+            origin = NSPoint(x: rect.midX - size.width / 2, y: y)
+        }
+        origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
+        let x = origin.x, y = origin.y
         let p = NSPanel(contentRect: NSRect(origin: NSPoint(x: x, y: y), size: size),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.level = .statusBar
