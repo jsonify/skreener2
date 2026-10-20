@@ -613,6 +613,13 @@ final class ScrollCaptureController {
 private final class PillButton: NSButton {
     enum Style { case filled, tinted }
 
+    /// Space between the symbol and the title, the same on every pill button. The symbol and title are laid out
+    /// here rather than by the button cell, whose own spacing is wider and varies with the content.
+    static let iconGap: CGFloat = 5
+
+    private let icon = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+    private let content = NSStackView()
     private let run: () -> Void
     private let style: Style
     private var pressed = false { didSet { applyColors() } }
@@ -623,9 +630,19 @@ private final class PillButton: NSButton {
         self.style = style
         super.init(frame: .zero)
         isBordered = false
+        self.title = ""
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        contentTintColor = .white
+        icon.contentTintColor = .white
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.textColor = .white
+        content.addArrangedSubview(icon)
+        content.addArrangedSubview(label)
+        content.spacing = Self.iconGap
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        content.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
+        content.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
         target = self
         action = #selector(fire)
         translatesAutoresizingMaskIntoConstraints = false
@@ -638,16 +655,14 @@ private final class PillButton: NSButton {
 
     func setContent(title: String?, symbol: String) {
         let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(config)
-        attributedTitle = NSAttributedString(string: title.map { " " + $0 } ?? "", attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white,
-        ])
-        imagePosition = title == nil ? .imageOnly : .imageLeading
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(config)
+        label.stringValue = title ?? ""
+        label.isHidden = title == nil   // the stack leaves hidden views out, gap included
         setAccessibilityLabel(title ?? toolTip)
         widthConstraint?.isActive = false
         // Room either side of the content, or a circle when there is only a symbol.
         widthConstraint = title == nil ? widthAnchor.constraint(equalToConstant: 30)
-                                       : widthAnchor.constraint(equalToConstant: super.intrinsicContentSize.width + 28)
+                                       : widthAnchor.constraint(equalToConstant: content.fittingSize.width + 28)
         widthConstraint?.isActive = true
     }
 
@@ -657,6 +672,9 @@ private final class PillButton: NSButton {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Clicks on the symbol or title belong to the button.
+    override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
 
     override func mouseDown(with event: NSEvent) {
         pressed = true
