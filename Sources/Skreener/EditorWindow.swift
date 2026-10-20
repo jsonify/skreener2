@@ -32,7 +32,7 @@ private final class ZoomingScrollView: NSScrollView {
     }
 }
 
-/// The centered "Drag Me" pill: drag it to drop the annotated image as a PNG file anywhere.
+/// The centered "Drag Me" pill: drag it to drop the annotated image as a file (PNG or JPEG, per Settings) anywhere.
 private final class DragPill: NSView, NSDraggingSource {
     var imageProvider: () -> NSImage = { NSImage() }
     private var dragStarted = false
@@ -44,10 +44,7 @@ private final class DragPill: NSView, NSDraggingSource {
         guard !dragStarted else { return }
         dragStarted = true
         let image = imageProvider()
-        guard let data = Output.pngData(image) else { return }
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Skreener \(f.string(from: Date())).png")
-        do { try data.write(to: url) } catch { NSLog("Drag export failed: \(error)"); return }
+        guard let url = Output.temporaryFile(image) else { return }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         let h: CGFloat = 72, w = h * image.size.width / max(image.size.height, 1)
         item.setDraggingFrame(NSRect(x: 0, y: 0, width: min(w, 160), height: h), contents: image)
@@ -694,9 +691,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func copyIt() { Output.copy(canvas.flattened()) }
     @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
-    @objc private func shareIt(_ sender: NSButton) {
-        NSSharingServicePicker(items: [canvas.flattened()]).show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-    }
+    @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
     @objc private func cropIt() {

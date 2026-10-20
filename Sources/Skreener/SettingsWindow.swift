@@ -1,8 +1,8 @@
 import AppKit
 
-/// Settings window (⌘, or the menu bar icon or the editor's gear button): what happens after a capture, selection and window-capture
-/// options, the global shortcuts, and the version / build that is running.
-final class SettingsWindowController: NSWindowController {
+/// Settings window (⌘, or the menu bar icon or the editor's gear button), CleanShot-style: a sidebar of categories with
+/// colored icons, and each category's options in rounded groups. Fixed 810 pt wide; only the height can be resized.
+final class SettingsWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
     @MainActor static let shared = SettingsWindowController()
     /// Whether the Settings window is on screen (without creating it).
     @MainActor static var isOpen: Bool { created?.window?.isVisible == true }
@@ -21,20 +21,87 @@ final class SettingsWindowController: NSWindowController {
                                     ("⌃⇧7", "Record Screen / Stop Recording"),
                                     ("⌃⇧H", "Capture History")]
 
+    private static let width: CGFloat = 810
+    private static let sidebarWidth: CGFloat = 200
+
+    private enum Pane: Int, CaseIterable {
+        case general, afterCapture, shortcuts, screenshots, recording, annotate, about
+
+        var title: String {
+            switch self {
+            case .general: return "General"
+            case .afterCapture: return "After Capture"
+            case .shortcuts: return "Shortcuts"
+            case .screenshots: return "Screenshots"
+            case .recording: return "Screen Recording"
+            case .annotate: return "Annotate"
+            case .about: return "About"
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .general: return "gearshape.fill"
+            case .afterCapture: return "rectangle.stack.fill"
+            case .shortcuts: return "command"
+            case .screenshots: return "camera.fill"
+            case .recording: return "video.fill"
+            case .annotate: return "pencil.tip"
+            case .about: return "info"
+            }
+        }
+        var color: NSColor {
+            switch self {
+            case .general: return .systemGray
+            case .afterCapture: return .systemGreen
+            case .shortcuts: return .systemIndigo
+            case .screenshots: return .systemBlue
+            case .recording: return .systemRed
+            case .annotate: return .systemOrange
+            case .about: return .systemGray
+            }
+        }
+    }
+
     /// Target objects for the controls' closures (controls hold their targets weakly).
     private var actions: [ControlAction] = []
     private let folderLabel = NSTextField(labelWithString: "")
+    private let loginSwitch = NSSwitch()
+    private let sidebar = NSTableView()
+    private let detail = NSScrollView()
+    /// Each pane is built once, the first time it is shown.
+    private var panes: [Pane: NSView] = [:]
 
     private init() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 400), styleMask: [.titled, .closable],
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 660),
+                         styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
         w.title = "Skreener Settings"
+        w.titleVisibility = .hidden
+        w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
         super.init(window: w)
         Self.created = self
-        w.contentView = buildContent()
-        w.setContentSize(w.contentView?.fittingSize ?? w.frame.size)
+
+        let split = NSSplitViewController()
+        let side = NSSplitViewItem(sidebarWithViewController: viewController(buildSidebar()))
+        side.minimumThickness = Self.sidebarWidth
+        side.maximumThickness = Self.sidebarWidth
+        side.canCollapse = false
+        split.addSplitViewItem(side)
+        detail.hasVerticalScroller = true
+        detail.drawsBackground = false
+        split.addSplitViewItem(NSSplitViewItem(viewController: viewController(detail)))
+        w.contentViewController = split
+
+        // Only the height is adjustable.
+        w.contentMinSize = NSSize(width: Self.width, height: 420)
+        w.contentMaxSize = NSSize(width: Self.width, height: .greatestFiniteMagnitude)
+        w.setContentSize(NSSize(width: Self.width, height: 660))
         w.center()
+        sidebar.reloadData()
+        sidebar.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        show(.general)
+
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
             Task { @MainActor in DockPresence.update() }
         }
@@ -43,121 +110,367 @@ final class SettingsWindowController: NSWindowController {
 
     func present() {
         refreshFolder()
+        refreshLogin()   // may have changed in System Settings
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         DockPresence.update()
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: Layout
+    private func viewController(_ view: NSView) -> NSViewController {
+        let vc = NSViewController()
+        vc.view = view
+        return vc
+    }
 
-    private func buildContent() -> NSView {
-        var rows: [[NSView]] = []
-        var headers: [Int] = []
-        func section(_ title: String) {
-            let l = NSTextField(labelWithString: title)
-            l.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-            headers.append(rows.count)
-            rows.append([l, NSGridCell.emptyContentView])
+    // MARK: Sidebar
+
+    private func buildSidebar() -> NSView {
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("pane"))
+        column.width = Self.sidebarWidth - 20
+        sidebar.addTableColumn(column)
+        sidebar.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        sidebar.headerView = nil
+        sidebar.style = .sourceList
+        sidebar.rowHeight = 32
+        sidebar.dataSource = self
+        sidebar.delegate = self
+        let scroll = NSScrollView()
+        scroll.documentView = sidebar
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = false
+        return scroll
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { Pane.allCases.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let pane = Pane(rawValue: row) else { return nil }
+        let cell = NSTableCellView()
+        let icon = NSImageView(image: Self.icon(pane.symbol, pane.color))
+        let label = NSTextField(labelWithString: pane.title)
+        label.font = .systemFont(ofSize: 13)
+        [icon, label].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; cell.addSubview($0) }
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+            icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 22), icon.heightAnchor.constraint(equalToConstant: 22),
+            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
+        ])
+        cell.imageView = icon
+        cell.textField = label
+        return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard let pane = Pane(rawValue: sidebar.selectedRow) else { return }
+        show(pane)
+    }
+
+    /// White symbol on a rounded square of `color`, with a soft top highlight.
+    private static func icon(_ symbol: String, _ color: NSColor) -> NSImage {
+        NSImage(size: NSSize(width: 22, height: 22), flipped: false) { r in
+            let path = NSBezierPath(roundedRect: r, xRadius: 5.5, yRadius: 5.5)
+            color.setFill()
+            path.fill()
+            NSGradient(starting: NSColor.white.withAlphaComponent(0.22), ending: NSColor.white.withAlphaComponent(0))?
+                .draw(in: path, angle: -90)
+            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            if let s = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+                s.draw(in: NSRect(x: r.midX - s.size.width / 2, y: r.midY - s.size.height / 2,
+                                  width: s.size.width, height: s.size.height))
+            }
+            return true
         }
-        func row(_ label: String, _ control: NSView) { rows.append([NSTextField(labelWithString: label), control]) }
+    }
 
-        section("After Capture")
-        row("Output:", checkbox("Copy to clipboard", Preferences.copyToClipboard) { Preferences.copyToClipboard = $0 })
-        row("", checkbox("Save to folder", Preferences.autoSave) { Preferences.autoSave = $0 })
-        row("Then:", checkbox("Open in the editor (instead of the Quick Access thumbnail)", Preferences.openEditorAfterCapture) {
-            Preferences.openEditorAfterCapture = $0
-        })
-        let choose = NSButton(title: "Choose…", target: nil, action: nil)
-        bind(choose) { [weak self] _ in self?.chooseFolder() }
-        folderLabel.lineBreakMode = .byTruncatingMiddle
-        folderLabel.textColor = .secondaryLabelColor
-        folderLabel.translatesAutoresizingMaskIntoConstraints = false
-        folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
-        row("Save folder:", NSStackView(views: [folderLabel, choose]))
+    // MARK: Panes
 
-        section("History")
-        row("Captures:", checkbox("Keep capture history (last \(CaptureHistory.limit))", Preferences.keepHistory) {
-            Preferences.keepHistory = $0
-        })
+    private func show(_ pane: Pane) {
+        let content = panes[pane] ?? buildPane(pane)
+        panes[pane] = content
+        let doc = FlippedView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        doc.addSubview(content)
+        doc.translatesAutoresizingMaskIntoConstraints = false
+        detail.documentView = doc
+        NSLayoutConstraint.activate([
+            doc.leadingAnchor.constraint(equalTo: detail.contentView.leadingAnchor),
+            doc.topAnchor.constraint(equalTo: detail.contentView.topAnchor),
+            doc.widthAnchor.constraint(equalTo: detail.contentView.widthAnchor),
+            content.topAnchor.constraint(equalTo: doc.topAnchor, constant: 8),
+            content.leadingAnchor.constraint(equalTo: doc.leadingAnchor, constant: 28),
+            content.trailingAnchor.constraint(equalTo: doc.trailingAnchor, constant: -28),
+            content.bottomAnchor.constraint(equalTo: doc.bottomAnchor, constant: -28),
+        ])
+        detail.contentView.scroll(to: .zero)
+    }
 
-        section("Editor")
-        row("Annotations:", checkbox("Drop shadow", Preferences.annotationShadow) {
-            Preferences.annotationShadow = $0
-            NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
-        })
-        row("Windows:", checkbox("Open screenshots as tabs in one editor window", Preferences.editorTabs) {
-            Preferences.editorTabs = $0
-        })
+    private func buildPane(_ pane: Pane) -> NSView {
+        let title: NSView = {
+            let l = NSTextField(labelWithString: pane.title)
+            l.font = .systemFont(ofSize: 20, weight: .bold)
+            return l
+        }()
+        return verticalStack([title] + groups(for: pane), spacing: 24)
+    }
 
-        section("Selection")
-        row("Screen:", checkbox("Freeze screen while selecting", Preferences.freezeScreen) { Preferences.freezeScreen = $0 })
-        row("", checkbox("Show cursor in screenshots", Preferences.showCursor) { Preferences.showCursor = $0 })
-        row("", checkbox("Hide desktop icons while capturing", Preferences.hideIconsWhileCapturing) {
-            Preferences.hideIconsWhileCapturing = $0
-        })
+    private func groups(for pane: Pane) -> [NSView] {
+        switch pane {
+        case .general:
+            bind(loginSwitch) { [weak self] c in
+                LaunchAtLogin.set((c as? NSSwitch)?.state == .on)
+                self?.refreshLogin()
+            }
+            loginSwitch.controlSize = .small
+            refreshLogin()
 
-        section("Window Capture")
-        row("Style:", checkbox("Shadow", Preferences.windowShadow) { Preferences.windowShadow = $0 })
-        row("", checkbox("Transparent background (white when off)", Preferences.windowTransparentBackground) {
-            Preferences.windowTransparentBackground = $0
-        })
-        let padding = NSPopUpButton(frame: .zero, pullsDown: false)
-        for pts in [0, 16, 32, 64] { padding.addItem(withTitle: pts == 0 ? "None" : "\(pts) pt"); padding.lastItem?.tag = pts }
-        padding.selectItem(withTag: Preferences.windowPadding)
-        bind(padding) { Preferences.windowPadding = ($0 as? NSPopUpButton)?.selectedTag() ?? 0 }
-        row("Padding:", padding)
+            let choose = NSButton(title: "Choose…", target: nil, action: nil)
+            bind(choose) { [weak self] _ in self?.chooseFolder() }
+            folderLabel.lineBreakMode = .byTruncatingMiddle
+            folderLabel.textColor = .secondaryLabelColor
+            folderLabel.translatesAutoresizingMaskIntoConstraints = false
+            folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
+            refreshFolder()
+            let folder = NSStackView(views: [folderLabel, choose])
+            folder.spacing = 10
 
-        // Recordings are always written to the save folder, as MP4.
-        section("Screen Recording")
-        let mic = checkbox("Microphone", Preferences.recordMicrophone) { Preferences.recordMicrophone = $0 }
-        if #unavailable(macOS 15.0) {
-            mic.isEnabled = false
-            mic.title = "Microphone (macOS 15+)"
+            return [
+                group("App", [row("Launch at login", loginSwitch)]),
+                group("Capture", [
+                    toggle("Freeze screen while selecting", "Shows a still frame while you pick an area and captures from it.",
+                           Preferences.freezeScreen) { Preferences.freezeScreen = $0 },
+                    toggle("Show cursor in screenshots", nil, Preferences.showCursor) { Preferences.showCursor = $0 },
+                    toggle("Hide desktop icons while capturing", nil, Preferences.hideIconsWhileCapturing) {
+                        Preferences.hideIconsWhileCapturing = $0
+                    },
+                ]),
+                group("Export", [row("Export location", folder)],
+                      note: "Where screenshots are saved after a capture, and where screen recordings go."),
+            ]
+
+        case .afterCapture:
+            return [
+                group("Screenshots", [
+                    toggle("Copy to clipboard", nil, Preferences.copyToClipboard) { Preferences.copyToClipboard = $0 },
+                    toggle("Save to the export location", nil, Preferences.autoSave) { Preferences.autoSave = $0 },
+                    toggle("Open in the editor", "When off, a Quick Access thumbnail appears instead.",
+                           Preferences.openEditorAfterCapture) { Preferences.openEditorAfterCapture = $0 },
+                ], note: "Capture Text and Capture Area & Pin skip these."),
+                group("History", [
+                    toggle("Keep capture history", "The last \(CaptureHistory.limit) captures, in the History panel (⌃⇧H).",
+                           Preferences.keepHistory) { Preferences.keepHistory = $0 },
+                ]),
+            ]
+
+        case .shortcuts:
+            return [group("Global Shortcuts", Self.shortcuts.map { keys, title in
+                let k = NSTextField(labelWithString: keys)
+                k.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+                k.textColor = .secondaryLabelColor
+                return row(title, k)
+            }, note: "Shortcuts can't be changed yet.")]
+
+        case .screenshots:
+            // Example file name under the template field, updated as the template or the format changes.
+            let preview = NSTextField(labelWithString: "")
+            preview.textColor = .secondaryLabelColor
+            preview.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            func showPreview() { preview.stringValue = "\(Output.filename()).\(Preferences.imageFormat.fileExtension)" }
+
+            let format = NSPopUpButton(frame: .zero, pullsDown: false)
+            for f in [ImageFormat.png, .jpeg] {
+                format.addItem(withTitle: f == .png ? "PNG" : "JPEG"); format.lastItem?.representedObject = f.rawValue
+            }
+            format.selectItem(at: Preferences.imageFormat == .png ? 0 : 1)
+            bind(format) {
+                let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+                Preferences.imageFormat = raw.flatMap(ImageFormat.init(rawValue:)) ?? .png
+                showPreview()
+            }
+
+            let template = NSTextField(string: Preferences.filenameTemplate)
+            template.placeholderString = Preferences.defaultFilenameTemplate
+            template.isContinuous = true
+            template.translatesAutoresizingMaskIntoConstraints = false
+            template.widthAnchor.constraint(equalToConstant: 240).isActive = true
+            bind(template) {
+                Preferences.filenameTemplate = $0.stringValue
+                showPreview()
+            }
+            showPreview()
+
+            let padding = NSPopUpButton(frame: .zero, pullsDown: false)
+            for pts in [0, 16, 32, 64] { padding.addItem(withTitle: pts == 0 ? "None" : "\(pts) pt"); padding.lastItem?.tag = pts }
+            padding.selectItem(withTag: Preferences.windowPadding)
+            bind(padding) { Preferences.windowPadding = ($0 as? NSPopUpButton)?.selectedTag() ?? 0 }
+
+            return [
+                group("File", [
+                    row("Format", "JPEG has no transparency: transparent areas become white.", format),
+                    toggle("Save Retina screenshots at 1×", "Half the pixels each way: smaller files.", Preferences.downscaleRetina) {
+                        Preferences.downscaleRetina = $0
+                    },
+                    row("File name", "Tokens: %Y %y %m %d %H %M %S", template),
+                    row("Example", preview),
+                ]),
+                group("Window Capture", [
+                    toggle("Shadow", nil, Preferences.windowShadow) { Preferences.windowShadow = $0 },
+                    toggle("Transparent background", "White when off.", Preferences.windowTransparentBackground) {
+                        Preferences.windowTransparentBackground = $0
+                    },
+                    row("Padding", padding),
+                ]),
+            ]
+
+        case .recording:
+            let mic = NSSwitch()
+            mic.controlSize = .small
+            mic.state = Preferences.recordMicrophone ? .on : .off
+            bind(mic) { Preferences.recordMicrophone = ($0 as? NSSwitch)?.state == .on }
+            var micNote: String?
+            if #unavailable(macOS 15.0) {
+                mic.isEnabled = false
+                micNote = "Needs macOS 15 or later."
+            }
+            let fps = NSPopUpButton(frame: .zero, pullsDown: false)
+            for rate in [30, 60] { fps.addItem(withTitle: "\(rate) fps"); fps.lastItem?.tag = rate }
+            fps.selectItem(withTag: Preferences.recordFrameRate)
+            bind(fps) { Preferences.recordFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 30 }
+
+            return [
+                group("Audio", [
+                    toggle("System audio", "Sound from other apps.", Preferences.recordSystemAudio) { Preferences.recordSystemAudio = $0 },
+                    row("Microphone", micNote, mic),
+                ], note: "Each source is recorded to its own audio track."),
+                group("Video", [
+                    row("Frame rate", fps),
+                    toggle("Show cursor", nil, Preferences.recordShowsCursor) { Preferences.recordShowsCursor = $0 },
+                ], note: "Recordings are saved to the export location as MP4. More options are in the record panel's sliders menu."),
+            ]
+
+        case .annotate:
+            return [
+                group("Annotations", [
+                    toggle("Drop shadow", "A subtle shadow under shapes, arrows, pen and text.", Preferences.annotationShadow) {
+                        Preferences.annotationShadow = $0
+                        NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
+                    },
+                ]),
+                group("Editor Window", [
+                    toggle("Open screenshots as tabs", "New screenshots join the open editor window instead of opening their own.",
+                           Preferences.editorTabs) { Preferences.editorTabs = $0 },
+                ]),
+            ]
+
+        case .about:
+            let icon = NSImageView(image: NSApp.applicationIconImage)
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.widthAnchor.constraint(equalToConstant: 96).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: 96).isActive = true
+            let name = NSTextField(labelWithString: "Skreener")
+            name.font = .systemFont(ofSize: 18, weight: .semibold)
+            let version = NSTextField(labelWithString: "Version \(Self.version)")
+            version.textColor = .secondaryLabelColor
+            version.isSelectable = true
+            let blurb = NSTextField(labelWithString: "Screenshots, annotations and screen recordings from the menu bar.")
+            blurb.textColor = .secondaryLabelColor
+            let stack = NSStackView(views: [icon, name, version, blurb])
+            stack.orientation = .vertical
+            stack.alignment = .centerX
+            stack.spacing = 8
+            stack.setCustomSpacing(4, after: name)
+            return [stack]
         }
-        row("Audio:", NSStackView(views: [checkbox("System audio", Preferences.recordSystemAudio) { Preferences.recordSystemAudio = $0 }, mic]))
-        let fps = NSPopUpButton(frame: .zero, pullsDown: false)
-        for rate in [30, 60] { fps.addItem(withTitle: "\(rate) fps"); fps.lastItem?.tag = rate }
-        fps.selectItem(withTag: Preferences.recordFrameRate)
-        bind(fps) { Preferences.recordFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 30 }
-        row("Video:", NSStackView(views: [fps, checkbox("Show cursor", Preferences.recordShowsCursor) { Preferences.recordShowsCursor = $0 }]))
+    }
 
-        section("Shortcuts")
-        for (keys, title) in Self.shortcuts {
-            let k = NSTextField(labelWithString: keys)
-            k.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-            row(title + ":", k)
+    // MARK: Building blocks
+
+    /// A titled rounded box of rows, with separators between them and an optional note under it.
+    private func group(_ title: String, _ rows: [NSView], note: String? = nil) -> NSView {
+        let header = NSTextField(labelWithString: title)
+        header.font = .systemFont(ofSize: 13, weight: .semibold)
+
+        var items: [NSView] = []
+        for (i, r) in rows.enumerated() {
+            if i > 0 {
+                let line = NSBox()
+                line.boxType = .separator
+                items.append(line)
+            }
+            items.append(r)
         }
+        let inner = verticalStack(items, spacing: 0, inset: 14)
+        let box = GroupBox()
+        inner.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(inner)
+        NSLayoutConstraint.activate([
+            inner.topAnchor.constraint(equalTo: box.topAnchor), inner.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            inner.leadingAnchor.constraint(equalTo: box.leadingAnchor), inner.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+        ])
 
-        let grid = NSGridView(views: rows)
-        grid.rowSpacing = 8
-        grid.columnSpacing = 10
-        grid.column(at: 0).xPlacement = .trailing
-        grid.rowAlignment = .firstBaseline
-        for h in headers {
-            let r = grid.row(at: h)
-            r.mergeCells(in: NSRange(location: 0, length: 2))
-            r.cell(at: 0).xPlacement = .leading
-            if h > 0 { r.topPadding = 10 }
+        var views: [NSView] = [header, box]
+        if let note {
+            let n = NSTextField(wrappingLabelWithString: note)
+            n.font = .systemFont(ofSize: 11)
+            n.textColor = .secondaryLabelColor
+            n.preferredMaxLayoutWidth = Self.width - Self.sidebarWidth - 2 * 28
+            views.append(n)
         }
+        return verticalStack(views, spacing: 8)
+    }
 
-        let version = NSTextField(labelWithString: "Skreener \(Self.version)")
-        version.textColor = .secondaryLabelColor
-        version.isSelectable = true
-
-        let stack = NSStackView(views: [grid, version])
+    /// Vertical stack whose arranged views all take its full width (less `inset` on each side).
+    private func verticalStack(_ views: [NSView], spacing: CGFloat, inset: CGFloat = 0) -> NSStackView {
+        let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 18
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
+        stack.spacing = spacing
+        stack.edgeInsets = NSEdgeInsets(top: inset > 0 ? 2 : 0, left: inset, bottom: inset > 0 ? 2 : 0, right: inset)
+        for v in views { v.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -2 * inset).isActive = true }
         return stack
     }
 
-    private func checkbox(_ title: String, _ on: Bool, _ set: @escaping (Bool) -> Void) -> NSButton {
-        let b = NSButton(checkboxWithTitle: title, target: nil, action: nil)
-        b.state = on ? .on : .off
-        bind(b) { set(($0 as? NSButton)?.state == .on) }
-        return b
+    private func row(_ title: String, _ control: NSView) -> NSView { row(title, nil, control) }
+
+    /// Title (and optional subtitle) on the left, `control` on the right.
+    private func row(_ title: String, _ subtitle: String?, _ control: NSView) -> NSView {
+        let v = NSView()
+        let text = NSStackView(views: [NSTextField(labelWithString: title)])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 2
+        if let subtitle {
+            let s = NSTextField(wrappingLabelWithString: subtitle)
+            s.font = .systemFont(ofSize: 11)
+            s.textColor = .secondaryLabelColor
+            s.preferredMaxLayoutWidth = 300
+            text.addArrangedSubview(s)
+        }
+        [text, control].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; v.addSubview($0) }
+        NSLayoutConstraint.activate([
+            v.heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            text.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            text.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            text.topAnchor.constraint(greaterThanOrEqualTo: v.topAnchor, constant: 9),
+            text.bottomAnchor.constraint(lessThanOrEqualTo: v.bottomAnchor, constant: -9),
+            control.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+            control.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            control.topAnchor.constraint(greaterThanOrEqualTo: v.topAnchor, constant: 6),
+            text.trailingAnchor.constraint(lessThanOrEqualTo: control.leadingAnchor, constant: -16),
+        ])
+        return v
+    }
+
+    private func toggle(_ title: String, _ subtitle: String?, _ on: Bool, _ set: @escaping (Bool) -> Void) -> NSView {
+        let s = NSSwitch()
+        s.controlSize = .small
+        s.state = on ? .on : .off
+        bind(s) { set(($0 as? NSSwitch)?.state == .on) }
+        return row(title, subtitle, s)
     }
 
     private func bind(_ control: NSControl, _ run: @escaping (NSControl) -> Void) {
@@ -166,7 +479,9 @@ final class SettingsWindowController: NSWindowController {
         control.target = a; control.action = #selector(ControlAction.fire(_:))
     }
 
-    // MARK: Save folder
+    private func refreshLogin() { loginSwitch.state = LaunchAtLogin.isOn ? .on : .off }
+
+    // MARK: Export location
 
     private func refreshFolder() {
         folderLabel.stringValue = (Preferences.saveDirectory.path as NSString).abbreviatingWithTildeInPath
@@ -187,4 +502,19 @@ final class SettingsWindowController: NSWindowController {
     let run: (NSControl) -> Void
     init(_ run: @escaping (NSControl) -> Void) { self.run = run }
     @objc func fire(_ sender: NSControl) { run(sender) }
+}
+
+/// Rounded, faintly filled background for a group of rows (redrawn when the appearance changes).
+private final class GroupBox: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+        NSColor.labelColor.withAlphaComponent(0.05).setFill()
+        path.fill()
+        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
+        path.stroke()
+    }
+}
+
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

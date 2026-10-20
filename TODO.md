@@ -61,6 +61,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Compact toolbar: small bordered buttons (tools as one segmented control) so everything fits the 990 pt minimum; smaller style bar and footer — S
 - [~] Editors open as tabs of one window instead of a window per screenshot (Settings → Editor toggle; ⇧⌘[ / ⇧⌘] switch tabs, Window menu: move tab to new window, merge all windows) — S
 - [~] Redact via OCR: all text, email addresses, phone numbers, links → editable pixelate boxes (toolbar or Image menu) — M
+- [ ] Drag Me: when a drag starts, hide the editor window and drag a small preview of the screenshot (85×100 px, cursor over its bottom-right quadrant, like CleanShot) instead of the large image; bring the window back if the drop is cancelled — S
 
 ## Batch 5 — capture modes
 - [ ] Scrolling capture (stitching) — L
@@ -70,11 +71,13 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 
 ## Batch 6 — sharing & output
 - [~] Settings window: existing options moved out of the menu, shortcut list, version + build commit — S
-- [ ] Settings: hotkey rebinding, format PNG/JPG, filename template, retina downscale — M
+- [~] Settings: format PNG/JPEG (JPEG flattens transparency onto white), filename template (%Y %y %m %d %H %M %S; " 2" etc. when the name is taken), save Retina captures at 1× — S
+- [ ] Settings: hotkey rebinding — M
+- [~] Settings window redesign (CleanShot-style): sidebar with colored icons (General, After Capture, Shortcuts, Screenshots, Screen Recording, Annotate, About), options in rounded groups with switches; 810 pt wide (fixed), 660 pt tall by default, height resizable — M
 - [ ] Quick Access: stacking, drag-and-drop out, swipe to dismiss, position setting — M
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M
-- [ ] Share sheet (NSSharingServicePicker) — S
-- [ ] Launch at login (SMAppService) — S
+- [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history; always shares a named file so the sheet shows its thumbnail and name — S
+- [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S
 
 ## Menu parity with CleanShot X (from its menu bar)
 - [ ] Check for Updates… (Sparkle or equivalent) — M

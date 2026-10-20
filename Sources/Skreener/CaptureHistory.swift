@@ -74,7 +74,7 @@ private final class HistoryPanel: NSPanel {
 }
 
 /// CleanShot-style capture history: a strip of recent captures that slides down from the top of the screen.
-/// Hover a capture for Edit / Copy / Save / Pin / Delete, double-click to edit, drag it out as a file.
+/// Hover a capture for Edit / Copy / Save / Share / Pin / Delete, double-click to edit, drag it out as a file.
 /// Esc, a click elsewhere, or the menu item again slides it away.
 final class CaptureHistoryPanel: NSObject {
     static let shared = CaptureHistoryPanel()
@@ -344,11 +344,19 @@ private final class HistoryCell: NSView, NSDraggingSource {
         let buttons: [(String, String, Action)] = [("pencil", "Edit", .edit), ("doc.on.doc", "Copy", .copy),
                                                    ("square.and.arrow.down", "Save…", .save), ("pin", "Pin", .pin),
                                                    ("trash", "Delete", .delete)]
-        let row = NSStackView(views: buttons.map { sym, tip, action in
+        var views: [NSView] = buttons.map { sym, tip, action in
             let b = HoverButton(symbol: sym, tip: tip)
             b.onClick = { [weak self] in self?.onAction?(action) }
             return b
-        })
+        }
+        // Shares the PNG file itself, so it keeps its name in Mail, AirDrop…
+        let share = HoverButton(symbol: "square.and.arrow.up", tip: "Share…")
+        share.onClick = { [weak self, weak share] in
+            guard let self, let share else { return }
+            Output.share(self.entry.url, from: share)
+        }
+        views.insert(share, at: 3)
+        let row = NSStackView(views: views)
         row.spacing = 6
         row.translatesAutoresizingMaskIntoConstraints = false
         overlay.addSubview(row)

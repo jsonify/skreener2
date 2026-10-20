@@ -1,8 +1,16 @@
 import AppKit
+import UniformTypeIdentifiers
 
 extension Notification.Name {
     /// Posted by the Settings window when an option that affects open windows changes.
     static let skreenerPreferencesChanged = Notification.Name("SkreenerPreferencesChanged")
+}
+
+/// File format for saved screenshots (the capture history always keeps PNG).
+enum ImageFormat: String {
+    case png, jpeg
+    var fileExtension: String { self == .png ? "png" : "jpg" }
+    var contentType: UTType { self == .png ? .png : .jpeg }
 }
 
 enum Preferences {
@@ -14,6 +22,21 @@ enum Preferences {
             return FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
         }
         set { d.set(newValue.path, forKey: "saveDirectory") }
+    }
+    static var imageFormat: ImageFormat {
+        get { d.string(forKey: "imageFormat").flatMap(ImageFormat.init(rawValue:)) ?? .png }
+        set { d.set(newValue.rawValue, forKey: "imageFormat") }
+    }
+    /// Save Retina captures at 1× (half the pixels each way) instead of full resolution.
+    static var downscaleRetina: Bool {
+        get { d.bool(forKey: "downscaleRetina") }
+        set { d.set(newValue, forKey: "downscaleRetina") }
+    }
+    static let defaultFilenameTemplate = "Skreener %Y-%m-%d at %H.%M.%S"
+    /// Saved file names; see `Output.filename` for the tokens.
+    static var filenameTemplate: String {
+        get { d.string(forKey: "filenameTemplate").flatMap { $0.isEmpty ? nil : $0 } ?? defaultFilenameTemplate }
+        set { d.set(newValue, forKey: "filenameTemplate") }
     }
     static var copyToClipboard: Bool {
         get { d.object(forKey: "copyToClipboard") as? Bool ?? true }
