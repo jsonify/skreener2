@@ -79,7 +79,8 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Settings: format PNG/JPEG (JPEG flattens transparency onto white), filename template (%Y %y %m %d %H %M %S; " 2" etc. when the name is taken), save Retina captures at 1× — S
 - [ ] Settings: hotkey rebinding — M
 - [~] Settings window redesign (CleanShot-style): sidebar with colored icons (General, After Capture, Shortcuts, Screenshots, Screen Recording, Annotate, About), options in rounded groups with switches; 810 pt wide (fixed), 660 pt tall by default, height resizable — M
-- [ ] Quick Access: stacking, drag-and-drop out, swipe to dismiss, position setting — M
+- [~] Quick Access (CleanShot-style, #21): shown alongside the editor (own Settings toggle); stays until an action; hover shows corner buttons (close, edit, pin, share) and Copy / Save pills; previews stack upwards, newest at the bottom; they fade out while a new capture is taken and come back after its editor opens; Edit brings back the capture's editor tab if it is still open — M
+- [ ] Quick Access: drag-and-drop out, swipe to dismiss, position setting — M
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M
 - [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history; always shares a named file so the sheet shows its thumbnail and name — S
 - [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S
