@@ -13,9 +13,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
 
+    /// The bundled template glyph (falls back to an SF Symbol when run outside the .app, e.g. `swift run`).
+    private lazy var menuBarIcon: NSImage? = {
+        guard let image = Bundle.main.image(forResource: "MenuBarIcon") else {
+            return NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Skreener"
+        return image
+    }()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
+        statusItem.button?.image = menuBarIcon
         menu = buildMenu()
         statusItem.menu = menu
         NSApp.mainMenu = buildMainMenu()
@@ -320,7 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             button.target = self; button.action = #selector(stopRecording)
         } else {
             restoreIcons()
-            button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Skreener")
+            button.image = menuBarIcon
             button.contentTintColor = nil
             button.title = ""
             button.toolTip = nil
