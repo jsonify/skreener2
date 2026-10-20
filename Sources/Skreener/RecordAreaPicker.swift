@@ -396,7 +396,7 @@ final class RecordAreaPicker: NSObject {
     /// Keystrokes need Accessibility access; ask for it when the option is turned on.
     private func setKeystrokes(_ on: Bool) {
         Preferences.recordShowKeystrokes = on
-        if on && !KeystrokeAccess.granted { KeystrokeAccess.request() }
+        if on && !AccessibilityAccess.granted { AccessibilityAccess.request() }
     }
 
     private func buildModeBar() -> NSView {

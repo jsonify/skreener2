@@ -65,7 +65,8 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 
 ## Batch 5 — capture modes
 - [~] Scrolling capture (Capture Scrolling ⌃⇧8): pick an area, scroll it yourself; frames are grabbed ~8×/s and stitched by matching rows (sticky header/footer kept once, max 30,000 px); Done / ⌃⇧8 finishes, Esc / Cancel throws it away — L
-- [ ] Scrolling capture: auto-scroll (needs Accessibility to post scroll events), live preview of the stitched image beside the area — M
+- [~] Scrolling capture: Auto-Scroll button (needs Accessibility; posts pixel scroll events at the middle of the area, halves its step when the stitcher loses track, finishes when the content stops moving; Stop Scrolling to take over by hand) — M
+- [ ] Scrolling capture: live preview of the stitched image beside the area — S
 - [ ] All-in-one capture mode picker — M
 - [~] Capture history: panel slides down from the top (menu / ⌃⇧H); edit, copy, save, pin, delete, drag out; last 100 kept; Settings toggle — M
 - [ ] Capture history: restore editable annotations (save the editor document, not just the flattened capture) — M

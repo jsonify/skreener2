@@ -163,8 +163,9 @@ final class ScrollStitcher {
 }
 
 /// Scrolling capture: after an area is picked, a dashed frame marks it and a small control panel sits beside it.
-/// Scroll the content inside the area (any speed up to about half the area per frame); Skreener grabs it several
-/// times a second and stitches the frames. Done (or ⌃⇧8 again) finishes, Esc or Cancel throws it away.
+/// Scroll the content inside the area yourself, or click Auto-Scroll; Skreener grabs it several times a second and
+/// stitches the frames. Auto-scroll keeps going until the content stops moving (the end), then finishes, or until
+/// Stop Scrolling. Done (or ⌃⇧8 again) finishes, Esc or Cancel throws it away.
 final class ScrollCaptureController {
     private(set) var isRunning = false
     private var screen: NSScreen?
@@ -178,6 +179,18 @@ final class ScrollCaptureController {
     private var actions: [ScrollAction] = []
     /// Bumped on every start, so a previous capture's frame loop stops even if a new one has begun.
     private var session = 0
+
+    // Auto-scroll: posts a scroll event after each frame, sized to stay well inside what the stitcher can match.
+    private var autoScrolling = false
+    private var autoButton: NSButton?
+    /// Points per scroll event; halved whenever the stitcher loses track.
+    private var scrollStep: CGFloat = 0
+    /// +1 scrolls further down the page; flipped once if the first scrolls move nothing.
+    private var scrollDirection: CGFloat = 1
+    private var directionFlipped = false
+    /// Whether the content has moved since auto-scroll started, and how many frames in a row it hasn't.
+    private var autoMoved = false
+    private var stillFrames = 0
 
     func start(screen: NSScreen, rect: CGRect, completion: @escaping (NSImage?) -> Void) {
         guard !isRunning else { return }
@@ -199,7 +212,8 @@ final class ScrollCaptureController {
                 let frame = try? await CaptureService.captureScreenImage(screen, globalRect: self.rect, showsCursor: false,
                                                                          excludingSelf: true)
                 if let frame, self.isRunning, self.session == current { self.add(frame) }
-                try? await Task.sleep(nanoseconds: 120_000_000)
+                // Auto-scroll gives the app a little longer to draw (many animate their scrolling).
+                try? await Task.sleep(nanoseconds: self.autoScrolling ? 200_000_000 : 120_000_000)
             }
         }
     }
@@ -225,11 +239,15 @@ final class ScrollCaptureController {
     }
 
     private func stop() {
+        stopAutoScroll()
         isRunning = false
         completion = nil
         stitcher = nil
         frameWindow?.orderOut(nil); frameWindow = nil
         controls?.orderOut(nil); controls = nil
+        autoButton = nil
+        scrollDirection = 1
+        directionFlipped = false
         if let id = escHotKey { HotKeys.shared.unregister(id); escHotKey = nil }
         actions.removeAll()
     }
@@ -238,16 +256,101 @@ final class ScrollCaptureController {
         guard let screen else { return }
         guard let stitcher else {
             stitcher = ScrollStitcher(first: frame)
+            if autoScrolling { scroll(by: scrollStep) }
             return
         }
         let step = stitcher.add(frame)
         let length = "\(Int((CGFloat(stitcher.height) / screen.backingScaleFactor).rounded())) pt tall"
+        if autoScrolling {
+            autoScrollStep(step, length: length)
+            return
+        }
         switch step {
         case .added: setStatus("\(length). Keep scrolling, or click Done.")
         case .unchanged: break
         case .lost: setStatus("\(length). Lost track: scroll back a little and go slower.")
         case .full: setStatus("\(length). That's the maximum length: click Done.")
         }
+    }
+
+    // MARK: Auto-scroll
+
+    private func toggleAutoScroll() {
+        if autoScrolling {
+            stopAutoScroll()
+            setStatus("Stopped. Scroll by hand, Auto-Scroll again, or click Done.")
+            return
+        }
+        // Scroll events posted into another app need Accessibility access.
+        guard AccessibilityAccess.granted else {
+            AccessibilityAccess.request()
+            setStatus("Allow Skreener in Privacy & Security → Accessibility, then click Auto-Scroll again.")
+            return
+        }
+        autoScrolling = true
+        autoMoved = false
+        stillFrames = 0
+        scrollStep = min(max(rect.height * 0.4, 40), 400)
+        autoButton?.title = "Stop Scrolling"
+        setStatus("Scrolling…")
+        // Scroll events go to the window under the pointer, so put it in the middle of the area.
+        _ = CGWarpMouseCursorPosition(scrollPoint)
+        _ = CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    private func stopAutoScroll() {
+        autoScrolling = false
+        autoButton?.title = "Auto-Scroll"
+    }
+
+    /// After each frame: scroll on, back off when the stitcher lost track, finish when the content stops moving.
+    private func autoScrollStep(_ step: ScrollStitcher.Step, length: String) {
+        switch step {
+        case .added:
+            autoMoved = true
+            stillFrames = 0
+            setStatus("\(length). Scrolling…")
+            scroll(by: scrollStep)
+        case .unchanged:
+            stillFrames += 1
+            guard stillFrames >= 3 else { return }
+            if !autoMoved && !directionFlipped {
+                // Nothing moved at all: the events may be going the wrong way (e.g. a reversed scroll setting).
+                directionFlipped = true
+                scrollDirection = -scrollDirection
+                stillFrames = 0
+                scroll(by: scrollStep)
+            } else {
+                finish()   // reached the end
+            }
+        case .lost where directionFlipped && !autoMoved:
+            // The reversed scrolls moved the content back up: it was already at the end.
+            finish()
+        case .lost:
+            // Scrolled past what can be matched: go back half a step and use smaller steps from now on.
+            scroll(by: -scrollStep / 2)
+            scrollStep = max(scrollStep / 2, 40)
+            setStatus("\(length). Slowing down…")
+        case .full:
+            stopAutoScroll()
+            setStatus("\(length). That's the maximum length: click Done.")
+        }
+    }
+
+    /// The middle of the area in Core Graphics' global coordinates (top-left origin).
+    private var scrollPoint: CGPoint {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return CGPoint(x: rect.midX, y: primaryHeight - rect.midY)
+    }
+
+    /// Posts a pixel scroll at the middle of the area; positive `points` moves further down the content.
+    private func scroll(by points: CGFloat) {
+        let delta = Int32((-points * scrollDirection).rounded())
+        guard delta != 0,
+              let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)
+        else { return }
+        event.location = scrollPoint
+        event.post(tap: .cghidEventTap)
     }
 
     private func setStatus(_ text: String) { status.stringValue = text }
@@ -269,10 +372,10 @@ final class ScrollCaptureController {
         frameWindow = p
     }
 
-    /// Status and Done / Cancel, under the area (or above it, or inside its bottom edge when there's no room).
+    /// Status, Auto-Scroll and Done / Cancel, under the area (or above it, or inside its bottom edge when there's no room).
     private func showControls() {
         guard let screen else { return }
-        let size = NSSize(width: 420, height: 44)
+        let size = NSSize(width: 540, height: 44)
         let visible = screen.visibleFrame
         var y = rect.minY - size.height - 12
         if y < visible.minY { y = rect.maxY + 12 }
@@ -292,10 +395,13 @@ final class ScrollCaptureController {
 
         status.font = .systemFont(ofSize: 12)
         status.lineBreakMode = .byTruncatingTail
+        let auto = button("Auto-Scroll") { [weak self] in self?.toggleAutoScroll() }
+        auto.toolTip = "Scroll automatically until the end of the content"
+        autoButton = auto
         let cancel = button("Cancel") { [weak self] in self?.cancel() }
         let done = button("Done") { [weak self] in self?.finish() }
         done.bezelColor = .controlAccentColor
-        let row = NSStackView(views: [status, cancel, done])
+        let row = NSStackView(views: [status, auto, cancel, done])
         row.spacing = 8
         row.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 10)
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
