@@ -227,14 +227,14 @@ final class ScrollCaptureController {
         let current = session
         showFrame()
         showControls()
-        setStatus("Scroll down slowly inside the frame…")
+        setStatus("Scroll down slowly to capture")
         lastFrameTime = nil
         // Esc stops auto-scroll first; otherwise it cancels the capture.
         escHotKey = HotKeys.shared.register(keyCode: kVK_Escape, modifiers: 0) { [weak self] in
             guard let self else { return }
             if self.autoScrolling {
                 self.stopAutoScroll()
-                self.setStatus("Stopped. Scroll by hand, Auto-Scroll again, or click Done.")
+                self.setStatus("Stopped. Scroll or click Done.")
             } else {
                 self.cancel()
             }
@@ -311,20 +311,18 @@ final class ScrollCaptureController {
 
     /// One frame's result. `posted` is `postedTotal` when the frame was grabbed.
     private func handle(_ step: ScrollStitcher.Step, posted: CGFloat) {
-        guard let screen, let stitcher else { return }
+        guard let stitcher else { return }
         let now = Date()
         if let last = lastFrameTime { frameInterval = frameInterval * 0.7 + now.timeIntervalSince(last) * 0.3 }
         lastFrameTime = now
-        let length = "\(Int((CGFloat(stitcher.height) / screen.backingScaleFactor).rounded())) pt tall"
         if autoScrolling {
-            autoScrollStep(step, posted: posted, length: length, scale: CGFloat(stitcher.frameHeight) / max(rect.height, 1))
+            autoScrollStep(step, posted: posted, scale: CGFloat(stitcher.frameHeight) / max(rect.height, 1))
             return
         }
         switch step {
-        case .moved: setStatus("\(length). Keep scrolling, or click Done.")
-        case .unchanged: break
-        case .lost: setStatus("\(length). Lost track: scroll back a little and go slower.")
-        case .full: setStatus("\(length). That's the maximum length: click Done.")
+        case .moved: setStatus("Keep scrolling or click Done")
+        case .unchanged, .lost: break
+        case .full: setStatus("Maximum length: click Done")
         }
     }
 
@@ -333,17 +331,17 @@ final class ScrollCaptureController {
     private func toggleAutoScroll() {
         if autoScrolling {
             stopAutoScroll()
-            setStatus("Stopped. Scroll by hand, Auto-Scroll again, or click Done.")
+            setStatus("Stopped. Scroll or click Done.")
             return
         }
         // Scroll events posted into another app need Accessibility access.
         guard AccessibilityAccess.granted else {
             AccessibilityAccess.request()
-            setStatus("Allow Skreener in Privacy & Security → Accessibility, then click Auto-Scroll again.")
+            setStatus("Allow Accessibility, then retry")
             return
         }
         guard let target = Self.window(at: scrollPoint) else {
-            setStatus("Couldn't find the window under the area. Scroll by hand instead.")
+            setStatus("No window found: scroll by hand")
             return
         }
         targetPID = target.pid
@@ -390,7 +388,7 @@ final class ScrollCaptureController {
 
     /// After each frame: tune the speed; finish once the content has moved and then stopped (the end). Never scrolls
     /// up, except to take back what was scrolled since the last match when it went further than can be matched.
-    private func autoScrollStep(_ step: ScrollStitcher.Step, posted: CGFloat, length: String, scale: CGFloat) {
+    private func autoScrollStep(_ step: ScrollStitcher.Step, posted: CGFloat, scale: CGFloat) {
         var recovered = false
         switch step {
         case .moved, .unchanged:
@@ -421,7 +419,7 @@ final class ScrollCaptureController {
             postedAtMatch = posted
             autoMoved = true
             lastMove = Date()
-            setStatus("\(length). Scrolling…")
+            setStatus("Scrolling…")
         case .unchanged:
             let still = Date().timeIntervalSince(autoMoved ? lastMove : autoStarted)
             if autoMoved && still >= 2 {
@@ -429,16 +427,16 @@ final class ScrollCaptureController {
             } else if !autoMoved && still >= 1 && !viaPointer {
                 // The app didn't react to events sent to it: scroll at the pointer instead (it isn't moved).
                 viaPointer = true
-                setStatus("Rest the pointer on the content (below this bar) to keep scrolling.")
+                setStatus("Rest the pointer on the content")
             } else if !autoMoved && still >= 3 {
                 stopAutoScroll()
-                setStatus("Auto-Scroll couldn't move this content. Scroll it by hand instead.")
+                setStatus("Can't auto-scroll: scroll by hand")
             }
         case .lost:
             if recovering > 0 {
                 // Give a take-back a moment to settle (apps animate scrolling) before handing over.
                 recovering += 1
-                if recovering > 8 { handOverLost(length) }
+                if recovering > 8 { handOverLost() }
                 return
             }
             guard paused else {
@@ -448,30 +446,30 @@ final class ScrollCaptureController {
             paused = false
             // Everything posted since the matched frame was grabbed, including what went out after this frame.
             let overshoot = postedTotal - postedAtMatch
-            guard overshoot > 0 else { handOverLost(length); return }
+            guard overshoot > 0 else { handOverLost(); return }
             let height = stitcher?.height ?? 0
             fruitlessTakeBacks = height <= heightAtTakeBack ? fruitlessTakeBacks + 1 : 0
             heightAtTakeBack = height
             if fruitlessTakeBacks >= 2 {
                 stopAutoScroll()
-                setStatus("\(length). Stuck here: click Done if this is the end, or scroll on by hand.")
+                setStatus("Stuck: click Done if at the end")
                 return
             }
             recovering = 1
             speedBeforeOvershoot = velocity
             unposted = 0
             post(scrollPoints: -overshoot)
-            setStatus("\(length). Slowing down…")
+            setStatus("Slowing down…")
         case .full:
             stopAutoScroll()
-            setStatus("\(length). That's the maximum length: click Done.")
+            setStatus("Maximum length: click Done")
         }
     }
 
-    private func handOverLost(_ length: String) {
+    private func handOverLost() {
         stopAutoScroll()
         recovering = 0
-        setStatus("\(length). Lost track: scroll back up a little by hand, then Auto-Scroll again.")
+        setStatus("Stopped. Scroll or click Done.")
     }
 
     /// The middle of the area in Core Graphics' global coordinates (top-left origin).
@@ -516,7 +514,10 @@ final class ScrollCaptureController {
         event.postToPid(pid)
     }
 
-    private func setStatus(_ text: String) { status.stringValue = text }
+    private func setStatus(_ text: String) {
+        status.stringValue = text
+        status.toolTip = text   // the whole text, should the bar cut it short
+    }
 
     // MARK: Windows
 
@@ -565,30 +566,42 @@ final class ScrollCaptureController {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.appearance = NSAppearance(named: .darkAqua)
 
-        // A dark capsule, like an iOS floating toolbar.
-        let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        bg.material = .hudWindow; bg.state = .active; bg.wantsLayer = true
+        // A dark capsule, like an iOS floating toolbar. Solid rather than a blur: over a light page a blur turns pale
+        // grey and the white text on it is hard to read.
+        let bg = NSView(frame: NSRect(origin: .zero, size: size))
+        bg.wantsLayer = true
+        bg.layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.94).cgColor
         bg.layer?.cornerRadius = size.height / 2; bg.layer?.cornerCurve = .continuous; bg.layer?.masksToBounds = true
         bg.layer?.borderWidth = 0.5; bg.layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
 
-        status.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        status.textColor = .secondaryLabelColor
+        status.font = .systemFont(ofSize: 12, weight: .medium)
+        status.textColor = NSColor.white.withAlphaComponent(0.9)
         status.lineBreakMode = .byTruncatingTail
+        status.maximumNumberOfLines = 1
         let auto = PillButton(title: "Auto-Scroll", symbol: "arrow.down", style: .tinted) { [weak self] in self?.toggleAutoScroll() }
         auto.toolTip = "Scroll automatically until the end of the content"
         autoButton = auto
         let cancel = PillButton(title: nil, symbol: "xmark", style: .tinted) { [weak self] in self?.cancel() }
         cancel.toolTip = "Cancel (Esc)"
         let done = PillButton(title: "Done", symbol: "checkmark", style: .filled) { [weak self] in self?.finish() }
-        let row = NSStackView(views: [status, auto, cancel, done])
-        row.spacing = 8
-        row.setCustomSpacing(14, after: status)
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 7)
-        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // The buttons are pinned to the right; the text gets whatever is left and is cut short rather than pushing
+        // them off the end of the bar.
+        let buttons = NSStackView(views: [auto, cancel, done])
+        buttons.spacing = 8
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+        buttons.setHuggingPriority(.required, for: .horizontal)
+        status.translatesAutoresizingMaskIntoConstraints = false
+        status.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         status.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.frame = bg.bounds
-        row.autoresizingMask = [.width, .height]
-        bg.addSubview(row)
+        bg.addSubview(status)
+        bg.addSubview(buttons)
+        NSLayoutConstraint.activate([
+            status.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 18),
+            status.trailingAnchor.constraint(lessThanOrEqualTo: buttons.leadingAnchor, constant: -14),
+            status.centerYAnchor.constraint(equalTo: bg.centerYAnchor),
+            buttons.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -7),
+            buttons.centerYAnchor.constraint(equalTo: bg.centerYAnchor),
+        ])
         p.contentView = bg
         p.orderFrontRegardless()
         controls = p
@@ -600,6 +613,13 @@ final class ScrollCaptureController {
 private final class PillButton: NSButton {
     enum Style { case filled, tinted }
 
+    /// Space between the symbol and the title, the same on every pill button. The symbol and title are laid out
+    /// here rather than by the button cell, whose own spacing is wider and varies with the content.
+    static let iconGap: CGFloat = 5
+
+    private let icon = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+    private let content = NSStackView()
     private let run: () -> Void
     private let style: Style
     private var pressed = false { didSet { applyColors() } }
@@ -610,9 +630,19 @@ private final class PillButton: NSButton {
         self.style = style
         super.init(frame: .zero)
         isBordered = false
+        self.title = ""
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        contentTintColor = .white
+        icon.contentTintColor = .white
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.textColor = .white
+        content.addArrangedSubview(icon)
+        content.addArrangedSubview(label)
+        content.spacing = Self.iconGap
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        content.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
+        content.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
         target = self
         action = #selector(fire)
         translatesAutoresizingMaskIntoConstraints = false
@@ -625,16 +655,14 @@ private final class PillButton: NSButton {
 
     func setContent(title: String?, symbol: String) {
         let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(config)
-        attributedTitle = NSAttributedString(string: title.map { " " + $0 } ?? "", attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white,
-        ])
-        imagePosition = title == nil ? .imageOnly : .imageLeading
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(config)
+        label.stringValue = title ?? ""
+        label.isHidden = title == nil   // the stack leaves hidden views out, gap included
         setAccessibilityLabel(title ?? toolTip)
         widthConstraint?.isActive = false
         // Room either side of the content, or a circle when there is only a symbol.
         widthConstraint = title == nil ? widthAnchor.constraint(equalToConstant: 30)
-                                       : widthAnchor.constraint(equalToConstant: super.intrinsicContentSize.width + 28)
+                                       : widthAnchor.constraint(equalToConstant: content.fittingSize.width + 28)
         widthConstraint?.isActive = true
     }
 
@@ -644,6 +672,9 @@ private final class PillButton: NSButton {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Clicks on the symbol or title belong to the button.
+    override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
 
     override func mouseDown(with event: NSEvent) {
         pressed = true
