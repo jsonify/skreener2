@@ -53,6 +53,28 @@ enum CaptureService {
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
     }
 
+    /// Grabs the same area over and over (scrolling capture), without the cursor or Skreener's own windows. The display
+    /// lookup and filter are set up once: fetching the shareable content for every frame took longer than the grab.
+    final class AreaGrabber: @unchecked Sendable {
+        private let filter: SCContentFilter
+        private let config: SCStreamConfiguration
+
+        init(screen: NSScreen, globalRect r: CGRect) async throws {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            guard let id = CaptureService.displayID(screen), let display = content.displays.first(where: { $0.displayID == id })
+            else { throw CaptureError.noDisplay }
+            let me = getpid()
+            filter = SCContentFilter(display: display, excludingApplications: content.applications.filter { $0.processID == me },
+                                     exceptingWindows: [])
+            config = CaptureService.makeConfig(width: r.width, height: r.height, scale: screen.backingScaleFactor, showsCursor: false)
+            config.sourceRect = CGRect(x: r.minX - screen.frame.minX, y: screen.frame.maxY - r.maxY, width: r.width, height: r.height)
+        }
+
+        func grab() async throws -> CGImage {
+            try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        }
+    }
+
     /// Cut a global (bottom-left origin) rect out of a full-display frame grabbed earlier, e.g. a frozen screen.
     static func crop(_ frame: CGImage, screen: NSScreen, globalRect r: CGRect) throws -> NSImage {
         let sx = CGFloat(frame.width) / screen.frame.width, sy = CGFloat(frame.height) / screen.frame.height
