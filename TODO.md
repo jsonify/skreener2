@@ -70,11 +70,12 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 
 ## Batch 6 — sharing & output
 - [~] Settings window: existing options moved out of the menu, shortcut list, version + build commit — S
-- [ ] Settings: hotkey rebinding, format PNG/JPG, filename template, retina downscale — M
+- [~] Settings: format PNG/JPEG (JPEG flattens transparency onto white), filename template (%Y %y %m %d %H %M %S; " 2" etc. when the name is taken), save Retina captures at 1× — S
+- [ ] Settings: hotkey rebinding — M
 - [ ] Quick Access: stacking, drag-and-drop out, swipe to dismiss, position setting — M
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M
-- [ ] Share sheet (NSSharingServicePicker) — S
-- [ ] Launch at login (SMAppService) — S
+- [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history (shares the file) — S
+- [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S
 
 ## Menu parity with CleanShot X (from its menu bar)
 - [ ] Check for Updates… (Sparkle or equivalent) — M

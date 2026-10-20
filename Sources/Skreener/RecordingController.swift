@@ -273,7 +273,7 @@ final class RecordingQuickAccess {
     }
 
     private func present() {
-        let size = NSSize(width: 236, height: 164)
+        let size = NSSize(width: 296, height: 164)
         guard let screen = NSScreen.main else { return }
         let p = NSPanel(contentRect: NSRect(origin: NSPoint(x: screen.visibleFrame.minX + 16, y: screen.visibleFrame.minY + 16), size: size),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -292,7 +292,8 @@ final class RecordingQuickAccess {
         iv.animates = true
         bg.addSubview(iv)
         var x: CGFloat = 8
-        for (title, sel) in [("Open", #selector(openIt)), ("Show", #selector(showIt)), ("Copy", #selector(copyIt)), ("✕", #selector(closeIt))] {
+        for (title, sel) in [("Open", #selector(openIt)), ("Show", #selector(showIt)), ("Copy", #selector(copyIt)), ("Share", #selector(shareIt(_:))),
+                            ("✕", #selector(closeIt))] {
             let b = NSButton(title: title, target: self, action: sel)
             b.bezelStyle = .rounded; b.controlSize = .small
             b.frame = NSRect(x: x, y: 6, width: title == "✕" ? 28 : 54, height: 24)
@@ -322,6 +323,10 @@ final class RecordingQuickAccess {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([url as NSURL])
         NSSound(named: "Pop")?.play()
+    }
+    @objc private func shareIt(_ sender: NSButton) {
+        timer?.invalidate(); timer = nil   // don't slide away while the share menu is open
+        Output.share([url], from: sender)
     }
     @objc private func closeIt() {
         timer?.invalidate(); timer = nil

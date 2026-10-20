@@ -24,6 +24,7 @@ final class SettingsWindowController: NSWindowController {
     /// Target objects for the controls' closures (controls hold their targets weakly).
     private var actions: [ControlAction] = []
     private let folderLabel = NSTextField(labelWithString: "")
+    private let loginCheckbox = NSButton(checkboxWithTitle: "Launch Skreener at login", target: nil, action: nil)
 
     private init() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 400), styleMask: [.titled, .closable],
@@ -43,6 +44,7 @@ final class SettingsWindowController: NSWindowController {
 
     func present() {
         refreshFolder()
+        refreshLogin()   // may have changed in System Settings
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         DockPresence.update()
@@ -62,6 +64,13 @@ final class SettingsWindowController: NSWindowController {
         }
         func row(_ label: String, _ control: NSView) { rows.append([NSTextField(labelWithString: label), control]) }
 
+        section("General")
+        bind(loginCheckbox) { [weak self] c in
+            LaunchAtLogin.set((c as? NSButton)?.state == .on)
+            self?.refreshLogin()
+        }
+        row("Startup:", loginCheckbox)
+
         section("After Capture")
         row("Output:", checkbox("Copy to clipboard", Preferences.copyToClipboard) { Preferences.copyToClipboard = $0 })
         row("", checkbox("Save to folder", Preferences.autoSave) { Preferences.autoSave = $0 })
@@ -75,6 +84,42 @@ final class SettingsWindowController: NSWindowController {
         folderLabel.translatesAutoresizingMaskIntoConstraints = false
         folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
         row("Save folder:", NSStackView(views: [folderLabel, choose]))
+
+        // Example file name under the template field, updated as the template or the format changes.
+        let preview = NSTextField(labelWithString: "")
+        preview.textColor = .secondaryLabelColor
+        preview.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        func showPreview() {
+            preview.stringValue = "\(Output.filename()).\(Preferences.imageFormat.fileExtension)   Tokens: %Y %y %m %d %H %M %S"
+        }
+
+        let format = NSPopUpButton(frame: .zero, pullsDown: false)
+        for f in [ImageFormat.png, .jpeg] {
+            format.addItem(withTitle: f == .png ? "PNG" : "JPEG"); format.lastItem?.representedObject = f.rawValue
+        }
+        format.selectItem(at: Preferences.imageFormat == .png ? 0 : 1)
+        bind(format) {
+            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            Preferences.imageFormat = raw.flatMap(ImageFormat.init(rawValue:)) ?? .png
+            showPreview()
+        }
+        row("Format:", format)
+        row("", checkbox("Save Retina screenshots at 1× (half the pixels)", Preferences.downscaleRetina) {
+            Preferences.downscaleRetina = $0
+        })
+
+        let template = NSTextField(string: Preferences.filenameTemplate)
+        template.placeholderString = Preferences.defaultFilenameTemplate
+        template.isContinuous = true
+        template.translatesAutoresizingMaskIntoConstraints = false
+        template.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        bind(template) {
+            Preferences.filenameTemplate = $0.stringValue
+            showPreview()
+        }
+        showPreview()
+        row("File name:", template)
+        row("", preview)
 
         section("History")
         row("Captures:", checkbox("Keep capture history (last \(CaptureHistory.limit))", Preferences.keepHistory) {
@@ -165,6 +210,8 @@ final class SettingsWindowController: NSWindowController {
         actions.append(a)
         control.target = a; control.action = #selector(ControlAction.fire(_:))
     }
+
+    private func refreshLogin() { loginCheckbox.state = LaunchAtLogin.isOn ? .on : .off }
 
     // MARK: Save folder
 

@@ -1,9 +1,71 @@
 import AppKit
+import UniformTypeIdentifiers
 
 enum Output {
-    static func pngData(_ image: NSImage) -> Data? {
+    /// The image as a file in the format chosen in Settings (PNG or JPEG), downscaled to 1× when that is on.
+    /// JPEG has no alpha, so transparent areas (window captures) become white.
+    static func fileData(_ image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .png, properties: [:])
+        let jpeg = Preferences.imageFormat == .jpeg
+        var w = rep.pixelsWide, h = rep.pixelsHigh
+        if Preferences.downscaleRetina, image.size.width >= 1, image.size.height >= 1 {
+            w = min(w, Int(image.size.width.rounded()))
+            h = min(h, Int(image.size.height.rounded()))
+        }
+        var out = rep
+        if jpeg || w != rep.pixelsWide || h != rep.pixelsHigh, let cg = rep.cgImage,
+           let redrawn = redraw(cg, width: w, height: h, onWhite: jpeg) {
+            out = NSBitmapImageRep(cgImage: redrawn)
+        }
+        return jpeg ? out.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+                    : out.representation(using: .png, properties: [:])
+    }
+
+    private static func redraw(_ cg: CGImage, width: Int, height: Int, onWhite: Bool) -> CGImage? {
+        let space = cg.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        if onWhite { ctx.setFillColor(.white); ctx.fill(rect) }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: rect)
+        return ctx.makeImage()
+    }
+
+    /// File name (without extension) from the template in Settings. Tokens: %Y %y %m %d %H %M %S, %% for a percent sign.
+    static func filename(for date: Date = Date(), template: String = Preferences.filenameTemplate) -> String {
+        let patterns: [Character: String] = ["Y": "yyyy", "y": "yy", "m": "MM", "d": "dd", "H": "HH", "M": "mm", "S": "ss"]
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        var out = ""
+        var chars = template.makeIterator()
+        while let c = chars.next() {
+            guard c == "%", let token = chars.next() else { out.append(c); continue }
+            if let p = patterns[token] {
+                f.dateFormat = p
+                out += f.string(from: date)
+            } else if token == "%" {
+                out.append("%")
+            } else {
+                out.append(c); out.append(token)
+            }
+        }
+        // "/" separates folders and ":" shows as "/" in Finder.
+        out = out.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: ".")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if out.isEmpty { return "Skreener" }
+        return out.hasPrefix(".") ? "Skreener " + out : out   // a leading dot would hide the file
+    }
+
+    /// `dir/name.ext`, or `name 2.ext`, `name 3.ext`… when that file already exists (a template without seconds).
+    static func uniqueURL(in dir: URL, name: String, ext: String) -> URL {
+        var url = dir.appendingPathComponent(name).appendingPathExtension(ext)
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = dir.appendingPathComponent("\(name) \(n)").appendingPathExtension(ext)
+            n += 1
+        }
+        return url
     }
 
     static func copy(_ image: NSImage) {
@@ -14,17 +76,21 @@ enum Output {
 
     @discardableResult
     static func save(_ image: NSImage, to dir: URL = Preferences.saveDirectory) -> URL? {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let url = dir.appendingPathComponent("Skreener \(f.string(from: Date())).png")
-        guard let data = pngData(image) else { return nil }
+        let url = uniqueURL(in: dir, name: filename(), ext: Preferences.imageFormat.fileExtension)
+        guard let data = fileData(image) else { return nil }
         do { try data.write(to: url); return url } catch { NSLog("Save failed: \(error)"); return nil }
     }
 
     static func saveAs(_ image: NSImage) {
+        let format = Preferences.imageFormat
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = "Screenshot.png"
-        if panel.runModal() == .OK, let url = panel.url, let data = pngData(image) { try? data.write(to: url) }
+        panel.allowedContentTypes = [format.contentType]
+        panel.nameFieldStringValue = filename() + "." + format.fileExtension
+        if panel.runModal() == .OK, let url = panel.url, let data = fileData(image) { try? data.write(to: url) }
+    }
+
+    /// The share sheet (AirDrop, Mail, Messages…) under `view`.
+    static func share(_ items: [Any], from view: NSView) {
+        NSSharingServicePicker(items: items).show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
     }
 }

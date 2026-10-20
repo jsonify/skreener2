@@ -1,6 +1,6 @@
 import AppKit
 
-/// Floating thumbnail shown after a capture, with copy / save / annotate / close.
+/// Floating thumbnail shown after a capture, with copy / save / edit / pin / share / close.
 final class QuickAccessController {
     private var panel: NSPanel?
     private var timer: Timer?
@@ -11,7 +11,7 @@ final class QuickAccessController {
     init(image: NSImage) { self.image = image }
 
     func show() {
-        let width: CGFloat = 220
+        let width: CGFloat = 282
         let aspect = image.size.height / max(image.size.width, 1)
         let thumbH = min(width * aspect, 160)
         let size = NSSize(width: width, height: thumbH + 40)
@@ -34,12 +34,13 @@ final class QuickAccessController {
         bg.addSubview(iv)
 
         let actions: [(String, Selector)] = [("Copy", #selector(copyIt)), ("Save", #selector(saveIt)),
-                                             ("Edit", #selector(editIt)), ("Pin", #selector(pinIt)), ("✕", #selector(closeIt))]
+                                             ("Edit", #selector(editIt)), ("Pin", #selector(pinIt)), ("Share", #selector(shareIt(_:))),
+                                             ("✕", #selector(closeIt))]
         var x: CGFloat = 8
         for (title, sel) in actions {
             let b = NSButton(title: title, target: self, action: sel)
             b.bezelStyle = .rounded; b.controlSize = .small
-            b.frame = NSRect(x: x, y: 6, width: title == "✕" ? 28 : 40, height: 24)
+            b.frame = NSRect(x: x, y: 6, width: title == "✕" ? 28 : title == "Share" ? 48 : 40, height: 24)
             bg.addSubview(b); x += b.frame.width + 6
         }
         p.contentView = bg
@@ -50,6 +51,10 @@ final class QuickAccessController {
 
     @objc private func copyIt() { Output.copy(image) }
     @objc private func saveIt() { Output.saveAs(image) }
+    @objc private func shareIt(_ sender: NSButton) {
+        timer?.invalidate()   // don't slide away while the share menu is open
+        Output.share([image], from: sender)
+    }
     @objc private func pinIt() { onPin?(image); closeIt() }
     @objc private func editIt() { onAnnotate?(image); closeIt() }
     @objc func closeIt() {
