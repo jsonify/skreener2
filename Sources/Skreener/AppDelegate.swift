@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu = buildMenu()
         statusItem.menu = menu
         NSApp.mainMenu = buildMainMenu()
+        // Editor tabs are Skreener's own, so AppKit's Show Tab Bar / Show All Tabs menu items would do nothing.
+        NSWindow.allowsAutomaticWindowTabbing = false
 
         let mods = controlKey | shiftKey
         HotKeys.shared.register(keyCode: kVK_ANSI_1, modifiers: mods) { [weak self] in self?.capturePreviousArea() }
@@ -152,7 +154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         _ = submenu("Image", CanvasView.imageCommands.map { item($0.0, $0.1, "", []) } + [.separator()]
-            + CanvasView.redactCommands.map { item($0.0, $0.1, "", []) })
+            + CanvasView.redactCommands.map { item($0.0, $0.1, "", []) } + [.separator(),
+            item("Copy Text from Area…", #selector(CanvasView.copyTextFromArea(_:)), "t", [.command, .shift]),
+            item("Copy All Text", #selector(CanvasView.copyAllText(_:)))])
         _ = submenu("Arrange", CanvasView.arrangeCommands.map { title, action, key, mods in
             item(title, action, key, mods)
         })
@@ -160,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Close", #selector(NSWindow.performClose(_:)), "w"),
             .separator(),
-            // Editor tabs (AppKit also adds Show Tab Bar / Show All Tabs here).
+            // Editor tabs (`EditorTabGroup`; `EditorWindow` handles these).
             item("Show Previous Tab", #selector(NSWindow.selectPreviousTab(_:)), "[", [.command, .shift]),
             item("Show Next Tab", #selector(NSWindow.selectNextTab(_:)), "]", [.command, .shift]),
             item("Move Tab to New Window", #selector(NSWindow.moveTabToNewWindow(_:))),

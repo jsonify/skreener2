@@ -13,22 +13,72 @@ private final class CenteredClipView: NSClipView {
     }
 }
 
-/// Mouse-wheel zoom: a wheel (or ⌘ + trackpad scroll) zooms around the pointer; trackpad scrolling and
-/// Shift + wheel still pan, and pinch still zooms.
+/// Mouse navigation: the wheel scrolls up and down, Shift + wheel scrolls sideways, ⌘ + wheel (or ⌘ + trackpad
+/// scroll) zooms around the pointer, and dragging with the wheel held down (the middle button) moves the canvas.
+/// Trackpad scrolling still pans and pinch still zooms.
 private final class ZoomingScrollView: NSScrollView {
     var onZoom: (() -> Void)?
+    /// While dragging with the middle button: the pointer's last position (window coordinates).
+    private var panLast: NSPoint?
 
     override func scrollWheel(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command) else {
+            super.scrollWheel(with: Self.sideways(event) ?? event)
+            return
+        }
         let isWheel = !event.hasPreciseScrollingDeltas
-        guard allowsMagnification, let doc = documentView,
-              isWheel || event.modifierFlags.contains(.command), !event.modifierFlags.contains(.shift),
-              event.scrollingDeltaY != 0 else { super.scrollWheel(with: event); return }
+        guard allowsMagnification, let doc = documentView, event.scrollingDeltaY != 0 else { return }
         // Wheel away from you zooms in, whatever the "natural scrolling" setting.
         let dy = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         let factor = exp(dy * (isWheel ? 0.1 : 0.01))
         let target = min(maxMagnification, max(minMagnification, magnification * factor))
         setMagnification(target, centeredAt: doc.convert(event.locationInWindow, from: nil))
         onZoom?()
+    }
+
+    /// A Shift + mouse-wheel event turned into a sideways scroll, for mice where macOS leaves it vertical; nil for
+    /// anything else.
+    private static func sideways(_ event: NSEvent) -> NSEvent? {
+        guard event.modifierFlags.contains(.shift), !event.hasPreciseScrollingDeltas,
+              event.scrollingDeltaX == 0, event.scrollingDeltaY != 0,
+              let cg = event.cgEvent?.copy() else { return nil }
+        let swaps: [(CGEventField, CGEventField)] = [
+            (.scrollWheelEventDeltaAxis1, .scrollWheelEventDeltaAxis2),
+            (.scrollWheelEventPointDeltaAxis1, .scrollWheelEventPointDeltaAxis2),
+        ]
+        for (vertical, horizontal) in swaps {
+            cg.setIntegerValueField(horizontal, value: cg.getIntegerValueField(vertical))
+            cg.setIntegerValueField(vertical, value: 0)
+        }
+        cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: cg.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1))
+        cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+        return NSEvent(cgEvent: cg)
+    }
+
+    // The canvas passes middle-button events up the responder chain to here.
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { super.otherMouseDown(with: event); return }
+        panLast = event.locationInWindow
+        NSCursor.closedHand.push()
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard let last = panLast else { super.otherMouseDragged(with: event); return }
+        let p = event.locationInWindow
+        panLast = p
+        let clip = contentView
+        let scale = max(magnification, 0.01)
+        var origin = clip.bounds.origin
+        origin.x -= (p.x - last.x) / scale
+        origin.y += (clip.isFlipped ? 1 : -1) * (p.y - last.y) / scale
+        clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin)
+        reflectScrolledClipView(clip)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard panLast != nil, event.buttonNumber == 2 else { super.otherMouseUp(with: event); return }
+        panLast = nil
+        NSCursor.pop()
     }
 }
 
@@ -216,11 +266,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
     // Crop and Background replace the tool options in the same strip while they are active.
-    private enum StripMode { case tools, crop, background }
+    private enum StripMode { case tools, crop, textArea, background }
     private var stripMode = StripMode.tools {
         didSet { refreshStrip() }
     }
     private let cropBar = NSStackView()
+    private let textAreaBar = NSStackView()
     private let backgroundBar = NSStackView()
     private let fillPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let paddingPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -230,6 +281,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                                       ("Georgia", "Georgia"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
                                       ("Chalkboard SE", "Chalkboard SE")]
     private var fitMode = true
+    /// The editors shown as tabs with this one (just this one when it has a window to itself).
+    lazy var tabGroup = EditorTabGroup(self)
+    private let tabStrip = EditorTabStrip()
+    private var tabStripHeight: NSLayoutConstraint?
+    private let toastBox = NSView()
+    private let toastLabel = NSTextField(labelWithString: "")
+    private var toastTask: Task<Void, Never>?
 
     /// `title` names the editor's tab; it defaults to the time the editor opened.
     init(image: NSImage, title: String? = nil) {
@@ -240,14 +298,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         let floor = EditorWindowController.minimumSize
         let size = NSSize(width: max(floor.width, min(image.size.width + 120, visible.width)),
                           height: max(floor.height, min(image.size.height + 200, visible.height)))
-        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+        let w = EditorWindow(contentRect: NSRect(origin: .zero, size: size),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
         let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         w.title = title ?? "Screenshot \(time)"
-        // Editors open as tabs of one window (Settings → Editor can turn that off).
-        w.tabbingIdentifier = "skreener.editor"
-        w.tabbingMode = Preferences.editorTabs ? .preferred : .disallowed
+        // Editors open as tabs of one window (Settings → Editor can turn that off), drawn by `EditorTabGroup`
+        // rather than AppKit.
+        w.tabbingMode = .disallowed
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
         w.toolbarStyle = .unified
@@ -265,8 +323,15 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         EditorWindowController.live.append(self)
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            guard let self else { return }
             EditorWindowController.live.removeAll { $0 === self }
+            self.tabGroup.remove(self)
             Task { @MainActor in DockPresence.update() }
+        }
+        // Picked in the Window menu while it was a hidden tab: show it in place of the current one.
+        nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in
+            guard let self, self.tabGroup.selected !== self else { return }
+            self.tabGroup.select(self)
         }
         nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in
             if self?.fitMode == true { self?.applyFit() }
@@ -280,18 +345,25 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         canvas.onContextChange = { [weak self] _, _ in self?.contextChanged() }
         canvas.onCropModeChange = { [weak self] on in self?.stripMode = on ? .crop : .tools }
         canvas.onBackgroundChange = { [weak self] in if self?.stripMode == .background { self?.refreshStrip() } }
+        canvas.onTextAreaModeChange = { [weak self] on in self?.stripMode = on ? .textArea : .tools }
+        canvas.onTextCopied = { [weak self] text in self?.textCopied(text) }
+        tabStrip.onSelect = { [weak self] i in self?.selectTab(i) }
+        tabStrip.onClose = { [weak self] i in self?.closeTab(i) }
+        tabStrip.menuForTab = { [weak self] i in self?.tabMenu(i) }
         buildAttributesBar()
         buildCropBar()
+        buildTextAreaBar()
         buildBackgroundBar()
     }
     required init?(coder: NSCoder) { fatalError() }
 
     func present() {
         DockPresence.update()
-        if let w = window, Preferences.editorTabs, let host = Self.tabHost(excluding: w) {
-            host.addTabbedWindow(w, ordered: .above)
+        if let w = window, Preferences.editorTabs, let host = Self.tabHost(excluding: w)?.windowController as? EditorWindowController {
+            host.tabGroup.add(self, after: host)
+        } else {
+            showWindow(nil)
         }
-        showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         window?.layoutIfNeeded()
         window?.makeFirstResponder(canvas)
@@ -300,9 +372,54 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     /// The editor window a new editor joins as a tab: the frontmost visible one.
     private static func tabHost(excluding w: NSWindow) -> NSWindow? {
-        let editors = live.compactMap(\.window).filter { $0 !== w && $0.isVisible && !$0.isMiniaturized && $0.tabbingMode != .disallowed }
+        let editors = live.compactMap(\.window).filter { $0 !== w && $0.isVisible && !$0.isMiniaturized }
         if let key = NSApp.keyWindow, editors.contains(where: { $0 === key }) { return key }
         return NSApp.orderedWindows.first { win in editors.contains { $0 === win } }
+    }
+
+    // MARK: Tabs
+
+    func showTabs(_ titles: [String], selected: Int) {
+        tabStrip.show(titles, selected: selected)
+        let visible = titles.count > 1
+        tabStrip.isHidden = !visible
+        tabStripHeight?.constant = visible ? 48 : 0
+    }
+
+    private func selectTab(_ i: Int) {
+        let editors = tabGroup.editors
+        if editors.indices.contains(i) { tabGroup.select(editors[i]) }
+    }
+
+    private func closeTab(_ i: Int) {
+        let editors = tabGroup.editors
+        if editors.indices.contains(i) { editors[i].window?.close() }
+    }
+
+    private func tabMenu(_ i: Int) -> NSMenu {
+        let m = NSMenu()
+        let many = tabGroup.editors.count > 1
+        for (title, sel, enabled) in [("Close Tab", #selector(closeTabItem(_:)), true),
+                                      ("Close Other Tabs", #selector(closeOtherTabsItem(_:)), many),
+                                      ("Move Tab to New Window", #selector(moveTabItem(_:)), many)] {
+            let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            item.target = self; item.tag = i; item.isEnabled = enabled
+            m.addItem(item)
+        }
+        m.autoenablesItems = false
+        return m
+    }
+    @objc private func closeTabItem(_ item: NSMenuItem) { closeTab(item.tag) }
+    @objc private func closeOtherTabsItem(_ item: NSMenuItem) {
+        let editors = tabGroup.editors
+        guard editors.indices.contains(item.tag) else { return }
+        let keep = editors[item.tag]
+        tabGroup.select(keep)
+        for e in editors where e !== keep { e.window?.close() }
+    }
+    @objc private func moveTabItem(_ item: NSMenuItem) {
+        let editors = tabGroup.editors
+        if editors.indices.contains(item.tag) { tabGroup.moveToNewWindow(editors[item.tag]) }
     }
 
     // MARK: Layout
@@ -331,11 +448,21 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         footer.translatesAutoresizingMaskIntoConstraints = false
         let strip = buildAttributesStrip()
         strip.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(scroll); content.addSubview(footer); content.addSubview(strip)
+        tabStrip.translatesAutoresizingMaskIntoConstraints = false
+        tabStrip.isHidden = true
+        let toast = buildToast()
+        content.addSubview(scroll); content.addSubview(footer); content.addSubview(strip); content.addSubview(tabStrip)
+        content.addSubview(toast)
 
         let top = (w.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
+        let tabHeight = tabStrip.heightAnchor.constraint(equalToConstant: 0)
+        tabStripHeight = tabHeight
         NSLayoutConstraint.activate([
-            strip.topAnchor.constraint(equalTo: top),
+            tabStrip.topAnchor.constraint(equalTo: top),
+            tabStrip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            tabStrip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            tabHeight,
+            strip.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
             strip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             strip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             strip.heightAnchor.constraint(equalToConstant: 34),
@@ -347,7 +474,56 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             footer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             footer.heightAnchor.constraint(equalToConstant: 44),
+            toast.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            toast.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -16),
+            toast.heightAnchor.constraint(equalToConstant: 32),
         ])
+    }
+
+    /// A short message over the bottom of the canvas (a dark capsule like the tab row), e.g. after Copy Text.
+    private func buildToast() -> NSView {
+        toastBox.wantsLayer = true
+        toastBox.layer?.backgroundColor = PillButton.barColor.cgColor
+        toastBox.layer?.cornerRadius = 16
+        toastBox.layer?.cornerCurve = .continuous
+        toastBox.layer?.borderWidth = 0.5
+        toastBox.layer?.borderColor = PillButton.barBorderColor.cgColor
+        toastBox.isHidden = true
+        toastBox.translatesAutoresizingMaskIntoConstraints = false
+        toastLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        toastLabel.textColor = .white
+        toastLabel.translatesAutoresizingMaskIntoConstraints = false
+        toastBox.addSubview(toastLabel)
+        NSLayoutConstraint.activate([
+            toastLabel.leadingAnchor.constraint(equalTo: toastBox.leadingAnchor, constant: 16),
+            toastLabel.trailingAnchor.constraint(equalTo: toastBox.trailingAnchor, constant: -16),
+            toastLabel.centerYAnchor.constraint(equalTo: toastBox.centerYAnchor),
+        ])
+        return toastBox
+    }
+
+    private func showToast(_ text: String) {
+        toastLabel.stringValue = text
+        toastBox.alphaValue = 1
+        toastBox.isHidden = false
+        toastTask?.cancel()
+        toastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.3
+                self.toastBox.animator().alphaValue = 0
+            }
+            // Hidden once faded, so it stops taking clicks meant for the canvas.
+            try? await Task.sleep(for: .seconds(0.3))
+            if !Task.isCancelled { self.toastBox.isHidden = true }
+        }
+    }
+
+    private func textCopied(_ text: String) {
+        guard !text.isEmpty else { showToast("No text found"); NSSound.beep(); return }
+        let lines = text.split(separator: "\n").count
+        showToast(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
     }
 
     private func buildAttributesStrip() -> NSView {
@@ -359,7 +535,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesTitle.textColor = .secondaryLabelColor
         attributesHint.font = .systemFont(ofSize: 11)
         attributesHint.textColor = .tertiaryLabelColor
-        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint, cropBar, backgroundBar])
+        let row = NSStackView(views: [attributesTitle, attributesBar, attributesHint, cropBar, textAreaBar, backgroundBar])
         row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox(); line.boxType = .separator
@@ -482,6 +658,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                                "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu()),
                 iconButton("photo", "Background", self, #selector(backgroundIt)),
                 iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands)),
+                iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR)", commands(CanvasView.textCommands)),
             ])
         case .toolsItem:
             let seg = compact(NSSegmentedControl(images: toolButtons.map { symbol($0.symbol, $0.tool.name) },
@@ -587,6 +764,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         cropBar.isHidden = true
     }
 
+    private func buildTextAreaBar() {
+        let hint = NSTextField(labelWithString: "Drag over the text to copy it · Esc to cancel")
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .tertiaryLabelColor
+        let all = bordered(NSButton(title: "Copy All Text", target: canvas, action: #selector(CanvasView.copyAllText(_:))))
+        let cancel = bordered(NSButton(title: "Cancel", target: self, action: #selector(textAreaCancel)))
+        [hint, all, cancel].forEach(textAreaBar.addArrangedSubview)
+        textAreaBar.spacing = 8
+        textAreaBar.isHidden = true
+    }
+
     private func buildBackgroundBar() {
         _ = bordered(fillPopup)
         fillPopup.toolTip = "Fill"
@@ -647,12 +835,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private func refreshStrip() {
         attributesBar.isHidden = stripMode != .tools
         cropBar.isHidden = stripMode != .crop
+        textAreaBar.isHidden = stripMode != .textArea
         backgroundBar.isHidden = stripMode != .background
         switch stripMode {
         case .tools:
             refreshAttributes(canvas.contextTool, canvas.contextStyle)
         case .crop:
             attributesTitle.stringValue = "Crop"
+            attributesTitle.isHidden = false; attributesHint.isHidden = true
+        case .textArea:
+            attributesTitle.stringValue = "Copy Text"
             attributesTitle.isHidden = false; attributesHint.isHidden = true
         case .background:
             attributesTitle.stringValue = "Background"
@@ -733,6 +925,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func cropApply() { canvas.applyCrop(); window?.makeFirstResponder(canvas) }
     @objc private func cropCancel() { canvas.cancelCrop(); window?.makeFirstResponder(canvas) }
     @objc private func cropReset() { canvas.resetCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func textAreaCancel() { canvas.endTextAreaPick(); window?.makeFirstResponder(canvas) }
     @MainActor @objc private func addImageFromFile() {
         guard let w = window else { return }
         let p = NSOpenPanel()
@@ -750,7 +943,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     /// Hides this editor, lets the user pick an area, then adds the capture to the canvas.
     @objc private func addImageFromCapture() {
         guard let capture = Self.captureArea, let w = window else { return }
-        // Fade out rather than order out: ordering a tab out would take it out of its tab group.
+        // Fade out rather than order out, so the window keeps its place and its tab stays the one showing.
         w.alphaValue = 0
         w.ignoresMouseEvents = true
         capture { [weak self] img in
