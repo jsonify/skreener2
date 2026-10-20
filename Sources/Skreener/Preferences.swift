@@ -47,6 +47,11 @@ enum Preferences {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }
         set { d.set(newValue, forKey: "openEditorAfterCapture") }
     }
+    /// Open each new editor as a tab of the editor window that is already open, instead of its own window.
+    static var editorTabs: Bool {
+        get { d.object(forKey: "editorTabs") as? Bool ?? true }
+        set { d.set(newValue, forKey: "editorTabs") }
+    }
     /// Self-timer countdown in seconds (3, 5 or 10).
     static var selfTimerSeconds: Int {
         get { [3, 5, 10].contains(d.integer(forKey: "selfTimerSeconds")) ? d.integer(forKey: "selfTimerSeconds") : 5 }
@@ -56,6 +61,90 @@ enum Preferences {
     static var keepHistory: Bool {
         get { d.object(forKey: "keepHistory") as? Bool ?? true }
         set { d.set(newValue, forKey: "keepHistory") }
+    }
+    /// Screen recordings: include system audio (other apps' sound).
+    static var recordSystemAudio: Bool {
+        get { d.bool(forKey: "recordSystemAudio") }
+        set { d.set(newValue, forKey: "recordSystemAudio") }
+    }
+    /// Screen recordings: include the microphone (macOS 15 or later).
+    static var recordMicrophone: Bool {
+        get { d.bool(forKey: "recordMicrophone") }
+        set { d.set(newValue, forKey: "recordMicrophone") }
+    }
+    static var recordShowsCursor: Bool {
+        get { d.object(forKey: "recordShowsCursor") as? Bool ?? true }
+        set { d.set(newValue, forKey: "recordShowsCursor") }
+    }
+    /// Screen recordings: frames per second (30 or 60).
+    static var recordFrameRate: Int {
+        get { d.integer(forKey: "recordFrameRate") == 60 ? 60 : 30 }
+        set { d.set(newValue, forKey: "recordFrameRate") }
+    }
+    // Recording options (the sliders button on the record panel). Defaults follow CleanShot X.
+    /// Show the HUD (time, pause, stop) while recording.
+    static var recordShowControls: Bool {
+        get { d.object(forKey: "recordShowControls") as? Bool ?? true }
+        set { d.set(newValue, forKey: "recordShowControls") }
+    }
+    /// Start Record Area with the previous recording's area already selected.
+    static var recordRememberSelection: Bool {
+        get { d.bool(forKey: "recordRememberSelection") }
+        set { d.set(newValue, forKey: "recordRememberSelection") }
+    }
+    static var recordTimeInMenuBar: Bool {
+        get { d.bool(forKey: "recordTimeInMenuBar") }
+        set { d.set(newValue, forKey: "recordTimeInMenuBar") }
+    }
+    /// Dim everything outside the recorded area (the dimming is not in the video).
+    static var recordDimScreen: Bool {
+        get { d.object(forKey: "recordDimScreen") as? Bool ?? true }
+        set { d.set(newValue, forKey: "recordDimScreen") }
+    }
+    /// 3-second countdown before a recording starts.
+    static var recordCountdown: Bool {
+        get { d.object(forKey: "recordCountdown") as? Bool ?? true }
+        set { d.set(newValue, forKey: "recordCountdown") }
+    }
+    /// Draw a ring at each mouse click, in the video.
+    static var recordHighlightClicks: Bool {
+        get { d.bool(forKey: "recordHighlightClicks") }
+        set { d.set(newValue, forKey: "recordHighlightClicks") }
+    }
+    /// Index into `ClickStyle.colors`.
+    static var clickHighlightColor: Int {
+        get { d.integer(forKey: "clickHighlightColor") }
+        set { d.set(newValue, forKey: "clickHighlightColor") }
+    }
+    /// Ring diameter in points (32, 48 or 64).
+    static var clickHighlightSize: Int {
+        get { [32, 48, 64].contains(d.integer(forKey: "clickHighlightSize")) ? d.integer(forKey: "clickHighlightSize") : 48 }
+        set { d.set(newValue, forKey: "clickHighlightSize") }
+    }
+    /// Show pressed keys in the video (needs Accessibility access).
+    static var recordShowKeystrokes: Bool {
+        get { d.bool(forKey: "recordShowKeystrokes") }
+        set { d.set(newValue, forKey: "recordShowKeystrokes") }
+    }
+    /// Only show keys pressed with ⌘, ⌃ or ⌥ (shortcuts), not plain typing.
+    static var keystrokesOnlyShortcuts: Bool {
+        get { d.bool(forKey: "keystrokesOnlyShortcuts") }
+        set { d.set(newValue, forKey: "keystrokesOnlyShortcuts") }
+    }
+    /// Keystroke text size in points (18, 24 or 32).
+    static var keystrokeSize: Int {
+        get { [18, 24, 32].contains(d.integer(forKey: "keystrokeSize")) ? d.integer(forKey: "keystrokeSize") : 24 }
+        set { d.set(newValue, forKey: "keystrokeSize") }
+    }
+    /// Keystrokes at the top of the recorded area instead of the bottom.
+    static var keystrokesAtTop: Bool {
+        get { d.bool(forKey: "keystrokesAtTop") }
+        set { d.set(newValue, forKey: "keystrokesAtTop") }
+    }
+    /// The last recorded area (global coordinates), for `recordRememberSelection`.
+    static var lastRecordRect: CGRect? {
+        get { d.string(forKey: "lastRecordRect").map(NSRectFromString).flatMap { $0.isEmpty ? nil : $0 } }
+        set { d.set(newValue.map(NSStringFromRect), forKey: "lastRecordRect") }
     }
     static var windowShadow: Bool {
         get { d.object(forKey: "windowShadow") as? Bool ?? true }

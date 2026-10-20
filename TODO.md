@@ -29,12 +29,18 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S
 
 ## Batch 3 — screen recording (biggest gap)
-- [ ] Record area/fullscreen to MP4 (SCStream + AVAssetWriter) — L
-- [ ] System audio + microphone options — M
-- [ ] Record to GIF — M
-- [ ] Click/keystroke visualisation, cursor highlight — M
+- [~] Record area/fullscreen to MP4 (SCStream + AVAssetWriter; Record Screen ⌃⇧7: drag an area or Space to pick a window, whole-screen button in the picker; saved to the save folder; thumbnail with open / show in Finder / copy afterwards) — L
+- [~] System audio + microphone options (Settings → Screen Recording; mic needs macOS 15; each goes to its own audio track), cursor, 30/60 fps — M
+- [~] Record Screen picker (CleanShot-style): "Drag to record… Press Space to select a window" banner on every screen (other screens stay dimmed with the banner while adjusting; drag there to move the selection; Space picks a window; with "Remember last selection" it opens on the saved area with the banner on top); then the selection stays adjustable (handles, move, drag a new one, arrow keys, typed width × height, whole screen, aspect/size presets); mode bar (Area, Fullscreen, Window, Timer, OCR, Recording + size card); Recording (or ↩) shows the panel with options, mic / system audio / click / keystroke toggles, Record GIF ⌥↩ / Record Video ↩ — M
+- [~] Recording options popover: show controls, remember last selection, time in menu bar, dim screen, countdown, cursor, highlight clicks (color, size), keystrokes (all/shortcuts, size, top/bottom), frame rate — M
+- [ ] "Do Not Disturb" while recording (no public API; maybe via a user Shortcut) — S
+- [ ] Record in Studio Mode — L
+- [ ] Webcam overlay in recordings — M
+- [~] Record to GIF (records an MP4, converts at 15 fps, max 960 px wide) — M
+- [~] Click highlighting and keystroke display, drawn into the video (keystrokes need Accessibility access) — M
 - [ ] Trim editor for recordings — M
-- [ ] Recording HUD (timer, pause/stop) and menu-bar stop — S
+- [~] Recording HUD (timer, pause/resume, stop; dashed frame around the area) and menu-bar stop (the icon turns into a stop button; ⌃⇧7 stops too) — S
+- [ ] Mix system audio and microphone into one track (players that only play the first audio track miss the mic) — S
 
 ## Batch 4 — editor
 - [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M
@@ -52,6 +58,8 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [~] Blur (B; gaussian, strength popup), spotlight (S; dims everything outside, rounded corners) — M
 - [~] Rotate left/right, flip horizontal/vertical (toolbar menu or Image menu; annotations follow, undoable) — S
 - [~] Rounded rectangles (corner popup for rect/filled rect/spotlight), arrow styles (filled, open, double-headed) — M
+- [~] Compact toolbar: small bordered buttons (tools as one segmented control) so everything fits the 990 pt minimum; smaller style bar and footer — S
+- [~] Editors open as tabs of one window instead of a window per screenshot (Settings → Editor toggle; ⇧⌘[ / ⇧⌘] switch tabs, Window menu: move tab to new window, merge all windows) — S
 - [~] Redact via OCR: all text, email addresses, phone numbers, links → editable pixelate boxes (toolbar or Image menu) — M
 
 ## Batch 5 — capture modes

@@ -1,6 +1,18 @@
 import AppKit
 import ScreenCaptureKit
 
+/// CleanShot-style instruction pill ("Drag to record a part of the screen…"), drawn in the current view.
+func drawHintBanner(_ text: String, centeredAt c: NSPoint) {
+    let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 20, weight: .regular),
+                                                .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
+    let s = text as NSString
+    let size = s.size(withAttributes: attrs)
+    let box = NSRect(x: c.x - size.width / 2 - 28, y: c.y - size.height / 2 - 18, width: size.width + 56, height: size.height + 36)
+    NSColor.white.withAlphaComponent(0.88).setFill()
+    NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2).fill()
+    s.draw(at: NSPoint(x: box.minX + 28, y: box.minY + 18), withAttributes: attrs)
+}
+
 enum Selection {
     case area(NSScreen, CGRect, frozen: CGImage?)   // global bottom-left coordinates; `frozen` = full-display still to crop from
     case window(SCWindow)
@@ -18,12 +30,16 @@ final class SelectionOverlay {
     private var windows: [SCWindow] = []
     private(set) var mode: Mode = .area
     private var cursorPushed = false
+    /// Banner text shown in the middle of every screen, per mode (nil = no banner). With both set, Space
+    /// (before a drag starts) switches between picking an area and picking a window.
+    private var hints: [Mode: String] = [:]
 
-    func begin(mode: Mode, windows: [SCWindow], completion: @escaping (Selection?) -> Void) {
+    func begin(mode: Mode, windows: [SCWindow], hints: [Mode: String] = [:], completion: @escaping (Selection?) -> Void) {
         // One selection at a time: a second hotkey press while picking would stack another set of panels.
         guard self.completion == nil else { return }
         self.mode = mode
         self.windows = windows
+        self.hints = hints
         self.completion = completion
         guard mode == .area else { show(snapshots: [:]); return }
         // Grab a clean frame of every display first so the magnifier can show real pixels (not the dim overlay).
@@ -55,6 +71,8 @@ final class SelectionOverlay {
             v.snapshot = snapshots[ObjectIdentifier(screen)]
             v.frozen = mode == .area && Preferences.freezeScreen && v.snapshot != nil
             v.onFinish = { [weak self] sel in self?.finish(sel) }
+            v.hint = hints[mode]
+            if hints.count == 2 { v.onToggleMode = { [weak self] in self?.toggleMode() } }
             p.contentView = v
             p.makeKeyAndOrderFront(nil)
             p.makeFirstResponder(v)
@@ -66,6 +84,27 @@ final class SelectionOverlay {
         }
         NSCursor.crosshair.push(); cursorPushed = true
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Space: area ⇄ window. The window list is fetched the first time it's needed.
+    private func toggleMode() {
+        let next: Mode = mode == .area ? .window : .area
+        mode = next
+        let apply = { [weak self] in
+            guard let self, completion != nil, mode == next else { return }
+            for p in panels {
+                guard let v = p.contentView as? SelectionView else { continue }
+                v.windows = windows
+                v.mode = next
+                v.hint = hints[next]
+                v.needsDisplay = true
+            }
+        }
+        guard next == .window, windows.isEmpty else { apply(); return }
+        Task { @MainActor [weak self] in
+            self?.windows = await CaptureService.onScreenWindows()
+            apply()
+        }
     }
 
     private func finish(_ sel: Selection?) {
@@ -98,6 +137,10 @@ private final class SelectionView: NSView {
     /// Draw `snapshot` as a still background and hand it back for cropping.
     var frozen = false
     var onFinish: ((Selection?) -> Void)?
+    /// Centered instruction banner, hidden while dragging.
+    var hint: String?
+    /// Set when Space (before a drag) switches between area and window picking.
+    var onToggleMode: (() -> Void)?
 
     private var cursorPoint: NSPoint?
     private var start: NSPoint?
@@ -159,7 +202,9 @@ private final class SelectionView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if mode == .window {
-            if let w = hoverWindow { onFinish?(.window(w)) }
+            // Hit-test at the click itself: after Space switched modes there may have been no mouse move yet.
+            let p = convert(event.locationInWindow, from: nil)
+            if let w = windows.first(where: { viewRect(for: $0).contains(p) }) ?? hoverWindow { onFinish?(.window(w)) }
             return
         }
         window?.makeFirstResponder(self)
@@ -187,7 +232,8 @@ private final class SelectionView: NSView {
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
         case 53: onFinish?(nil)
-        case 49: spaceDown = true
+        case 49:
+            if let toggle = onToggleMode, start == nil, !event.isARepeat { hoverWindow = nil; toggle() } else { spaceDown = true }
         case 123: nudgePointer(dx: -step, dy: 0)
         case 124: nudgePointer(dx: step, dy: 0)
         case 125: nudgePointer(dx: 0, dy: -step)
@@ -226,6 +272,7 @@ private final class SelectionView: NSView {
         dim.setFill(); path.fill()
         if mode == .area, let c = cursorPoint { drawCrosshair(at: c) }
         defer { if mode == .area, let c = cursorPoint { drawLoupe(at: c) } }
+        if let hint, start == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
         guard let h = hole else { return }
         NSColor.white.setStroke()
         let b = NSBezierPath(rect: h); b.lineWidth = 1; b.stroke()
