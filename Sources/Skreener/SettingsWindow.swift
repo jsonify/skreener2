@@ -359,6 +359,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         Preferences.annotationShadow = $0
                         NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
                     },
+                    toggle("Match screenshot color past the edge",
+                           "Annotations dragged past the image grow the canvas. Fill it with the image's corner color; white when off.",
+                           Preferences.matchExtensionColor) {
+                        Preferences.matchExtensionColor = $0
+                        NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
+                    },
                 ]),
                 group("Editor Window", [
                     toggle("Open screenshots as tabs", "New screenshots join the open editor window instead of opening their own.",

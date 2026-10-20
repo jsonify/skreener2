@@ -218,8 +218,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Called after `extent` changes, with the previous extent.
     var onExtentChange: ((NSRect) -> Void)?
     private var imageRect: NSRect { NSRect(origin: .zero, size: base.size) }
-    /// Fill for the grown area: the color of the image's top-left pixel.
+    /// Fill for the grown area: white, or the color of the image's top-left pixel (a Settings option).
     private var backdrop: NSColor {
+        guard Preferences.matchExtensionColor else { return .white }
         if let c = cachedBackdrop { return c }
         let c = bitmap()?.colorAt(x: 0, y: 0) ?? .white
         cachedBackdrop = c

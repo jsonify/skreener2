@@ -116,8 +116,9 @@ class PillButton: NSButton {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// Clicks on the symbol or title belong to the button.
-    override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
+    /// Clicks on the symbol or title belong to the button. A hidden pill takes no clicks: its frame can still overlap
+    /// a visible neighbour in a stack view.
+    override func hitTest(_ point: NSPoint) -> NSView? { !isHidden && frame.contains(point) ? self : nil }
 
     override func mouseDown(with event: NSEvent) {
         pressed = true
