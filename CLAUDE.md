@@ -12,3 +12,6 @@ macOS menu-bar screenshot app (Swift/AppKit, SwiftPM). See README.md for feature
   captures `self` strongly (put `[weak self]` on the outer closure instead).
 - Cloud sessions run on Linux without AppKit: the macOS CI build is the compile check. Read its log for
   warnings, not just the result.
+- Whenever a change needs the owner to test it (manual checks on a Mac, anything the tests don't cover), give
+  step-by-step test instructions: how to build and launch, exactly what to click or press, and the expected
+  result for each step, so the owner isn't guessing what or how to test.
