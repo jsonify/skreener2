@@ -1,9 +1,8 @@
 import AppKit
-import AVFoundation
 
 /// Runs one screen recording at a time: the optional countdown, the frame around the recorded area, the
-/// dimming outside it, the HUD (elapsed time, pause/resume, stop), the click/keystroke effects, and the
-/// thumbnail shown when the file is ready. Skreener's own windows are left out of the recording, except the
+/// dimming outside it, the HUD (elapsed time, pause/resume, stop), the click/keystroke effects, and the Quick
+/// Access preview shown when the file is ready. Skreener's own windows are left out of the recording, except the
 /// effects overlay, so the HUD, frame and dimming never show up in the video.
 final class RecordingController {
     private var recorder: ScreenRecorder?
@@ -14,7 +13,7 @@ final class RecordingController {
     private var dims: [NSPanel] = []
     private var timeLabel: NSTextField?
     private var dot: NSView?
-    private var pauseButton: NSButton?
+    private var pauseButton: PillButton?
     private var ticker: Timer?
     private var startedAt = Date()
     private var pausedAt: Date?
@@ -77,7 +76,7 @@ final class RecordingController {
         recorder.stop()
     }
 
-    @objc func togglePause() {
+    func togglePause() {
         guard let recorder else { return }
         if let p = pausedAt {
             pausedTotal += Date().timeIntervalSince(p)
@@ -87,13 +86,11 @@ final class RecordingController {
         }
         let paused = pausedAt != nil
         recorder.setPaused(paused)
-        pauseButton?.image = NSImage(systemSymbolName: paused ? "play.fill" : "pause.fill", accessibilityDescription: paused ? "Resume" : "Pause")
         pauseButton?.toolTip = paused ? "Resume" : "Pause"
+        pauseButton?.setContent(title: nil, symbol: paused ? "play.fill" : "pause.fill")
         dot?.layer?.backgroundColor = (paused ? NSColor.systemOrange : NSColor.systemRed).cgColor
         tick()
     }
-
-    @objc private func stopClicked() { stop() }
 
     private func finished(_ result: Result<URL, Error>) {
         let gif = gifURL
@@ -123,7 +120,7 @@ final class RecordingController {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([url as NSURL])
         }
-        RecordingQuickAccess.show(url)
+        if Preferences.showQuickAccess { QuickAccessController.show(recording: url) }
     }
 
     private func hideWindows() {
@@ -188,9 +185,29 @@ final class RecordingController {
         frame = p
     }
 
-    /// The control pill: below the area if there's room, else above it, else inside its bottom edge.
+    /// The control bar: below the area if there's room, else above it, else inside its bottom edge. The same dark
+    /// capsule and pill buttons as the scrolling-capture bar.
     private func showHUD(near area: CGRect, on screen: NSScreen, fullscreen: Bool) {
-        let size = NSSize(width: 156, height: 36)
+        let d = NSView()
+        d.wantsLayer = true
+        d.layer?.cornerRadius = 5
+        d.layer?.backgroundColor = NSColor.systemRed.cgColor
+        d.translatesAutoresizingMaskIntoConstraints = false
+        d.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        d.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        let l = NSTextField(labelWithString: "00:00")
+        l.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        l.textColor = NSColor.white.withAlphaComponent(0.9)
+        let pause = PillButton(title: nil, symbol: "pause.fill", style: .tinted) { [weak self] in self?.togglePause() }
+        pause.toolTip = "Pause"
+        let stop = PillButton(title: "Stop", symbol: "stop.fill", style: .filled) { [weak self] in self?.stop() }
+        stop.toolTip = "Stop Recording (⌃⇧7)"
+        let row = NSStackView(views: [d, l, pause, stop])
+        row.spacing = 8
+        row.setCustomSpacing(14, after: l)
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 7)
+
+        let size = NSSize(width: ceil(row.fittingSize.width), height: 44)
         let vis = screen.visibleFrame
         var y = area.minY - size.height - 10
         if fullscreen || y < vis.minY { y = area.maxY + 10 }
@@ -204,35 +221,23 @@ final class RecordingController {
         p.hasShadow = true
         p.isMovableByWindowBackground = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.appearance = NSAppearance(named: .darkAqua)
 
-        let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        bg.material = .hudWindow; bg.state = .active; bg.wantsLayer = true
-        bg.layer?.cornerRadius = size.height / 2; bg.layer?.masksToBounds = true
-
-        let d = NSView(frame: NSRect(x: 14, y: size.height / 2 - 5, width: 10, height: 10))
-        d.wantsLayer = true
-        d.layer?.cornerRadius = 5
-        d.layer?.backgroundColor = NSColor.systemRed.cgColor
-        let l = NSTextField(labelWithString: "00:00")
-        l.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
-        l.frame = NSRect(x: 30, y: size.height / 2 - 9, width: 50, height: 18)
-        let pause = hudButton("pause.fill", "Pause", #selector(togglePause), x: 84)
-        let stop = hudButton("stop.fill", "Stop Recording", #selector(stopClicked), x: 118)
-        stop.contentTintColor = .systemRed
-        [d, l, pause, stop].forEach(bg.addSubview)
+        let bg = NSView(frame: NSRect(origin: .zero, size: size))
+        bg.wantsLayer = true
+        bg.layer?.backgroundColor = PillButton.barColor.cgColor
+        bg.layer?.cornerRadius = size.height / 2; bg.layer?.cornerCurve = .continuous; bg.layer?.masksToBounds = true
+        bg.layer?.borderWidth = 0.5; bg.layer?.borderColor = PillButton.barBorderColor.cgColor
+        row.translatesAutoresizingMaskIntoConstraints = false
+        bg.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
+            row.centerYAnchor.constraint(equalTo: bg.centerYAnchor),
+        ])
         p.contentView = bg
         p.orderFrontRegardless()
         hud = p; timeLabel = l; dot = d; pauseButton = pause
-    }
-
-    private func hudButton(_ sym: String, _ tip: String, _ action: Selector, x: CGFloat) -> NSButton {
-        let b = NSButton(image: NSImage(systemSymbolName: sym, accessibilityDescription: tip) ?? NSImage(), target: self, action: action)
-        b.bezelStyle = .texturedRounded
-        b.controlSize = .small
-        b.imagePosition = .imageOnly
-        b.toolTip = tip
-        b.frame = NSRect(x: x, y: 6, width: 30, height: 24)
-        return b
     }
 }
 
@@ -254,83 +259,5 @@ private final class RecordingFrameView: NSView {
         path.setLineDash([6, 4], count: 2, phase: 0)
         NSColor.systemRed.withAlphaComponent(0.85).setStroke()
         path.stroke()
-    }
-}
-
-/// Floating thumbnail for a finished recording: open, show in Finder, copy the file, dismiss.
-final class RecordingQuickAccess {
-    private static var live: [RecordingQuickAccess] = []
-    private var panel: NSPanel?
-    private var timer: Timer?
-    private let url: URL
-
-    private init(url: URL) { self.url = url }
-
-    static func show(_ url: URL) {
-        let qa = RecordingQuickAccess(url: url)
-        live.append(qa)
-        qa.present()
-    }
-
-    private func present() {
-        let size = NSSize(width: 296, height: 164)
-        guard let screen = NSScreen.main else { return }
-        let p = NSPanel(contentRect: NSRect(origin: NSPoint(x: screen.visibleFrame.minX + 16, y: screen.visibleFrame.minY + 16), size: size),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        p.level = .floating
-        p.isOpaque = false
-        p.backgroundColor = .clear
-        p.hasShadow = true
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-
-        let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        bg.material = .hudWindow; bg.state = .active; bg.wantsLayer = true
-        bg.layer?.cornerRadius = 12; bg.layer?.masksToBounds = true
-        let iv = NSImageView(frame: NSRect(x: 8, y: 36, width: size.width - 16, height: size.height - 44))
-        iv.imageScaling = .scaleProportionallyUpOrDown
-        iv.image = NSImage(systemSymbolName: "film", accessibilityDescription: "Recording")
-        iv.animates = true
-        bg.addSubview(iv)
-        var x: CGFloat = 8
-        for (title, sel) in [("Open", #selector(openIt)), ("Show", #selector(showIt)), ("Copy", #selector(copyIt)), ("Share", #selector(shareIt(_:))),
-                            ("✕", #selector(closeIt))] {
-            let b = NSButton(title: title, target: self, action: sel)
-            b.bezelStyle = .rounded; b.controlSize = .small
-            b.frame = NSRect(x: x, y: 6, width: title == "✕" ? 28 : 54, height: 24)
-            bg.addSubview(b); x += b.frame.width + 6
-        }
-        p.contentView = bg
-        p.orderFrontRegardless()
-        panel = p
-        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in self?.closeIt() }
-
-        if url.pathExtension.lowercased() == "gif" {
-            iv.image = NSImage(contentsOf: url)
-            return
-        }
-        // First frame as the thumbnail.
-        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-        gen.appliesPreferredTrackTransform = true
-        gen.maximumSize = CGSize(width: 440, height: 300)
-        Task { @MainActor in
-            if let cg = try? await gen.image(at: .zero).image { iv.image = NSImage(cgImage: cg, size: .zero) }
-        }
-    }
-
-    @objc private func openIt() { NSWorkspace.shared.open(url); closeIt() }
-    @objc private func showIt() { NSWorkspace.shared.activateFileViewerSelecting([url]); closeIt() }
-    @objc private func copyIt() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([url as NSURL])
-        NSSound(named: "Pop")?.play()
-    }
-    @objc private func shareIt(_ sender: NSButton) {
-        timer?.invalidate(); timer = nil   // don't slide away while the share menu is open
-        Output.share(url, from: sender)
-    }
-    @objc private func closeIt() {
-        timer?.invalidate(); timer = nil
-        panel?.orderOut(nil); panel = nil
-        RecordingQuickAccess.live.removeAll { $0 === self }
     }
 }
