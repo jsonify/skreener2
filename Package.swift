@@ -5,6 +5,7 @@ let package = Package(
     name: "Skreener",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "Skreener", path: "Sources/Skreener")
+        .executableTarget(name: "Skreener", path: "Sources/Skreener"),
+        .testTarget(name: "SkreenerTests", dependencies: ["Skreener"], path: "Tests/SkreenerTests")
     ]
 )

@@ -22,6 +22,7 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 ## Build
 ```
 Scripts/build_app.sh   # produces build/Skreener.app
+swift test             # unit tests
 ```
 Grant Screen Recording permission on first launch.
 
