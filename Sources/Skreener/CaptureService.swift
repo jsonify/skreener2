@@ -77,11 +77,16 @@ enum CaptureService {
 
     /// Cut a global (bottom-left origin) rect out of a full-display frame grabbed earlier, e.g. a frozen screen.
     static func crop(_ frame: CGImage, screen: NSScreen, globalRect r: CGRect) throws -> NSImage {
-        let sx = CGFloat(frame.width) / screen.frame.width, sy = CGFloat(frame.height) / screen.frame.height
-        let px = CGRect(x: (r.minX - screen.frame.minX) * sx, y: (screen.frame.maxY - r.maxY) * sy,
-                        width: r.width * sx, height: r.height * sy).integral
+        let px = pixelRect(r, in: screen.frame, pixelSize: CGSize(width: frame.width, height: frame.height))
         guard let cg = frame.cropping(to: px) else { throw CaptureError.cropFailed }
-        return image(cg, scale: sx)
+        return image(cg, scale: CGFloat(frame.width) / screen.frame.width)
+    }
+
+    /// A global (bottom-left origin) rect as whole pixels (top-left origin) of a `pixelSize` frame showing `screenFrame`.
+    static func pixelRect(_ r: CGRect, in screenFrame: CGRect, pixelSize: CGSize) -> CGRect {
+        let sx = pixelSize.width / screenFrame.width, sy = pixelSize.height / screenFrame.height
+        return CGRect(x: (r.minX - screenFrame.minX) * sx, y: (screenFrame.maxY - r.maxY) * sy,
+                      width: r.width * sx, height: r.height * sy).integral
     }
 
     static func captureWindow(_ window: SCWindow) async throws -> NSImage {

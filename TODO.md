@@ -91,7 +91,7 @@ Size: S (<½ day) · M (1–2 days) · L (3+ days)
 - [ ] Match CleanShot-style hotkeys (⇧⌘4 area, ⇧⌘3 fullscreen, ⇧⌘6 scrolling, ⇧⌘7 OCR, ⇧⌘5 all-in-one) as rebindable defaults — S
 
 ## Engineering
-- [ ] CI: macOS runner `swift build` + unit tests (Package has no test target yet) — S
-- [ ] Unit tests: coordinate conversion, filename formatting, OCR on fixture — M
+- [x] CI: macOS runner builds the app and runs `swift test` (test target `SkreenerTests`), warnings as errors — S (#36)
+- [x] Unit tests: coordinate conversion, file names + PNG/JPEG/1× output, OCR + redaction on rendered text, scroll matching, GIF export — M (#37)
 - [ ] Developer-ID signing + notarisation script — M
 - [~] App icon and menu-bar template image — S
