@@ -40,14 +40,12 @@ import AVFoundation
 
     /// Adds a preview of a finished recording once its first frame is ready (a GIF shows animated).
     nonisolated static func show(recording url: URL) {
-        MainActor.assumeIsolated {
-            Task { @MainActor in
-                let qa = QuickAccessController(image: await Self.thumbnail(of: url), recording: url)
-                Self.screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-                Self.live.append(qa)
-                Self.layout(animated: true)
-                if !Self.suspended { qa.panel.orderFrontRegardless() }
-            }
+        Task { @MainActor in
+            let qa = QuickAccessController(image: await Self.thumbnail(of: url), recording: url)
+            Self.screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+            Self.live.append(qa)
+            Self.layout(animated: true)
+            if !Self.suspended { qa.panel.orderFrontRegardless() }
         }
     }
 
