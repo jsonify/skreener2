@@ -249,6 +249,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let canvas: CanvasView
     private let scroll = ZoomingScrollView()
     private let zoomButton = PillPopUp(pullsDown: true, height: 28)
+    /// The color under the pointer in the chosen format (#108); its menu picks the format and offers the color tools.
+    private let colorReadout = PillPopUp(pullsDown: true, height: 28)
     private var toolPills: [PillButton] = []
     // Contextual attributes bar under the toolbar: only the controls that apply to the current tool or
     // selection are shown. It lives outside the toolbar so the tool buttons always have room.
@@ -269,13 +271,19 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
-    // Crop and Background replace the tool options in the same strip while they are active.
-    private enum StripMode { case tools, crop, textArea, background }
+    // Crop, Background and the area picks (Copy Text from Area, average color, contrast) replace the tool options in
+    // the same strip while they are active.
+    private enum StripMode { case tools, crop, areaPick, background }
     private var stripMode = StripMode.tools {
         didSet { refreshStrip() }
     }
     private let cropBar = NSStackView()
-    private let textAreaBar = NSStackView()
+    private let areaBar = NSStackView()
+    private let areaHint = NSTextField(labelWithString: "")
+    private let contrastLabel = NSTextField(labelWithString: "")
+    private lazy var copyAllTextButton = textButton("Copy All Text", canvas, #selector(CanvasView.copyAllText(_:)))
+    private lazy var contrastMethodButton = textButton("WCAG 2", self, #selector(contrastMethodToggled))
+    private lazy var areaDoneButton = textButton("Cancel", self, #selector(areaPickCancel))
     private let backgroundBar = NSStackView()
     private let fillPopup = PillPopUp(pullsDown: false)
     private let paddingPopup = PillPopUp(pullsDown: false)
@@ -352,14 +360,23 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         canvas.onContextChange = { [weak self] _, _ in self?.contextChanged() }
         canvas.onCropModeChange = { [weak self] on in self?.stripMode = on ? .crop : .tools }
         canvas.onBackgroundChange = { [weak self] in if self?.stripMode == .background { self?.refreshStrip() } }
-        canvas.onTextAreaModeChange = { [weak self] on in self?.stripMode = on ? .textArea : .tools }
+        canvas.onAreaPickChange = { [weak self] kind in
+            if kind != .contrast { self?.contrastLabel.stringValue = "" }
+            self?.stripMode = kind == nil ? .tools : .areaPick
+        }
         canvas.onTextCopied = { [weak self] text in self?.textCopied(text) }
+        canvas.onColorCopied = { [weak self] text in self?.showToast("Copied \(text)") }
+        canvas.onHoverColor = { [weak self] c in self?.hoverColor = c; self?.refreshColorReadout() }
+        canvas.onContrastChange = { [weak self] line in
+            self?.contrastLabel.stringValue = line ?? ""
+            self?.refreshStrip()
+        }
         tabStrip.onSelect = { [weak self] i in self?.selectTab(i) }
         tabStrip.onClose = { [weak self] i in self?.closeTab(i) }
         tabStrip.menuForTab = { [weak self] i in self?.tabMenu(i) }
         buildAttributesBar()
         buildCropBar()
-        buildTextAreaBar()
+        buildAreaBar()
         buildBackgroundBar()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -546,7 +563,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesTitle.textColor = .secondaryLabelColor
         attributesHint.font = .systemFont(ofSize: 12)
         attributesHint.textColor = .tertiaryLabelColor
-        let row = pillRow([attributesTitle, attributesBar, attributesHint, cropBar, textAreaBar, backgroundBar], spacing: 10)
+        let row = pillRow([attributesTitle, attributesBar, attributesHint, cropBar, areaBar, backgroundBar], spacing: 10)
         row.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox(); line.boxType = .separator
         line.translatesAutoresizingMaskIntoConstraints = false
@@ -575,7 +592,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             zoomButton.menu?.addItem(item)
         }
         zoomButton.toolTip = "Zoom"
-        let zoomBar = pillRow([zoomButton])
+        buildColorReadout()
+        let zoomBar = pillRow([zoomButton, colorReadout])
         zoomBar.translatesAutoresizingMaskIntoConstraints = false
 
         let pill = DragPill()
@@ -602,6 +620,74 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             right.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
         ])
         return bar
+    }
+
+    // MARK: Color readout
+
+    private var hoverColor: RGBColor?
+
+    private func buildColorReadout() {
+        colorReadout.toolTip = "The color under the pointer: Tab copies it, ⇧Tab copies the darkest color near it"
+        guard let m = colorReadout.menu else { return }
+        m.addItem(withTitle: "Color", action: nil, keyEquivalent: "")   // the pull-down's face
+        for (title, action) in CanvasView.colorCommands {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            i.target = canvas
+            m.addItem(i)
+        }
+        m.addItem(.separator())
+        m.addItem(.sectionHeader(title: "Color Format"))
+        for (n, f) in ColorFormat.allCases.enumerated() {
+            let i = NSMenuItem(title: f.title, action: #selector(colorFormatPicked(_:)), keyEquivalent: "")
+            i.target = self; i.tag = n
+            m.addItem(i)
+        }
+        m.addItem(.separator())
+        m.addItem(.sectionHeader(title: "Keys"))
+        for hint in ["Tab: copy the color under the pointer", "⇧Tab: copy the darkest color near the pointer",
+                     "⇧C: copy an area's average color", "⇧K: check the contrast of an area",
+                     "Hold 1 or 2 (or an arrow key): measure", "Shift while measuring: include the border",
+                     "Click while measuring: keep the measurement"] {
+            let i = NSMenuItem(title: hint, action: nil, keyEquivalent: "")
+            i.isEnabled = false
+            m.addItem(i)
+        }
+        m.autoenablesItems = false
+        refreshColorReadout()
+    }
+
+    /// Shows the last color the pointer was over (or a placeholder) and ticks the chosen format.
+    private func refreshColorReadout() {
+        guard let face = colorReadout.menu?.items.first else { return }
+        let title = hoverColor.map { Preferences.colorFormat.display(for: $0) } ?? "Color"
+        guard face.title != title || face.image == nil else { return }
+        face.title = title
+        face.image = hoverColor.map(Self.swatch) ?? symbol("eyedropper", "Color")
+        colorReadout.synchronizeTitleAndSelectedItem()
+        let chosen = ColorFormat.allCases.firstIndex(of: Preferences.colorFormat)
+        for item in colorReadout.itemArray where item.action == #selector(colorFormatPicked(_:)) {
+            item.state = item.tag == chosen ? .on : .off
+        }
+    }
+
+    /// A small rounded square of `c`, with a hairline edge so white shows on white.
+    private static func swatch(_ c: RGBColor) -> NSImage {
+        let color = NSColor(srgbRed: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: 1)
+        return NSImage(size: NSSize(width: 14, height: 14), flipped: false) { r in
+            let p = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+            color.setFill(); p.fill()
+            NSColor.black.withAlphaComponent(0.2).setStroke(); p.lineWidth = 1; p.stroke()
+            return true
+        }
+    }
+
+    @objc private func colorFormatPicked(_ item: NSMenuItem) {
+        guard ColorFormat.allCases.indices.contains(item.tag) else { return }
+        Preferences.colorFormat = ColorFormat.allCases[item.tag]
+        // Force the face to redraw even when its text is the same in the new format.
+        colorReadout.menu?.items.first?.image = nil
+        refreshColorReadout()
+        canvas.refreshContrast()
     }
 
     // MARK: Zoom
@@ -763,16 +849,41 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         cropBar.isHidden = true
     }
 
-    private func buildTextAreaBar() {
-        let hint = NSTextField(labelWithString: "Drag over the text to copy it · Esc to cancel")
-        hint.font = .systemFont(ofSize: 12)
-        hint.textColor = .tertiaryLabelColor
-        let all = textButton("Copy All Text", canvas, #selector(CanvasView.copyAllText(_:)))
-        let cancel = textButton("Cancel", self, #selector(textAreaCancel))
-        [hint, all, cancel].forEach(textAreaBar.addArrangedSubview)
-        textAreaBar.spacing = 6
-        textAreaBar.setCustomSpacing(10, after: hint)
-        textAreaBar.isHidden = true
+    /// The strip while dragging out an area for Copy Text, the average color or Check Contrast.
+    private func buildAreaBar() {
+        areaHint.font = .systemFont(ofSize: 12)
+        areaHint.textColor = .tertiaryLabelColor
+        contrastLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        contrastLabel.textColor = .labelColor
+        contrastMethodButton.toolTip = "Switch between WCAG 2 and APCA (or ⌥-click the screenshot)"
+        [areaHint, contrastLabel, contrastMethodButton, copyAllTextButton, areaDoneButton].forEach(areaBar.addArrangedSubview)
+        areaBar.spacing = 6
+        areaBar.setCustomSpacing(10, after: areaHint)
+        areaBar.setCustomSpacing(10, after: contrastLabel)
+        areaBar.isHidden = true
+    }
+
+    private func refreshAreaBar() {
+        let kind = canvas.areaPick
+        let measured = !contrastLabel.stringValue.isEmpty
+        switch kind {
+        case .averageColor?:
+            attributesTitle.stringValue = "Average Color"
+            areaHint.stringValue = "Drag over an area to copy its average color · Esc to cancel"
+        case .contrast?:
+            attributesTitle.stringValue = "Contrast"
+            areaHint.stringValue = "Drag over text and its background · Esc when done"
+        default:
+            attributesTitle.stringValue = "Copy Text"
+            areaHint.stringValue = "Drag over the text to copy it · Esc to cancel"
+        }
+        // Once a contrast is measured its result takes the hint's place, so the strip fits the window.
+        areaHint.isHidden = kind == .contrast && measured
+        contrastLabel.isHidden = kind != .contrast || !measured
+        contrastMethodButton.isHidden = kind != .contrast
+        contrastMethodButton.setContent(title: Preferences.contrastMethod == .wcag ? "WCAG 2" : "APCA", symbol: nil)
+        copyAllTextButton.isHidden = kind != .text
+        areaDoneButton.setContent(title: kind == .contrast ? "Done" : "Cancel", symbol: nil)
     }
 
     private func buildBackgroundBar() {
@@ -832,7 +943,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private func refreshStrip() {
         attributesBar.isHidden = stripMode != .tools
         cropBar.isHidden = stripMode != .crop
-        textAreaBar.isHidden = stripMode != .textArea
+        areaBar.isHidden = stripMode != .areaPick
         backgroundBar.isHidden = stripMode != .background
         switch stripMode {
         case .tools:
@@ -840,8 +951,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .crop:
             attributesTitle.stringValue = "Crop"
             attributesTitle.isHidden = false; attributesHint.isHidden = true
-        case .textArea:
-            attributesTitle.stringValue = "Copy Text"
+        case .areaPick:
+            refreshAreaBar()
             attributesTitle.isHidden = false; attributesHint.isHidden = true
         case .background:
             attributesTitle.stringValue = "Background"
@@ -943,7 +1054,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func cropApply() { canvas.applyCrop(); window?.makeFirstResponder(canvas) }
     @objc private func cropCancel() { canvas.cancelCrop(); window?.makeFirstResponder(canvas) }
     @objc private func cropReset() { canvas.resetCrop(); window?.makeFirstResponder(canvas) }
-    @objc private func textAreaCancel() { canvas.endTextAreaPick(); window?.makeFirstResponder(canvas) }
+    @objc private func areaPickCancel() { canvas.endAreaPick(); window?.makeFirstResponder(canvas) }
+    @objc private func contrastMethodToggled() { canvas.toggleContrastMethod(); window?.makeFirstResponder(canvas) }
     @MainActor @objc private func addImageFromFile() {
         guard let w = window else { return }
         let p = NSOpenPanel()

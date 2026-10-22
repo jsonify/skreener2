@@ -90,7 +90,7 @@ final class SelectionOverlay {
         if let p = panels.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) {
             p.makeKeyAndOrderFront(nil)
         }
-        NSCursor.crosshair.push(); cursorPushed = true
+        SelectionView.cursor(for: mode).push(); cursorPushed = true
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -114,6 +114,7 @@ final class SelectionOverlay {
     private func toggleMode() {
         let next: Mode = mode == .area ? .window : .area
         mode = next
+        if cursorPushed { NSCursor.pop(); SelectionView.cursor(for: next).push() }
         let apply = { [weak self] in
             guard let self, completion != nil, mode == next else { return }
             for p in panels {
@@ -121,6 +122,7 @@ final class SelectionOverlay {
                 v.windows = windows
                 v.mode = next
                 v.hint = hints[next]
+                v.updateHoverWindow()
                 v.needsDisplay = true
             }
         }
@@ -150,6 +152,30 @@ final class SelectionOverlay {
 }
 
 private final class SelectionView: NSView {
+    /// The crosshair for areas, a camera for windows (#129).
+    static func cursor(for mode: SelectionOverlay.Mode) -> NSCursor { mode == .window ? cameraCursor : .crosshair }
+
+    /// A black camera with a white outline, so it shows on light and dark windows alike.
+    static let cameraCursor: NSCursor = {
+        let side: CGFloat = 26
+        let symbol = { (color: NSColor) -> NSImage? in
+            let config = NSImage.SymbolConfiguration(pointSize: 17, weight: .medium).applying(.init(paletteColors: [color]))
+            return NSImage(systemSymbolName: "camera.fill", accessibilityDescription: "Capture window")?.withSymbolConfiguration(config)
+        }
+        guard let outline = symbol(.white), let body = symbol(.black) else { return .crosshair }
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let origin = NSPoint(x: (side - body.size.width) / 2, y: (side - body.size.height) / 2)
+            for dx in [-1.5, 0, 1.5] as [CGFloat] {
+                for dy in [-1.5, 0, 1.5] as [CGFloat] where dx != 0 || dy != 0 {
+                    outline.draw(at: NSPoint(x: origin.x + dx, y: origin.y + dy), from: .zero, operation: .sourceOver, fraction: 1)
+                }
+            }
+            body.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: side / 2, y: side / 2))
+    }()
+
     var screen: NSScreen!
     var mode: SelectionOverlay.Mode = .area
     var windows: [SCWindow] = []
@@ -259,9 +285,17 @@ private final class SelectionView: NSView {
         guard let w = window else { return }
         let p = w.mouseLocationOutsideOfEventStream
         cursorPoint = bounds.contains(p) ? p : nil
+        // Highlight the window under the pointer straight away, not only after the first mouse move.
+        updateHoverWindow()
     }
 
-    override func mouseExited(with event: NSEvent) { cursorPoint = nil; needsDisplay = true }
+    /// The frontmost window under the pointer: `windows` is in stacking order, front to back.
+    func updateHoverWindow() {
+        guard mode == .window else { hoverWindow = nil; return }
+        hoverWindow = cursorPoint.flatMap { p in windows.first { viewRect(for: $0).contains(p) } }
+    }
+
+    override func mouseExited(with event: NSEvent) { cursorPoint = nil; hoverWindow = nil; needsDisplay = true }
     override func mouseEntered(with event: NSEvent) {
         guard !dismantled, window?.isVisible == true, keyHeldElsewhere?() != true else { return }
         window?.makeKeyAndOrderFront(nil)
@@ -273,8 +307,11 @@ private final class SelectionView: NSView {
         cursorPoint = p
         updateCursor(at: p)
         guard mode == .window else { needsDisplay = true; return }
-        hoverWindow = windows.first { viewRect(for: $0).contains(p) }
-        needsDisplay = true
+        // Re-assert the camera: another app's cursor rects can reset it while the pointer moves.
+        Self.cameraCursor.set()
+        let old = hoverWindow
+        updateHoverWindow()
+        if old?.windowID != hoverWindow?.windowID { needsDisplay = true }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -432,8 +469,9 @@ private final class SelectionView: NSView {
         if frozen, let snap = snapshot {
             NSGraphicsContext.current?.cgContext.draw(snap, in: bounds)
         }
+        if mode == .window { drawWindowHighlight(); return }
         let dim = NSColor.black.withAlphaComponent(0.35)
-        let hole: NSRect? = mode == .area ? selectionRect : hoverWindow.map(viewRect(for:))
+        let hole: NSRect? = selectionRect
         let path = NSBezierPath(rect: bounds)
         if let h = hole { path.append(NSBezierPath(rect: h)); path.windingRule = .evenOdd }
         dim.setFill(); path.fill()
@@ -446,8 +484,8 @@ private final class SelectionView: NSView {
         NSColor.white.setStroke()
         let b = NSBezierPath(rect: h); b.lineWidth = 1; b.stroke()
         // A new drag clears `adjusted`, so handles show only on a selection being adjusted.
-        if mode == .area, adjusted != nil { drawHandles(around: h) }
-        if mode == .area {
+        if adjusted != nil { drawHandles(around: h) }
+        do {
             let dims = "\(Int(h.width)) × \(Int(h.height))"
             let label = (adjusted != nil && drag == nil ? dims + "   ↩ Capture · Esc Cancel" : dims) as NSString
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
@@ -458,6 +496,31 @@ private final class SelectionView: NSView {
             NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
             label.draw(at: NSPoint(x: box.minX + 5, y: box.minY + 2), withAttributes: attrs)
         }
+    }
+
+    /// Window picking (#129): the screen stays as it is; the part of the window under the pointer that can be seen gets
+    /// a tint (blue unless Settings says otherwise) and a border. Windows in front of it stay clear. Nothing is
+    /// reordered: the window is captured on its own, whole, wherever it sits in the stack.
+    private func drawWindowHighlight() {
+        if let w = hoverWindow, let i = windows.firstIndex(where: { $0.windowID == w.windowID }),
+           let ctx = NSGraphicsContext.current?.cgContext {
+            let r = viewRect(for: w), tint = Preferences.windowHighlightColor
+            ctx.saveGState()
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            tint.withAlphaComponent(0.28).setFill()
+            r.fill()
+            tint.withAlphaComponent(0.85).setStroke()
+            let b = NSBezierPath(rect: r.insetBy(dx: 1, dy: 1)); b.lineWidth = 2; b.stroke()
+            // `windows` runs front to back: the ones before this window cover it, so cut them out of the tint.
+            ctx.setBlendMode(.clear)
+            for front in windows[..<i] {
+                let f = viewRect(for: front)
+                if f.intersects(r) { ctx.fill(f) }
+            }
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        }
+        if let hint, hoverWindow == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
     }
 
     /// Small square handles on the corners and edge midpoints of the selection being adjusted.

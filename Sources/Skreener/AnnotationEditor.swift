@@ -2,9 +2,10 @@ import AppKit
 import CoreImage
 
 enum Tool: Int, CaseIterable {
-    /// `.image` is not a toolbar tool: it marks pictures added with Add Image or pasted with ⌘V.
+    /// `.image` is not a toolbar tool: it marks pictures added with Add Image or pasted with ⌘V. Nor is `.ruler`: a
+    /// measurement kept by clicking while the ruler keys are held (#107).
     case select, arrow, rect, filledRect, ellipse, line, pen, highlighter, text, counter, pixelate, blur, spotlight,
-         erase, magnifier, image
+         erase, magnifier, image, ruler
 
     /// Single-key shortcuts in the editor (no modifiers).
     static let shortcuts: [Character: Tool] = ["v": .select, "a": .arrow, "r": .rect, "f": .filledRect, "o": .ellipse,
@@ -39,6 +40,7 @@ enum Tool: Int, CaseIterable {
         case .erase: return "Erase"
         case .magnifier: return "Magnifier"
         case .image: return "Image"
+        case .ruler: return "Ruler"
         }
     }
 }
@@ -174,6 +176,14 @@ struct Annotation: Equatable {
 /// here so they act on the text box, not the canvas; Esc or ⌘Return finishes editing.
 private final class InlineTextView: NSTextView {
     var onFinish: (() -> Void)?
+    /// The color under the pointer, written in the chosen color format (nil when the pointer is off the screenshot).
+    var colorAtPointer: (() -> String?)?
+
+    /// Tab types the color under the pointer instead of a tab (#108).
+    override func insertTab(_ sender: Any?) {
+        guard let color = colorAtPointer?() else { NSSound.beep(); return }
+        insertText(color, replacementRange: selectedRange())
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
@@ -202,7 +212,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private(set) var base: NSImage {
         didSet {
             guard base !== oldValue else { return }
-            cachedRep = nil; cachedBackdrop = nil; cachedCG = nil; blurCache = [:]
+            cachedRep = nil; cachedBackdrop = nil; cachedCG = nil; cachedPixels = nil; blurCache = [:]
             textLineCache = [:]; textLinePending = []; eraseColors = [:]
             updateExtent()
         }
@@ -247,7 +257,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
     private var cachedBackdrop: NSColor?
     var tool: Tool = .arrow {
-        didSet { if tool != oldValue { finishTextEditing(); endTextAreaPick(); notifyContext() } }
+        didSet { if tool != oldValue { finishTextEditing(); endAreaPick(); notifyContext() } }
     }
     /// Style given to new annotations.
     private(set) var style = Style()
@@ -330,8 +340,16 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if textEditor != nil { finishTextEditing(); return }   // a click outside the text box ends typing
         window?.makeFirstResponder(self)
         let p = convert(event.locationInWindow, from: nil)
-        if isPickingTextArea { textAreaAnchor = p; textAreaDraft = nil; return }
+        if let kind = areaPick {
+            if kind == .contrast, event.modifierFlags.contains(.option) { toggleContrastMethod(); return }
+            areaAnchor = p; areaDraft = nil; return
+        }
         if let r = cropDraft { drag = cropDrag(in: r, at: p); return }
+        if ruler != nil {
+            // Clicking while measuring keeps the measurement on the screenshot.
+            if let d = rulerDraft { mutate { items.append(d) } }
+            return
+        }
         beforeDrag = snapshot
 
         if let i = selectedIndex, let d = handleDrag(for: items[i], at: p) { drag = d; return }
@@ -361,8 +379,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     override func mouseDragged(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if let a = textAreaAnchor {
-            textAreaDraft = NSRect(x: min(a.x, p.x), y: min(a.y, p.y), width: abs(p.x - a.x), height: abs(p.y - a.y))
+        pointerMoved(to: p)
+        if let a = areaAnchor {
+            areaDraft = NSRect(x: min(a.x, p.x), y: min(a.y, p.y), width: abs(p.x - a.x), height: abs(p.y - a.y))
             return
         }
         switch drag {
@@ -414,11 +433,25 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if textAreaAnchor != nil {
-            let r = textAreaDraft
-            endTextAreaPick()
-            // A click without a drag just leaves the mode.
-            if let r, r.width >= 4, r.height >= 4 { copyText(in: r) }
+        if let kind = areaPick, areaAnchor != nil {
+            let r = areaDraft
+            areaAnchor = nil; areaDraft = nil
+            // A click without a drag just leaves the mode; Check Contrast stays on for the next area.
+            guard let r, r.width >= 1, r.height >= 1 else {
+                if kind != .contrast { endAreaPick() }
+                return
+            }
+            switch kind {
+            case .text:
+                endAreaPick()
+                if r.width >= 4, r.height >= 4 { copyText(in: r) }
+            case .averageColor:
+                endAreaPick()
+                copyAverageColor(in: r)
+            case .contrast:
+                contrastArea = r
+                refreshContrast()
+            }
             return
         }
         guard let d = drag else { return }   // text add/edit records its own undo step
@@ -448,8 +481,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {
-        if isPickingTextArea {
-            if event.keyCode == 53 { endTextAreaPick() }   // Esc
+        if areaPick != nil {
+            if event.keyCode == 53 { endAreaPick() }   // Esc
             return
         }
         if isCropping {
@@ -461,7 +494,20 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return
         }
         let mods = event.modifierFlags.intersection([.command, .control, .option])
-        let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+        let shift = event.modifierFlags.contains(.shift)
+        if mods.isEmpty, let axis = Self.rulerAxis(for: event.keyCode, nothingSelected: selectedIndex == nil) {
+            if ruler == nil || !event.isARepeat { beginRuler(axis, key: event.keyCode) }
+            return
+        }
+        if mods.isEmpty, event.keyCode == 48 { copyColorAtPointer(darkest: shift); return }   // Tab, ⇧Tab
+        if mods.isEmpty, shift {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "c"?: startAreaPick(.averageColor); return
+            case "k"?: startAreaPick(.contrast); return
+            default: break
+            }
+        }
+        let step: CGFloat = shift ? 10 : 1
         switch event.keyCode {
         case 51, 117: deleteSelection(); return                         // ⌫, ⌦
         case 53: selectedID = nil; needsDisplay = true; return          // Esc
@@ -481,6 +527,22 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if let r = ruler, r.key == event.keyCode { endRuler(); return }
+        super.keyUp(with: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        // Shift switches the ruler between the inside and the outer size as soon as it is pressed or let go.
+        if ruler != nil { updateRuler() }
+        super.flagsChanged(with: event)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        endRuler()
+        return super.resignFirstResponder()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -732,39 +794,47 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     /// Called with the text Copy Text found (empty when there was none); it is already on the clipboard.
     var onTextCopied: ((String) -> Void)?
-    /// Called when picking an area for Copy Text from Area starts (true) or ends (false).
-    var onTextAreaModeChange: ((Bool) -> Void)?
-    private(set) var isPickingTextArea = false {
+    /// What a drag over the screenshot picks an area for, instead of drawing: Copy Text from Area, Copy Average Color,
+    /// or Check Contrast (which stays on, measuring each new area, until Esc).
+    enum AreaPick { case text, averageColor, contrast }
+
+    /// Called when picking an area starts, changes kind, or ends (nil).
+    var onAreaPickChange: ((AreaPick?) -> Void)?
+    private(set) var areaPick: AreaPick? {
         didSet {
-            guard isPickingTextArea != oldValue else { return }
+            guard areaPick != oldValue else { return }
             window?.invalidateCursorRects(for: self)
-            onTextAreaModeChange?(isPickingTextArea)
+            if areaPick != .contrast { contrastArea = nil; contrastSummary = nil }
+            onAreaPickChange?(areaPick)
         }
     }
-    private var textAreaAnchor: NSPoint?
+    private var areaAnchor: NSPoint?
     /// The area dragged so far (image coordinates).
-    private var textAreaDraft: NSRect? {
+    private var areaDraft: NSRect? {
         didSet { needsDisplay = true }
     }
 
     @objc func copyAllText(_ sender: Any?) {
-        endTextAreaPick()
+        endAreaPick()
         copyText(in: nil)
     }
 
     /// Drag over the screenshot to copy the text in that area; Esc cancels.
-    @objc func copyTextFromArea(_ sender: Any?) {
+    @objc func copyTextFromArea(_ sender: Any?) { startAreaPick(.text) }
+
+    private func startAreaPick(_ kind: AreaPick) {
         finishTextEditing()
         applyCrop()
         clearSelection()
-        isPickingTextArea = true
+        endRuler()
+        areaPick = kind
         window?.makeFirstResponder(self)
     }
 
-    func endTextAreaPick() {
-        textAreaAnchor = nil
-        textAreaDraft = nil
-        isPickingTextArea = false
+    func endAreaPick() {
+        areaAnchor = nil
+        areaDraft = nil
+        areaPick = nil
     }
 
     static let textCommands: [(String, Selector)] = [
@@ -789,10 +859,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     override func resetCursorRects() {
-        if isPickingTextArea { addCursorRect(visibleRect, cursor: .crosshair) }
+        if areaPick != nil { addCursorRect(visibleRect, cursor: .crosshair) }
     }
 
-    private func drawTextAreaOverlay(_ r: NSRect) {
+    private func drawAreaOverlay(_ r: NSRect) {
         let path = NSBezierPath(rect: r)
         NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
         path.fill()
@@ -800,6 +870,217 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         path.setLineDash([6 / zoom, 4 / zoom], count: 2, phase: 0)
         NSColor.controlAccentColor.setStroke()
         path.stroke()
+    }
+
+    // MARK: Colors and measuring (#107, #108, #109)
+
+    /// Called with each color copied (already on the clipboard, in the chosen format).
+    var onColorCopied: ((String) -> Void)?
+    /// Called as the pointer moves over the screenshot, with the color under it.
+    var onHoverColor: ((RGBColor) -> Void)?
+    /// Called with Check Contrast's result for the toolbar strip (nil until an area is measured).
+    var onContrastChange: ((String?) -> Void)?
+
+    private var hoverTracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = hoverTracking { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                               owner: self)
+        addTrackingArea(t)
+        hoverTracking = t
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        pointerMoved(to: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        rulerDraft = nil
+    }
+
+    private func pointerMoved(to p: NSPoint) {
+        if let c = color(at: p) { onHoverColor?(c) }
+        if ruler != nil { updateRuler() }
+    }
+
+    /// The pointer in image coordinates, while it is over the visible canvas.
+    private var pointerLocation: NSPoint? {
+        guard let w = window else { return nil }
+        let p = convert(w.mouseLocationOutsideOfEventStream, from: nil)
+        return visibleRect.contains(p) ? p : nil
+    }
+
+    /// The screenshot's color at `p` (image coordinates); nil off the screenshot.
+    private func color(at p: NSPoint) -> RGBColor? {
+        guard imageRect.contains(p), let buf = pixels else { return nil }
+        let q = pixelPoint(p)
+        return buf.color(x: q.x, y: q.y)
+    }
+
+    /// Tab: the pixel under the pointer. ⇧Tab: the darkest pixel within 10 px of it, e.g. the color of thin text.
+    private func copyColorAtPointer(darkest: Bool) {
+        guard let p = pointerLocation, imageRect.contains(p), let buf = pixels else { NSSound.beep(); return }
+        let q = pixelPoint(p)
+        guard let c = darkest ? buf.darkest(x: q.x, y: q.y) : buf.color(x: q.x, y: q.y) else { NSSound.beep(); return }
+        copyColor(c)
+    }
+
+    /// Drag over an area to copy its average color; Esc cancels.
+    @objc func copyAverageColorFromArea(_ sender: Any?) { startAreaPick(.averageColor) }
+
+    /// Drag over text and its background to see their contrast; each new drag measures again, Esc ends it.
+    @objc func checkContrast(_ sender: Any?) { startAreaPick(.contrast) }
+
+    static let colorCommands: [(String, Selector)] = [
+        ("Copy Average Color of Area…", #selector(CanvasView.copyAverageColorFromArea(_:))),
+        ("Check Contrast…", #selector(CanvasView.checkContrast(_:))),
+    ]
+
+    private func copyAverageColor(in r: NSRect) {
+        guard let c = pixels?.average(in: pixelRect(r)) else { NSSound.beep(); return }
+        copyColor(c)
+    }
+
+    private func copyColor(_ c: RGBColor) {
+        let text = Preferences.colorFormat.string(for: c)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        onColorCopied?(text)
+    }
+
+    /// Check Contrast's area (image coordinates) and its short result, drawn until the mode ends.
+    private var contrastArea: NSRect? {
+        didSet { needsDisplay = true }
+    }
+    private var contrastSummary: String?
+
+    /// Switches Check Contrast between WCAG 2 and APCA (also ⌥-click while checking).
+    func toggleContrastMethod() {
+        Preferences.contrastMethod = Preferences.contrastMethod == .wcag ? .apca : .wcag
+        refreshContrast()
+    }
+
+    /// Measures `contrastArea` again (after a new drag, or a change of method or color format) and reports it.
+    func refreshContrast() {
+        guard let r = contrastArea, let found = pixels?.dominantColors(in: pixelRect(r)) else {
+            contrastSummary = nil
+            onContrastChange?(nil)
+            return
+        }
+        let f = Preferences.colorFormat
+        let summary = Contrast.summary(text: found.foreground, background: found.background, method: Preferences.contrastMethod)
+        contrastSummary = summary
+        onContrastChange?("\(f.display(for: found.foreground)) on \(f.display(for: found.background)) · \(summary)")
+        needsDisplay = true
+    }
+
+    /// A label under `r` that stays the same size on screen at any zoom.
+    private func drawTag(_ text: String, under r: NSRect) {
+        let px = 1 / zoom
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 12 * px, weight: .semibold),
+                                                    .foregroundColor: NSColor.white]
+        let s = text as NSString
+        let size = s.size(withAttributes: attrs)
+        let box = NSRect(x: r.minX, y: r.minY - size.height - 10 * px, width: size.width + 12 * px, height: size.height + 4 * px)
+        NSColor.black.withAlphaComponent(0.75).setFill()
+        NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2).fill()
+        s.draw(at: NSPoint(x: box.minX + 6 * px, y: box.minY + 2 * px), withAttributes: attrs)
+    }
+
+    /// While 1 or 2 (or, with nothing selected, an arrow key) is held: the direction measured, and that key.
+    private var ruler: (axis: RulerScanner.Axis, key: UInt16)?
+    /// The measurement under the pointer; a click keeps it as an annotation.
+    private var rulerDraft: Annotation? {
+        didSet { needsDisplay = true }
+    }
+
+    /// 1 and ← → measure across, 2 and ↑ ↓ up and down; the arrows only when nothing is selected (they nudge it).
+    private static func rulerAxis(for keyCode: UInt16, nothingSelected: Bool) -> RulerScanner.Axis? {
+        switch keyCode {
+        case 18, 83: return .horizontal              // 1, keypad 1
+        case 19, 84: return .vertical                // 2, keypad 2
+        case 123, 124: return nothingSelected ? .horizontal : nil
+        case 125, 126: return nothingSelected ? .vertical : nil
+        default: return nil
+        }
+    }
+
+    private func beginRuler(_ axis: RulerScanner.Axis, key: UInt16) {
+        ruler = (axis, key)
+        updateRuler()
+    }
+
+    private func endRuler() {
+        guard ruler != nil else { return }
+        ruler = nil
+        rulerDraft = nil
+    }
+
+    /// Measures the run of color under the pointer (Shift: with its border) as a line between its outer pixel edges.
+    private func updateRuler() {
+        guard let axis = ruler?.axis, let p = pointerLocation, imageRect.contains(p), let buf = pixels else {
+            rulerDraft = nil; return
+        }
+        let q = pixelPoint(p)
+        guard let span = RulerScanner.span(in: buf, x: q.x, y: q.y, axis: axis,
+                                           outer: NSEvent.modifierFlags.contains(.shift)) else { rulerDraft = nil; return }
+        let s = pixelScale, h = base.size.height
+        let a: NSPoint, b: NSPoint
+        switch axis {
+        case .horizontal:
+            let y = h - (CGFloat(q.y) + 0.5) / s.y
+            a = NSPoint(x: CGFloat(span.lowerBound) / s.x, y: y)
+            b = NSPoint(x: CGFloat(span.upperBound + 1) / s.x, y: y)
+        case .vertical:
+            let x = (CGFloat(q.x) + 0.5) / s.x
+            a = NSPoint(x: x, y: h - CGFloat(span.upperBound + 1) / s.y)
+            b = NSPoint(x: x, y: h - CGFloat(span.lowerBound) / s.y)
+        }
+        rulerDraft = Annotation(tool: .ruler, start: a, end: b, style: style)
+    }
+
+    /// A ruler's length: pixels, and points too when the screenshot is Retina.
+    private func rulerLabel(_ length: CGFloat) -> String {
+        let scale = pixelScale.x
+        let px = Int((length * scale).rounded())
+        guard abs(scale - 1) > 0.01 else { return "\(px) px" }
+        let pt = (length * 10).rounded() / 10
+        let points = pt == pt.rounded() ? "\(Int(pt))" : String(format: "%.1f", pt)
+        return "\(points) pt · \(px) px"
+    }
+
+    /// A thin line with a tick at each end, and its length on a dark label beside it (inside the screenshot when it
+    /// fits there). Stroke color is already set to the style's color.
+    private func drawRuler(_ a: Annotation) {
+        let dx = a.end.x - a.start.x, dy = a.end.y - a.start.y, len = hypot(dx, dy)
+        guard len > 0 else { return }
+        // The unit normal: ticks run along it, and the label sits off the line along it.
+        let nx = -dy / len, ny = dx / len, tick: CGFloat = 5
+        let path = NSBezierPath()
+        path.move(to: a.start); path.line(to: a.end)
+        for p in [a.start, a.end] {
+            path.move(to: NSPoint(x: p.x - nx * tick, y: p.y - ny * tick))
+            path.line(to: NSPoint(x: p.x + nx * tick, y: p.y + ny * tick))
+        }
+        path.lineWidth = 1.5
+        path.stroke()
+
+        let label = rulerLabel(len) as NSString
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+                                                    .foregroundColor: NSColor.white]
+        let size = label.size(withAttributes: attrs)
+        let w = size.width + 10, h = size.height + 4
+        let mid = NSPoint(x: (a.start.x + a.end.x) / 2, y: (a.start.y + a.end.y) / 2)
+        let off = tick + 3 + (abs(nx) * w + abs(ny) * h) / 2
+        func box(_ side: CGFloat) -> NSRect {
+            NSRect(x: mid.x + nx * off * side - w / 2, y: mid.y + ny * off * side - h / 2, width: w, height: h)
+        }
+        let pill = imageRect.contains(box(1)) || !imageRect.contains(box(-1)) ? box(1) : box(-1)
+        NSColor.black.withAlphaComponent(0.75).setFill()
+        NSBezierPath(roundedRect: pill, xRadius: h / 2, yRadius: h / 2).fill()
+        label.draw(at: NSPoint(x: pill.minX + 5, y: pill.minY + 2), withAttributes: attrs)
     }
 
     // MARK: Crop
@@ -916,6 +1197,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let tv = InlineTextView(frame: NSRect(origin: a.start, size: .zero))
         tv.delegate = self
         tv.onFinish = { [weak self] in self?.finishTextEditing() }
+        tv.colorAtPointer = { [weak self] in
+            guard let self, let p = self.pointerLocation, let c = self.color(at: p) else { return nil }
+            return Preferences.colorFormat.string(for: c)
+        }
         tv.string = a.text
         tv.drawsBackground = false
         tv.isRichText = false
@@ -1020,7 +1305,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// How far the drawn ink reaches past an annotation's geometric bounds (half the stroke, or the arrowhead).
     private func inkPadding(_ a: Annotation) -> CGFloat {
         switch a.tool {
-        case .text, .pixelate, .blur, .erase, .spotlight, .select, .filledRect, .counter, .image: return 0
+        // A ruler's ticks and label stay out of it: a ruler across the whole screenshot shouldn't grow the canvas.
+        case .text, .pixelate, .blur, .erase, .spotlight, .select, .filledRect, .counter, .image, .ruler: return 0
         case .highlighter: return a.style.highlighterWidth / 2
         case .arrow: return max(a.style.lineWidth / 2, max(12, a.style.lineWidth * 5) * 0.45)
         default: return a.style.lineWidth / 2
@@ -1062,7 +1348,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             let r = rect(a), radius = min(a.style.cornerRadius, r.width / 2, r.height / 2)
             return NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
         case .ellipse: return NSBezierPath(ovalIn: rect(a))
-        case .line, .arrow:
+        case .line, .arrow, .ruler:
             let p = NSBezierPath(); p.move(to: a.start); p.line(to: a.end); return p
         case .pen, .highlighter:
             guard let f = a.points.first else { return nil }
@@ -1093,7 +1379,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             let r = rect(a)
             return [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
                     NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)]
-        case .line, .arrow: return [a.start, a.end]
+        case .line, .arrow, .ruler: return [a.start, a.end]
         case .pen, .highlighter, .text, .counter, .select: return []
         }
     }
@@ -1101,7 +1387,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private func handleDrag(for a: Annotation, at p: NSPoint) -> Drag? {
         let hs = handles(a), radius = 8 / zoom
         guard let h = hs.indices.first(where: { hypot(hs[$0].x - p.x, hs[$0].y - p.y) <= radius }) else { return nil }
-        if a.tool == .line || a.tool == .arrow { return .resizeEnd(isStart: h == 0) }
+        if a.tool == .line || a.tool == .arrow || a.tool == .ruler { return .resizeEnd(isStart: h == 0) }
         return .resizeCorner(anchor: hs[3 - h])   // the diagonally opposite corner stays put
     }
 
@@ -1130,8 +1416,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         drawSpotlights(all.filter { $0.tool == .spotlight })
         ctx?.restoreGState()
         if let r = cropDraft { drawCropOverlay(r) }
-        if !exporting, let r = textAreaDraft { drawTextAreaOverlay(r) }
+        if !exporting, let r = areaDraft ?? contrastArea { drawAreaOverlay(r) }
+        if !exporting, areaDraft == nil, let r = contrastArea, let s = contrastSummary { drawTag(s, under: r) }
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
+        if !exporting, let d = rulerDraft { renderShape(d) }
     }
 
     /// Dims the screenshot everywhere except inside the spotlights (all of them together, so they never double-darken).
@@ -1239,6 +1527,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             }
         case .magnifier:
             drawMagnifier(a)
+        case .ruler:
+            drawRuler(a)
         case .spotlight, .select:
             break   // spotlights are drawn together by drawSpotlights
         }
@@ -1456,6 +1746,31 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
         return cachedCG
     }
+    private var cachedPixels: PixelBuffer?
+    /// The screenshot's pixels for the color picker, the ruler and the contrast checker; read on first use.
+    private var pixels: PixelBuffer? {
+        if cachedPixels == nil, let cg = baseCG { cachedPixels = PixelBuffer(cg) }
+        return cachedPixels
+    }
+
+    /// Pixels per point of the screenshot (2 for Retina).
+    private var pixelScale: (x: CGFloat, y: CGFloat) {
+        guard let cg = baseCG, base.size.width > 0, base.size.height > 0 else { return (1, 1) }
+        return (CGFloat(cg.width) / base.size.width, CGFloat(cg.height) / base.size.height)
+    }
+
+    /// The pixel (top-left origin) under a point in image coordinates.
+    private func pixelPoint(_ p: NSPoint) -> (x: Int, y: Int) {
+        let s = pixelScale
+        return (Int(floor(p.x * s.x)), Int(floor((base.size.height - p.y) * s.y)))
+    }
+
+    /// An area in image coordinates as pixels (top-left origin).
+    private func pixelRect(_ r: NSRect) -> CGRect {
+        let s = pixelScale
+        return CGRect(x: r.minX * s.x, y: (base.size.height - r.maxY) * s.y, width: r.width * s.x, height: r.height * s.y)
+    }
+
     private static let ciContext = CIContext()
     private var blurCache: [Int: CGImage] = [:]
 
