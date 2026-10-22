@@ -237,7 +237,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         ("textformat", .text),
         ("checkerboard.rectangle", .pixelate),
         ("drop.halffull", .blur),
+        ("eraser", .erase),
         ("flashlight.on.fill", .spotlight),
+        ("magnifyingglass", .magnifier),
         ("1.circle.fill", .counter),
         ("pencil.tip", .pen),
         ("highlighter", .highlighter),
@@ -261,6 +263,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let pixelPopup = PillPopUp(pullsDown: false)
     private let cornerStylePopup = PillPopUp(pullsDown: false)
     private let arrowStylePopup = PillPopUp(pullsDown: false)
+    private let textOnlyButton = PillButton(title: "Text Only", symbol: "text.viewfinder", style: .raised, height: pillHeight)
+    private let magnificationPopup = PillPopUp(pullsDown: false)
+    private let lensShapePopup = PillPopUp(pullsDown: false)
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
@@ -709,6 +714,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
               #selector(cornerPicked(_:)))
         setUp(arrowStylePopup, "Arrow style", [("Filled Head", ArrowStyle.filled.rawValue), ("Open Head", ArrowStyle.open.rawValue),
                                                ("Double-Headed", ArrowStyle.double.rawValue)], #selector(arrowStylePicked(_:)))
+        // Tags are tenths: 15 is 1.5×.
+        setUp(magnificationPopup, "Magnification", [("1.5×", 15), ("2×", 20), ("3×", 30), ("4×", 40)],
+              #selector(magnificationPicked(_:)))
+        setUp(lensShapePopup, "Lens shape", [("Circle", LensShape.circle.rawValue), ("Rectangle", LensShape.rectangle.rawValue)],
+              #selector(lensShapePicked(_:)))
         setUp(fontPopup, "Font", [], #selector(fontPicked(_:)))
         for (title, name) in Self.fontChoices {
             fontPopup.addItem(withTitle: title)
@@ -721,6 +731,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         boldButton.toolTip = "Bold"
         boldButton.setAccessibilityLabel("Bold")
         boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
+        textOnlyButton.toolTip = "Hide only the text found in the box (OCR), not all of it"
+        textOnlyButton.target = self; textOnlyButton.action = #selector(textOnlyToggled(_:))
 
         arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
         arrangeButton.addItem(withTitle: "Arrange")
@@ -734,7 +746,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
 
         [colorWell, strokePopup, arrowStylePopup, cornerStylePopup, fontPopup, sizePopup, boldButton, pixelPopup,
-         arrangeButton].forEach(attributesBar.addArrangedSubview)
+         textOnlyButton, magnificationPopup, lensShapePopup, arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
     }
 
@@ -852,11 +864,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesTitle.stringValue = tool.name
         attributesTitle.isHidden = tool == .select
         attributesHint.isHidden = tool != .select
-        colorWell.isHidden = [.select, .pixelate, .blur, .spotlight, .image].contains(tool)
+        colorWell.isHidden = [.select, .pixelate, .blur, .erase, .spotlight, .image].contains(tool)
         strokePopup.isHidden = !tool.usesStroke
         [fontPopup, boldButton].forEach { $0.isHidden = tool != .text }
         sizePopup.isHidden = tool != .text && tool != .counter
-        pixelPopup.isHidden = !tool.obscures
+        pixelPopup.isHidden = !tool.hasStrength
+        textOnlyButton.isHidden = !tool.obscures
+        [magnificationPopup, lensShapePopup].forEach { $0.isHidden = tool != .magnifier }
         cornerStylePopup.isHidden = !tool.hasCorners
         arrowStylePopup.isHidden = tool != .arrow
         arrangeButton.isHidden = !canvas.hasSelection
@@ -867,6 +881,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         pixelPopup.selectItem(withTag: Int(style.pixelSize))
         cornerStylePopup.selectItem(withTag: Int(style.cornerRadius))
         arrowStylePopup.selectItem(withTag: style.arrowStyle.rawValue)
+        textOnlyButton.isOn = style.textOnly
+        magnificationPopup.selectItem(withTag: Int((style.magnification * 10).rounded()))
+        lensShapePopup.selectItem(withTag: style.lensShape.rawValue)
         if let i = fontPopup.itemArray.firstIndex(where: { $0.representedObject as? String == style.fontName }) {
             fontPopup.selectItem(at: i)
         }
@@ -888,6 +905,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func boldToggled(_ b: PillButton) {
         b.isOn.toggle()
         canvas.updateStyle { $0.bold = b.isOn }
+    }
+    @objc private func textOnlyToggled(_ b: PillButton) {
+        b.isOn.toggle()
+        canvas.updateStyle { $0.textOnly = b.isOn }
+    }
+    @objc private func magnificationPicked(_ p: PillPopUp) {
+        canvas.updateStyle { $0.magnification = CGFloat(p.selectedTag()) / 10 }
+    }
+    @objc private func lensShapePicked(_ p: PillPopUp) {
+        canvas.updateStyle { $0.lensShape = LensShape(rawValue: p.selectedTag()) ?? .circle }
     }
 
     // MARK: Actions

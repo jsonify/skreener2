@@ -70,6 +70,12 @@ enum Preferences {
         get { d.bool(forKey: "matchExtensionColor") }
         set { d.set(newValue, forKey: "matchExtensionColor") }
     }
+    /// Run skreener:// links (Raycast, Alfred, Shortcuts, scripts). Off until the user allows it, from Settings or
+    /// from the prompt the first link shows.
+    static var allowURLScheme: Bool {
+        get { d.bool(forKey: "allowURLScheme") }
+        set { d.set(newValue, forKey: "allowURLScheme") }
+    }
     /// Open each screenshot in the editor.
     static var openEditorAfterCapture: Bool {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }

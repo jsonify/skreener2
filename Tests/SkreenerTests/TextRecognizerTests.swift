@@ -40,6 +40,25 @@ final class TextRecognizerTests: XCTestCase {
         XCTAssertEqual(phones.count, 1)
     }
 
+    func testLineBoxesInAnArea() async {
+        // Lines sit in 120 pt bands from the top of a 360 pt image: the lower two bands hold the second and third.
+        let image = TestImages.text(["Top line here", "Middle words", "Bottom words"])
+        let area = CGRect(x: 0, y: 0, width: 1000, height: 240)
+        let boxes = await TextRecognizer.lineBoxes(in: image, area: area)
+        XCTAssertEqual(boxes.count, 2, "\(boxes)")
+        for box in boxes {
+            XCTAssertTrue(area.insetBy(dx: -2, dy: -2).contains(box), "\(box)")
+            XCTAssertGreaterThan(box.minX, 20, "\(box)")   // text starts at x = 40
+            XCTAssertLessThan(box.height, 120, "\(box)")
+        }
+    }
+
+    func testLineBoxesFindNothingInABlankArea() async {
+        let image = TestImages.text(["Only one line"])
+        let boxes = await TextRecognizer.lineBoxes(in: image, area: CGRect(x: 700, y: 0, width: 300, height: 120))
+        XCTAssertTrue(boxes.isEmpty, "\(boxes)")
+    }
+
     func testRedactFindsNothingWithoutMatches() async {
         let boxes = await TextRecognizer.boxes(in: TestImages.text(["Nothing private here"]), matching: .emails)
         XCTAssertTrue(boxes.isEmpty, "\(boxes)")

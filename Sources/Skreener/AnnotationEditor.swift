@@ -3,16 +3,19 @@ import CoreImage
 
 enum Tool: Int, CaseIterable {
     /// `.image` is not a toolbar tool: it marks pictures added with Add Image or pasted with ⌘V.
-    case select, arrow, rect, filledRect, ellipse, line, pen, highlighter, text, counter, pixelate, blur, spotlight, image
+    case select, arrow, rect, filledRect, ellipse, line, pen, highlighter, text, counter, pixelate, blur, spotlight,
+         erase, magnifier, image
 
     /// Single-key shortcuts in the editor (no modifiers).
     static let shortcuts: [Character: Tool] = ["v": .select, "a": .arrow, "r": .rect, "f": .filledRect, "o": .ellipse,
                                                "l": .line, "p": .pen, "h": .highlighter, "t": .text, "n": .counter,
-                                               "x": .pixelate, "b": .blur, "s": .spotlight]
+                                               "x": .pixelate, "b": .blur, "s": .spotlight, "e": .erase, "m": .magnifier]
 
-    var usesStroke: Bool { [.arrow, .rect, .ellipse, .line, .pen, .highlighter].contains(self) }
-    /// Tools that hide part of the screenshot; their strength comes from `Style.pixelSize`.
-    var obscures: Bool { self == .pixelate || self == .blur }
+    var usesStroke: Bool { [.arrow, .rect, .ellipse, .line, .pen, .highlighter, .magnifier].contains(self) }
+    /// Tools that hide part of the screenshot (all of the box, or with `Style.textOnly` just the text in it).
+    var obscures: Bool { self == .pixelate || self == .blur || self == .erase }
+    /// Obscuring tools whose strength comes from `Style.pixelSize` (erase just paints over).
+    var hasStrength: Bool { self == .pixelate || self == .blur }
     /// Rectangle-like tools whose corners can be rounded.
     var hasCorners: Bool { self == .rect || self == .filledRect || self == .spotlight }
     /// Freehand tools keep every point of the drag.
@@ -33,6 +36,8 @@ enum Tool: Int, CaseIterable {
         case .pixelate: return "Pixelate"
         case .blur: return "Blur"
         case .spotlight: return "Spotlight"
+        case .erase: return "Erase"
+        case .magnifier: return "Magnifier"
         case .image: return "Image"
         }
     }
@@ -40,6 +45,10 @@ enum Tool: Int, CaseIterable {
 
 enum ArrowStyle: Int {
     case filled, open, double
+}
+
+enum LensShape: Int {
+    case circle, rectangle
 }
 
 /// Per-annotation look. New annotations copy the canvas's current style; editing the style of a
@@ -56,6 +65,11 @@ struct Style: Equatable {
     /// Corner radius for rectangles, filled rectangles and spotlights.
     var cornerRadius: CGFloat = 2
     var arrowStyle = ArrowStyle.filled
+    /// Pixelate, blur and erase hide only the lines of text found in the box, not all of it.
+    var textOnly = false
+    /// How much a magnifier enlarges, and the shape of its lens.
+    var magnification: CGFloat = 2
+    var lensShape = LensShape.circle
 
     var font: NSFont {
         if fontName.isEmpty { return .systemFont(ofSize: fontSize, weight: bold ? .semibold : .regular) }
@@ -140,6 +154,9 @@ struct Annotation: Equatable {
     var points: [NSPoint] = []
     var text: String = ""
     var image: NSImage? = nil
+    /// A magnifier's lens center; `start`/`end` are the area it shows. Nil while it is being drawn (it then sits
+    /// beside that area).
+    var lens: NSPoint? = nil
     var style: Style
 
     private static var lastSeq = 0
@@ -149,6 +166,7 @@ struct Annotation: Equatable {
         start.x += dx; start.y += dy
         end.x += dx; end.y += dy
         points = points.map { NSPoint(x: $0.x + dx, y: $0.y + dy) }
+        lens = lens.map { NSPoint(x: $0.x + dx, y: $0.y + dy) }
     }
 }
 
@@ -185,6 +203,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         didSet {
             guard base !== oldValue else { return }
             cachedRep = nil; cachedBackdrop = nil; cachedCG = nil; blurCache = [:]
+            textLineCache = [:]; textLinePending = []; eraseColors = [:]
             updateExtent()
         }
     }
@@ -240,6 +259,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private enum Drag {
         case draw
         case move(last: NSPoint)
+        /// A magnifier's lens, which moves on its own.
+        case moveLens(last: NSPoint)
         case resizeCorner(anchor: NSPoint)
         case resizeEnd(isStart: Bool)
         case cropCorner(anchor: NSPoint)
@@ -317,7 +338,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if let i = items.indices.reversed().first(where: { hits(items[$0], p) }) {
             selectedID = items[i].id
             if event.clickCount == 2, items[i].tool == .text { beginTextEditing(at: i); return }
-            drag = .move(last: p); needsDisplay = true
+            let onLens = items[i].tool == .magnifier && lensPath(items[i]).contains(p)
+            drag = onLens ? .moveLens(last: p) : .move(last: p); needsDisplay = true
             return
         }
         selectedID = nil
@@ -348,8 +370,16 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             draft?.end = p; draft?.points.append(p)
         case .move(let last)?:
             guard let i = selectedIndex else { return }
+            // Dragging a magnifier's area leaves its lens where it is.
+            let lens = items[i].lens
             items[i].translate(dx: p.x - last.x, dy: p.y - last.y)
+            if items[i].tool == .magnifier { items[i].lens = lens }
             drag = .move(last: p)
+        case .moveLens(let last)?:
+            guard let i = selectedIndex else { return }
+            let c = items[i].lens ?? defaultLensCenter(items[i])
+            items[i].lens = NSPoint(x: c.x + p.x - last.x, y: c.y + p.y - last.y)
+            drag = .moveLens(last: p)
         case .resizeCorner(let anchor)?:
             guard let i = selectedIndex else { return }
             items[i].start = anchor
@@ -393,7 +423,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
         guard let d = drag else { return }   // text add/edit records its own undo step
         if isCropping { drag = nil; return }  // the crop is recorded when it is applied
-        if case .draw = d, let a = draft, isMeaningful(a) {
+        if case .draw = d, var a = draft, isMeaningful(a) {
+            if a.tool == .magnifier { a.lens = defaultLensCenter(a) }
             items.append(a)
             selectedID = a.id
         }
@@ -658,6 +689,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 default:
                     a.start = a.start.applying(t); a.end = a.end.applying(t)
                     a.points = a.points.map { $0.applying(t) }
+                    a.lens = a.lens?.applying(t)
                 }
                 return a
             }
@@ -988,7 +1020,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// How far the drawn ink reaches past an annotation's geometric bounds (half the stroke, or the arrowhead).
     private func inkPadding(_ a: Annotation) -> CGFloat {
         switch a.tool {
-        case .text, .pixelate, .blur, .spotlight, .select, .filledRect, .counter, .image: return 0
+        case .text, .pixelate, .blur, .erase, .spotlight, .select, .filledRect, .counter, .image: return 0
         case .highlighter: return a.style.highlighterWidth / 2
         case .arrow: return max(a.style.lineWidth / 2, max(12, a.style.lineWidth * 5) * 0.45)
         default: return a.style.lineWidth / 2
@@ -1018,6 +1050,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             let xs = a.points.map(\.x), ys = a.points.map(\.y)
             guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return .zero }
             return NSRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+        case .magnifier: return rect(a).union(lensRect(a))
         default: return rect(a)
         }
     }
@@ -1034,15 +1067,18 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .pen, .highlighter:
             guard let f = a.points.first else { return nil }
             let p = NSBezierPath(); p.move(to: f); a.points.dropFirst().forEach { p.line(to: $0) }; return p
-        case .text, .pixelate, .blur, .select, .counter, .image: return nil
+        case .text, .pixelate, .blur, .erase, .magnifier, .select, .counter, .image: return nil
         }
     }
 
     private func hits(_ a: Annotation, _ p: NSPoint) -> Bool {
         let slop = 5 / zoom
         // A spotlight is hit on its outline (like a rectangle), so annotations inside it stay clickable.
-        if [.text, .pixelate, .blur, .filledRect, .counter, .image].contains(a.tool) {
+        if [.text, .pixelate, .blur, .erase, .filledRect, .counter, .image].contains(a.tool) {
             return bounds(of: a).insetBy(dx: -slop, dy: -slop).contains(p)
+        }
+        if a.tool == .magnifier {
+            return rect(a).insetBy(dx: -slop, dy: -slop).contains(p) || lensPath(a).contains(p)
         }
         guard let path = outline(a) else { return false }
         let width = a.tool == .highlighter ? a.style.highlighterWidth : a.style.lineWidth
@@ -1053,7 +1089,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Resize handles: rect corners as (BL, BR, TL, TR), or the two endpoints of a line/arrow.
     private func handles(_ a: Annotation) -> [NSPoint] {
         switch a.tool {
-        case .rect, .filledRect, .ellipse, .pixelate, .blur, .spotlight, .image:
+        case .rect, .filledRect, .ellipse, .pixelate, .blur, .erase, .spotlight, .magnifier, .image:
             let r = rect(a)
             return [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
                     NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)]
@@ -1187,13 +1223,22 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .text:
             (a.text as NSString).draw(at: bounds(of: a).origin, withAttributes: a.style.textAttributes)
         case .pixelate:
-            drawPixelated(rect(a), block: a.style.pixelSize)
+            for r in concealRects(a) { drawPixelated(r, block: a.style.pixelSize) }
         case .blur:
-            guard let img = blurred(radius: a.style.pixelSize), let ctx = NSGraphicsContext.current?.cgContext else { return }
+            let parts = concealRects(a).map { $0.intersection(imageRect) }.filter { !$0.isEmpty }
+            guard !parts.isEmpty, let img = blurred(radius: a.style.pixelSize),
+                  let ctx = NSGraphicsContext.current?.cgContext else { return }
             ctx.saveGState()
-            ctx.clip(to: rect(a).intersection(imageRect))
+            ctx.clip(to: parts)
             ctx.draw(img, in: imageRect)
             ctx.restoreGState()
+        case .erase:
+            for r in concealRects(a) {
+                guard let c = eraseColor(around: r) else { continue }
+                c.setFill(); r.fill()
+            }
+        case .magnifier:
+            drawMagnifier(a)
         case .spotlight, .select:
             break   // spotlights are drawn together by drawSpotlights
         }
@@ -1240,6 +1285,142 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             NSColor.white.setFill(); dot.fill()
             dot.lineWidth = 1.5 * px; NSColor.controlAccentColor.setStroke(); dot.stroke()
         }
+    }
+
+    // MARK: Text Only (pixelate, blur and erase just the lines of text OCR finds in the box)
+
+    /// Lines of text found per box (key: the box, rounded to whole points), padded a little; cleared with `base`.
+    private var textLineCache: [String: [NSRect]] = [:]
+    private var textLinePending: Set<String> = []
+
+    /// What a pixelate, blur or erase box hides: all of it, or with Text Only the lines of text in it. Until those
+    /// have been found (and while dragging), all of it, so nothing shows that should be hidden.
+    private func concealRects(_ a: Annotation) -> [NSRect] {
+        let r = rect(a)
+        guard a.style.textOnly else { return [r] }
+        return textLines(in: r) ?? [r]
+    }
+
+    /// The lines of text in `r`, or nil while OCR is still looking (it starts here, once per box, when not dragging,
+    /// and redraws when done). Moving or resizing a box makes it a new box, so it is looked at again.
+    private func textLines(in r: NSRect) -> [NSRect]? {
+        let area = r.integral
+        let key = NSStringFromRect(area)
+        if let found = textLineCache[key] { return found }
+        guard drag == nil, !textLinePending.contains(key) else { return nil }
+        textLinePending.insert(key)
+        let image = base
+        Task { @MainActor [weak self] in
+            let found = await TextRecognizer.lineBoxes(in: image, area: area)
+            guard let self, self.base === image else { return }
+            self.textLinePending.remove(key)
+            self.textLineCache[key] = found.map { $0.insetBy(dx: -2, dy: -2) }
+            self.needsDisplay = true
+        }
+        return nil
+    }
+
+    // MARK: Erase
+
+    /// Fill per erased box (key: the box), from the screenshot around it; cleared with `base`.
+    private var eraseColors: [String: NSColor] = [:]
+
+    /// The background color around `r` (image points): the most common color just outside it.
+    private func eraseColor(around r: NSRect) -> NSColor? {
+        let key = NSStringFromRect(r)
+        if let c = eraseColors[key] { return c }
+        guard let cg = baseCG, base.size.width > 0, base.size.height > 0 else { return nil }
+        let sx = CGFloat(cg.width) / base.size.width, sy = CGFloat(cg.height) / base.size.height
+        // Pixels, top-left origin.
+        let px = CGRect(x: r.minX * sx, y: (base.size.height - r.maxY) * sy, width: r.width * sx, height: r.height * sy)
+        guard let c = SmartErase.fillColor(around: px, in: cg).flatMap(NSColor.init(cgColor:)) else { return nil }
+        if eraseColors.count > 500 { eraseColors = [:] }   // resizing makes a new box every frame
+        eraseColors[key] = c
+        return c
+    }
+
+    // MARK: Magnifier
+
+    private static let lensGap: CGFloat = 24
+
+    /// The lens's size: the area times the magnification (for a circle, its longer side).
+    private func lensSize(_ a: Annotation) -> NSSize {
+        let src = rect(a), f = a.style.magnification
+        if a.style.lensShape == .circle {
+            let d = max(src.width, src.height) * f
+            return NSSize(width: d, height: d)
+        }
+        return NSSize(width: src.width * f, height: src.height * f)
+    }
+
+    /// Where a new lens goes: beside the area, on the right when it fits inside the screenshot there, else on the left
+    /// (if it fits neither way, on the right, and the canvas grows).
+    private func defaultLensCenter(_ a: Annotation) -> NSPoint {
+        let src = rect(a), w = lensSize(a).width, gap = Self.lensGap
+        let fitsRight = src.maxX + gap + w <= imageRect.maxX, fitsLeft = src.minX - gap - w >= imageRect.minX
+        let x = fitsRight || !fitsLeft ? src.maxX + gap + w / 2 : src.minX - gap - w / 2
+        return NSPoint(x: x, y: src.midY)
+    }
+
+    private func lensRect(_ a: Annotation) -> NSRect {
+        let c = a.lens ?? defaultLensCenter(a), s = lensSize(a)
+        return NSRect(x: c.x - s.width / 2, y: c.y - s.height / 2, width: s.width, height: s.height)
+    }
+
+    private func lensPath(_ a: Annotation) -> NSBezierPath {
+        let r = lensRect(a)
+        if a.style.lensShape == .circle { return NSBezierPath(ovalIn: r) }
+        let radius = min(8, r.width / 2, r.height / 2)
+        return NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
+    }
+
+    /// Where the line from the middle of `r` toward `p` leaves `r` (or the oval in it).
+    private func edgePoint(of r: NSRect, toward p: NSPoint, oval: Bool) -> NSPoint {
+        let dx = p.x - r.midX, dy = p.y - r.midY
+        let hw = max(r.width / 2, 0.5), hh = max(r.height / 2, 0.5)
+        guard dx != 0 || dy != 0 else { return NSPoint(x: r.midX, y: r.midY) }
+        let t: CGFloat
+        if oval {
+            t = 1 / hypot(dx / hw, dy / hh)
+        } else {
+            let tx: CGFloat = dx == 0 ? .infinity : hw / abs(dx)
+            let ty: CGFloat = dy == 0 ? .infinity : hh / abs(dy)
+            t = min(tx, ty)
+        }
+        return NSPoint(x: r.midX + dx * t, y: r.midY + dy * t)
+    }
+
+    /// A frame around the area, a lens showing it enlarged (the screenshot only, not other annotations), and a line
+    /// between the two. Stroke and fill colors are already set to the style's color.
+    private func drawMagnifier(_ a: Annotation) {
+        let src = rect(a), lens = lensRect(a), lw = a.style.lineWidth, f = a.style.magnification
+        guard src.width >= 1, src.height >= 1, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let thin = max(1, lw / 2)
+        if !lens.intersects(src) {
+            let line = NSBezierPath()
+            line.move(to: edgePoint(of: src, toward: NSPoint(x: lens.midX, y: lens.midY), oval: false))
+            line.line(to: edgePoint(of: lens, toward: NSPoint(x: src.midX, y: src.midY), oval: a.style.lensShape == .circle))
+            line.lineWidth = thin; line.lineCapStyle = .round
+            line.stroke()
+        }
+        let frame = NSBezierPath(rect: src)
+        frame.lineWidth = thin
+        frame.stroke()
+
+        let path = lensPath(a)
+        ctx.saveGState()
+        path.addClip()
+        backdrop.setFill(); lens.fill()   // what lies past the screenshot's edge
+        if let cg = baseCG {
+            // The area's center lands on the lens's center, scaled by the magnification.
+            ctx.translateBy(x: lens.midX - src.midX * f, y: lens.midY - src.midY * f)
+            ctx.scaleBy(x: f, y: f)
+            ctx.interpolationQuality = .high
+            ctx.draw(cg, in: imageRect)
+        }
+        ctx.restoreGState()
+        path.lineWidth = lw
+        path.stroke()
     }
 
     /// Blocky mosaic of the underlying base image inside `r`.

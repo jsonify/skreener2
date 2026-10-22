@@ -61,6 +61,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private var actions: [ControlAction] = []
     private let folderLabel = NSTextField(labelWithString: "")
     private let loginSwitch = NSSwitch()
+    /// Kept so it can follow the setting when a link's prompt turns it on (`refreshURLScheme`).
+    private let urlSchemeSwitch = NSSwitch()
     private let shortcutsPane = ShortcutsPane()
     private let sidebar = NSTableView()
     private let detail = NSScrollView()
@@ -107,6 +109,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     func present() {
         refreshFolder()
         refreshLogin()   // may have changed in System Settings
+        refreshURLScheme()   // may have been allowed from a link's prompt
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         DockPresence.update()
@@ -223,6 +226,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             }
             loginSwitch.controlSize = .small
             refreshLogin()
+            bind(urlSchemeSwitch) { c in Preferences.allowURLScheme = (c as? NSSwitch)?.state == .on }
+            urlSchemeSwitch.controlSize = .small
+            refreshURLScheme()
 
             let choose = NSButton(title: "Choose…", target: nil, action: nil)
             bind(choose) { [weak self] _ in self?.chooseFolder() }
@@ -246,6 +252,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 ]),
                 group("Export", [row("Export location", folder)],
                       note: "Where screenshots are saved after a capture, and where screen recordings go."),
+                group("Automation", [
+                    row("Allow URL scheme", "For Raycast, Alfred, Shortcuts and scripts.", urlSchemeSwitch),
+                ], note: "Links like skreener://grab/area?then=copy,save start a capture; then= picks copy, save, edit, pin "
+                    + "and quickaccess for that capture. Other commands: grab/fullscreen, grab/window, grab/previous, "
+                    + "grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, history, settings."),
             ]
 
         case .afterCapture:
@@ -480,6 +491,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func refreshLogin() { loginSwitch.state = LaunchAtLogin.isOn ? .on : .off }
+    func refreshURLScheme() { urlSchemeSwitch.state = Preferences.allowURLScheme ? .on : .off }
 
     // MARK: Export location
 

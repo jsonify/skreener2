@@ -15,6 +15,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
     private let scrollCapture = ScrollCaptureController()
+    /// After-capture steps a skreener:// link chose (`then=`) for the capture it started; nil uses Settings.
+    /// `endCapture()` clears it, so it never carries over to a later capture.
+    private var linkActions: CaptureActions?
+    /// Self-timer delay a skreener:// link chose (`delay=`) for the countdown it started.
+    private var linkDelay: Int?
 
     /// The bundled template glyph (falls back to an SF Symbol when run outside the .app, e.g. `swift run`).
     private lazy var menuBarIcon: NSImage? = {
@@ -130,6 +135,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+
+    // MARK: skreener:// links
+
+    @MainActor func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { openLink(url) }
+    }
+
+    @MainActor private func openLink(_ url: URL) {
+        switch URLCommand.parse(url) {
+        case .failure(let error):
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Skreener can't run this link"
+            alert.informativeText = "\(url.absoluteString)\n\n\(error.message)"
+            alert.runModal()
+        case .success(let command):
+            guard Preferences.allowURLScheme || askToAllowLinks(url, command) else { return }
+            perform(command)
+        }
+    }
+
+    /// Links are off until the user says so: the first one asks, naming what it would do.
+    @MainActor private func askToAllowLinks(_ url: URL, _ command: URLCommand) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Allow links to control Skreener?"
+        alert.informativeText = "An app, perhaps on your behalf, opened \(url.absoluteString) (\(command.title)). "
+            + "Allowing skreener:// links lets Raycast, Alfred, Shortcuts and scripts use Skreener. "
+            + "You can turn them off in Settings → General."
+        alert.addButton(withTitle: "Allow and Run")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        Preferences.allowURLScheme = true
+        if SettingsWindowController.isOpen { SettingsWindowController.shared.refreshURLScheme() }
+        return true
+    }
+
+    @MainActor private func perform(_ command: URLCommand) {
+        switch command.command {
+        case .settings:
+            openSettings()
+        case .run(let action):
+            linkActions = command.then
+            linkDelay = command.delay
+            ShortcutCenter.shared.handlers[action]?()
+        }
+    }
+
+    /// The self-timer delay for the countdown about to start: a link's `delay=` (once), else the menu's.
+    private func timerSeconds() -> Int {
+        defer { linkDelay = nil }
+        return linkDelay ?? Preferences.selfTimerSeconds
+    }
 
     /// Shows each action's current global shortcut in the menu. Open from Clipboard keeps its ⌘V (which only works
     /// while the menu is open) when it has no global shortcut.
@@ -256,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Every capture flow ends here, whether it captured something or was cancelled.
     private func endCapture() {
+        linkActions = nil
         QuickAccessController.resume()
         guard iconsHiddenForCapture else { return }
         iconsHiddenForCapture = false
@@ -265,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Capture flows
 
     @objc func capturePreviousArea() {
-        guard let (screen, rect) = lastArea, NSScreen.screens.contains(screen) else { NSSound.beep(); return }
+        guard let (screen, rect) = lastArea, NSScreen.screens.contains(screen) else { endCapture(); NSSound.beep(); return }
         prepareCapture { [weak self] in self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) } }
     }
 
@@ -295,8 +354,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self, case .area(let screen, let rect, _)? = sel else { self?.endCapture(); return }
                 scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
                     guard let self else { return }
+                    let actions = linkActions
                     endCapture()
-                    if let image { finish(image) }
+                    if let image { finish(image, actions: actions) }
                 }
             }
         }
@@ -413,15 +473,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func timerDelayPicked(_ item: NSMenuItem) { Preferences.selfTimerSeconds = item.tag }
 
     @objc func timedFullscreen() {
-        selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in self?.captureFullscreen() })
+        selfTimer.start(seconds: timerSeconds(), completion: { [weak self] in self?.captureFullscreen() },
+                        cancelled: { [weak self] in self?.endCapture() })
     }
 
     @objc func timedArea() {
+        let seconds = timerSeconds()
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, _)? = sel else { self?.endCapture(); return }
                 lastArea = (screen, rect)
-                selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
+                selfTimer.start(seconds: seconds, completion: { [weak self] in
                     self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) }
                 }, cancelled: { [weak self] in self?.endCapture() })
             }
@@ -429,12 +491,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func timedWindow() {
+        let seconds = timerSeconds()
         prepareCapture { [weak self] in
             Task { @MainActor in
                 let wins = await CaptureService.onScreenWindows()
                 self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in
                     guard let self, case .window(let w)? = sel else { self?.endCapture(); return }
-                    selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
+                    selfTimer.start(seconds: seconds, completion: { [weak self] in
                         self?.run { try await CaptureService.captureWindow(w) }
                     }, cancelled: { [weak self] in self?.endCapture() })
                 }
@@ -512,12 +575,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func run(_ capture: @escaping () async throws -> NSImage, then: ((NSImage) -> Void)? = nil) {
+        let actions = linkActions
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
             do {
                 let image = try await capture()
                 endCapture()
-                (then ?? self.finish)(image)
+                if let then { then(image) } else { self.finish(image, actions: actions) }
             } catch {
                 endCapture()
                 NSLog("Capture failed: \(error)")
@@ -526,17 +590,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func finish(_ image: NSImage) {
+    /// The after-capture steps: Settings → After Capture, or the ones a skreener:// link chose (`actions`).
+    private func finish(_ image: NSImage, actions: CaptureActions? = nil) {
+        let actions = actions ?? .fromPreferences
         CaptureHistory.add(image)
-        if Preferences.copyToClipboard { Output.copy(image) }
-        if Preferences.autoSave { Output.save(image) }
+        if actions.contains(.copy) { Output.copy(image) }
+        if actions.contains(.save) { Output.save(image) }
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
         var editor: EditorWindowController?
-        if Preferences.openEditorAfterCapture {
+        if actions.contains(.edit) {
             editor = EditorWindowController(image: image)
             editor?.present()
         }
-        if Preferences.showQuickAccess { QuickAccessController.show(image, editor: editor) }
+        if actions.contains(.pin) { PinnedScreenshotController.pin(image) }
+        if actions.contains(.quickAccess) { QuickAccessController.show(image, editor: editor) }
     }
 }
 
