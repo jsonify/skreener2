@@ -66,6 +66,8 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Copy Text via OCR in the editor: all text, or drag over an area (⇧⌘T, toolbar or Image menu); a toast says how many lines were copied — S (#79)
 - [~] Redact via OCR: all text, email addresses, phone numbers, links → editable pixelate boxes (toolbar or Image menu) — M (#80)
 - [~] Drag Me: Skreener hides while dragging, with a 100×85 pt preview card under the pointer (pointer over its bottom-right quadrant); a cancelled drag brings it back, after a drop the Dock icon / ⌘-Tab does. Pinned screenshots and Quick Access stay on screen — S (#81)
+- [~] Smart Erase (E; fills the box with the most common color around it) and Text Only for pixelate, blur and erase (OCR finds the lines in the box; only those are hidden) — M (#105)
+- [~] Magnifier (M): lens showing an area at 1.5/2/3/4×, circle or rectangle, border and connector line; lens and area move separately — M (#106)
 
 ## Batch 5 — capture modes
 - [~] Scrolling capture (Capture Scrolling ⌃⇧8): pick an area, scroll it yourself; frames are grabbed ~8×/s (display filter set up once) and stitched off the main thread by matching rows, leaving out blank rows and the scroll-bar strip at the right edge; sticky header/footer worked out per frame and kept once, including a footer that appears mid-capture; mostly blank stretches are bridged (blank space may come out shorter); scrolling back up a little is followed, not lost; max 30,000 px; Done / ⌃⇧8 finishes, Esc / Cancel throws it away — L (#82)
@@ -86,6 +88,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M (#33)
 - [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history; always shares a named file so the sheet shows its thumbnail and name — S (#89)
 - [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S (#90)
+- [~] URL scheme for automation (skreener://grab/area?then=copy,save …; off until allowed in Settings → General or from the first link's prompt) — M (#104)
 
 ## Menu parity with CleanShot X (from its menu bar)
 - [ ] Check for Updates… (Sparkle or equivalent) — M (#34)
