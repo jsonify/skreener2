@@ -306,10 +306,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         self.image = image
         canvas = CanvasView(image: image)
 
-        let visible = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
         let floor = EditorWindowController.minimumSize
-        let size = NSSize(width: max(floor.width, min(image.size.width + 120, visible.width)),
-                          height: max(floor.height, min(image.size.height + 200, visible.height)))
+        let size = Self.frame(for: image.size, on: NSScreen.main ?? NSScreen.screens[0]).size
         let w = EditorWindow(contentRect: NSRect(origin: .zero, size: size),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
@@ -365,6 +363,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             self?.stripMode = kind == nil ? .tools : .areaPick
         }
         canvas.onTextCopied = { [weak self] text in self?.textCopied(text) }
+        canvas.onEscape = { [weak self] in self?.escapePressed() }
         canvas.onColorCopied = { [weak self] text in self?.showToast("Copied \(text)") }
         canvas.onHoverColor = { [weak self] c in self?.hoverColor = c; self?.refreshColorReadout() }
         canvas.onContrastChange = { [weak self] line in
@@ -388,17 +387,32 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func present() {
+    /// Opens on `screen`, the display the capture came from (#111), or else the one under the pointer. A new tab
+    /// joins the open editor window wherever that is.
+    func present(on screen: NSScreen? = nil) {
         DockPresence.update()
         if let w = window, Preferences.editorTabs, let host = Self.tabHost(excluding: w)?.windowController as? EditorWindowController {
             host.tabGroup.add(self, after: host)
         } else {
+            let mouse = NSEvent.mouseLocation
+            if let target = screen ?? NSScreen.screens.first(where: { $0.frame.contains(mouse) }) {
+                window?.setFrame(Self.frame(for: image.size, on: target), display: false)
+            }
             showWindow(nil)
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.layoutIfNeeded()
         window?.makeFirstResponder(canvas)
         applyFit()
+    }
+
+    /// A window fitting `imageSize` with room for the toolbar and footer (within the screen, but never smaller than
+    /// `minimumSize`), centered on `screen`.
+    private static func frame(for imageSize: NSSize, on screen: NSScreen) -> NSRect {
+        let visible = screen.visibleFrame, floor = minimumSize
+        let size = NSSize(width: max(floor.width, min(imageSize.width + 120, visible.width)),
+                          height: max(floor.height, min(imageSize.height + 200, visible.height)))
+        return NSRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2, width: size.width, height: size.height)
     }
 
     /// The editor window a new editor joins as a tab: the frontmost visible one.
@@ -1042,6 +1056,26 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         for (pill, b) in zip(toolPills, toolButtons) { pill.isOn = b.tool == t }
     }
     @objc private func copyIt() { Output.copy(canvas.flattened()) }
+
+    /// Esc with nothing selected: copy or save the image and close, as Settings → Annotate says (#115).
+    private func escapePressed() {
+        switch Preferences.editorEscAction {
+        case .nothing:
+            return
+        case .copyAndClose:
+            Output.copy(canvas.flattened())
+            Sound.play("Pop")
+            Notifier.confirm("Screenshot copied")
+        case .saveAndClose:
+            guard let url = Output.save(canvas.flattened()) else {
+                showToast("Couldn't save: check the export location in Settings")
+                NSSound.beep()
+                return
+            }
+            Notifier.confirm("Screenshot saved", detail: url.lastPathComponent, file: url)
+        }
+        window?.close()
+    }
     @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
     @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }

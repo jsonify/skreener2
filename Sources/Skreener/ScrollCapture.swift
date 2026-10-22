@@ -279,7 +279,7 @@ final class ScrollCaptureController {
             let cg = stitcher?.makeImage()
             DispatchQueue.main.async {
                 let image = cg.map { NSImage(cgImage: $0, size: NSSize(width: CGFloat($0.width) / scale, height: CGFloat($0.height) / scale)) }
-                if image == nil { NSSound.beep() }
+                if image == nil { Notifier.problem("Nothing was captured", detail: "No frames of the area could be grabbed.") }
                 done?(image)
             }
         }
@@ -289,7 +289,7 @@ final class ScrollCaptureController {
         guard isRunning else { return }
         let done = completion
         stop()
-        NSSound(named: "Funk")?.play()
+        Sound.play("Funk")
         done?(nil)
     }
 
@@ -338,6 +338,10 @@ final class ScrollCaptureController {
         guard AccessibilityAccess.granted else {
             AccessibilityAccess.request()
             setStatus("Allow Accessibility, then retry")
+            Notifier.problem("Auto-Scroll needs Accessibility access",
+                             detail: "Turn on Skreener in System Settings → Privacy & Security → Accessibility, then click "
+                                 + "Auto-Scroll again. You can also scroll by hand.",
+                             permission: .accessibility)
             return
         }
         guard let target = Self.window(at: scrollPoint) else {

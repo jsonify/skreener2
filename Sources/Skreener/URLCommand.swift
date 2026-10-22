@@ -49,6 +49,7 @@ struct URLCommand: Equatable {
         ("grab/previous", .run(.capturePreviousArea)),
         ("grab/fullscreen", .run(.captureFullscreen)),
         ("grab/window", .run(.captureWindow)),
+        ("grab/window/active", .run(.captureActiveWindow)),
         ("grab/scrolling", .run(.captureScrolling)),
         ("grab/delayed", .run(.timedArea)),
         ("grab/delayed/area", .run(.timedArea)),
@@ -66,8 +67,8 @@ struct URLCommand: Equatable {
 
     /// Commands whose screenshot goes through the after-capture steps, so `then=` applies.
     private static let takesThen: Set<HotKeyAction> = [.captureArea, .capturePreviousArea, .captureFullscreen,
-                                                        .captureWindow, .captureScrolling, .timedArea, .timedWindow,
-                                                        .timedFullscreen]
+                                                        .captureWindow, .captureActiveWindow, .captureScrolling,
+                                                        .timedArea, .timedWindow, .timedFullscreen]
     private static let takesDelay: Set<HotKeyAction> = [.timedArea, .timedWindow, .timedFullscreen]
 
     /// What the command does, for alerts.

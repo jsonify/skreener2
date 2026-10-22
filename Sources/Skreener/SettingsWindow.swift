@@ -64,6 +64,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     /// Kept so it can follow the setting when a link's prompt turns it on (`refreshURLScheme`).
     private let urlSchemeSwitch = NSSwitch()
     private let shortcutsPane = ShortcutsPane()
+    /// Each permission's status in Settings → General, refreshed whenever Settings comes to the front (#112).
+    private var permissionLabels: [Permission: NSTextField] = [:]
     private let sidebar = NSTableView()
     private let detail = NSScrollView()
     /// Each pane is built once, the first time it is shown.
@@ -103,6 +105,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
             Task { @MainActor in DockPresence.update() }
         }
+        // Permissions and macOS's own shortcuts may have changed in System Settings in the meantime.
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshSystemState() }
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -110,6 +116,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         refreshFolder()
         refreshLogin()   // may have changed in System Settings
         refreshURLScheme()   // may have been allowed from a link's prompt
+        refreshSystemState()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         DockPresence.update()
@@ -254,13 +261,16 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         Preferences.hideIconsWhileCapturing = $0
                     },
                 ]),
+                group("Permissions", Permission.allCases.map(permissionRow),
+                      note: "Skreener asks for these when it first needs them. A permission turned on in System Settings "
+                        + "may need Skreener to be quit and reopened."),
                 group("Export", [row("Export location", folder)],
                       note: "Where screenshots are saved after a capture, and where screen recordings go."),
                 group("Automation", [
                     row("Allow URL scheme", "For Raycast, Alfred, Shortcuts and scripts.", urlSchemeSwitch),
                 ], note: "Links like skreener://grab/area?then=copy,save start a capture; then= picks copy, save, edit, pin "
                     + "and quickaccess for that capture. Other commands: grab/fullscreen, grab/window, grab/previous, "
-                    + "grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, history, settings."),
+                    + "grab/window/active, grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, history, settings."),
             ]
 
         case .afterCapture:
@@ -274,6 +284,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            "A thumbnail in the bottom-left corner that stays until you copy, save, edit, pin, share or close it.",
                            Preferences.showQuickAccess) { Preferences.showQuickAccess = $0 },
                 ], note: "Capture Text and Capture Area & Pin skip these."),
+                group("Confirmation", [
+                    row("Confirmation style", "When a capture opens no editor, Quick Access preview or pin (for example "
+                        + "with only Copy or Save on, or Capture Text).", confirmationPopup()),
+                    toggle("Play sounds", "When something is copied, a recording is saved, or a capture is cancelled.",
+                           Preferences.playSounds) { Preferences.playSounds = $0 },
+                ]),
                 group("History", [
                     toggle("Keep capture history", "The last \(CaptureHistory.limit) captures, in the History panel (⌃⇧H).",
                            Preferences.keepHistory) { Preferences.keepHistory = $0 },
@@ -384,6 +400,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Editor Window", [
                     toggle("Open screenshots as tabs", "New screenshots join the open editor window instead of opening their own.",
                            Preferences.editorTabs) { Preferences.editorTabs = $0 },
+                    row("Esc with nothing selected", "Esc first deselects; pressed again, it can copy or save the "
+                        + "screenshot and close it.", escPopup()),
                 ]),
             ]
 
@@ -406,6 +424,32 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             stack.setCustomSpacing(4, after: name)
             return [stack]
         }
+    }
+
+    private func confirmationPopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for style in ConfirmationStyle.allCases {
+            popup.addItem(withTitle: style.title); popup.lastItem?.representedObject = style.rawValue
+        }
+        popup.selectItem(at: ConfirmationStyle.allCases.firstIndex(of: Preferences.confirmationStyle) ?? 0)
+        bind(popup) {
+            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            Preferences.confirmationStyle = raw.flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud
+        }
+        return popup
+    }
+
+    private func escPopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for action in EditorEscAction.allCases {
+            popup.addItem(withTitle: action.title); popup.lastItem?.representedObject = action.rawValue
+        }
+        popup.selectItem(at: EditorEscAction.allCases.firstIndex(of: Preferences.editorEscAction) ?? 0)
+        bind(popup) {
+            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            Preferences.editorEscAction = raw.flatMap(EditorEscAction.init(rawValue:)) ?? .nothing
+        }
+        return popup
     }
 
     // MARK: Building blocks
@@ -501,6 +545,31 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func refreshLogin() { loginSwitch.state = LaunchAtLogin.isOn ? .on : .off }
+
+    private func refreshSystemState() {
+        refreshPermissions()
+        shortcutsPane.refreshMacShortcuts()
+    }
+
+    private func refreshPermissions() {
+        for (permission, label) in permissionLabels {
+            label.stringValue = permission.status
+            label.textColor = permission.isGranted ? .systemGreen : .systemOrange
+        }
+    }
+
+    /// Status and an Open System Settings button for one permission.
+    private func permissionRow(_ permission: Permission) -> NSView {
+        let status = NSTextField(labelWithString: "")
+        status.font = .systemFont(ofSize: 12, weight: .medium)
+        permissionLabels[permission] = status
+        let open = NSButton(title: "Open System Settings", target: nil, action: nil)
+        open.controlSize = .small
+        bind(open) { _ in permission.openSettings() }
+        let control = NSStackView(views: [status, open])
+        control.spacing = 10
+        return row(permission.title, permission.purpose, control)
+    }
     func refreshURLScheme() { urlSchemeSwitch.state = Preferences.allowURLScheme ? .on : .off }
 
     // MARK: Export location

@@ -196,7 +196,7 @@ import AVFoundation
         } else {
             Output.copy(image)
         }
-        NSSound(named: "Pop")?.play()
+        Sound.play("Pop")
         close()
     }
 

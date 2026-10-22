@@ -191,10 +191,24 @@ private extension KeyCombo {
     private var rows: [HotKeyAction: Row] = [:]
     /// The last refused recording, shown under its recorder until the next change.
     private var refusal: (action: HotKeyAction, message: String)?
+    // "Use ⇧⌘3 and ⇧⌘4 for Skreener" (#114).
+    private static let shiftCommand3 = KeyCombo(keyCode: kVK_ANSI_3, modifiers: shiftKey | cmdKey)
+    private static let shiftCommand4 = KeyCombo(keyCode: kVK_ANSI_4, modifiers: shiftKey | cmdKey)
+    private lazy var guideStatus = NSTextField(wrappingLabelWithString: "")
+    private lazy var guideSteps = NSTextField(wrappingLabelWithString: """
+        1. Click Open Keyboard Shortcuts (System Settings → Keyboard → Keyboard Shortcuts).
+        2. Choose Screenshots and turn off “Save picture of screen as a file” (⇧⌘3) and “Save picture of selected \
+        area as a file” (⇧⌘4).
+        3. Come back here and click Use ⇧⌘3 and ⇧⌘4.
+        """)
+    private lazy var assignButton = NSButton(title: "Use ⇧⌘3 and ⇧⌘4", target: self, action: #selector(assignMacShortcuts))
 
     /// The pane's groups; `group` and `row` are the Settings window's building blocks.
     func build(group: (String, [NSView], String?) -> NSView, row: (String, String?, NSView) -> NSView) -> [NSView] {
-        var views = HotKeyAction.Section.allCases.map { section -> NSView in
+        var views = [group("Use ⇧⌘3 and ⇧⌘4 for Skreener", [guide()],
+                           "Capture Fullscreen gets ⇧⌘3 and Capture Area ⇧⌘4. While macOS's own screenshot shortcuts are "
+                           + "on, macOS gets those keys first.")]
+        views += HotKeyAction.Section.allCases.map { section -> NSView in
             let actions = HotKeyAction.allCases.filter { $0.section == section }
             let note = section == .other
                 ? "Shortcuts work in every app. Click a shortcut and press the new keys: Esc cancels, Delete clears." : nil
@@ -212,6 +226,60 @@ private extension KeyCombo {
         views.append(footer)
         refresh()
         return views
+    }
+
+    /// Where the macOS shortcuts stand, the steps to turn them off (while they are on) and the buttons.
+    private func guide() -> NSView {
+        guideStatus.font = .systemFont(ofSize: 13)
+        guideSteps.font = .systemFont(ofSize: 11)
+        guideSteps.textColor = .secondaryLabelColor
+        [guideStatus, guideSteps].forEach { $0.preferredMaxLayoutWidth = 500 }
+        let open = NSButton(title: "Open Keyboard Shortcuts", target: self, action: #selector(openKeyboardShortcuts))
+        let buttons = NSStackView(views: [open, assignButton])
+        buttons.spacing = 8
+        let stack = NSStackView(views: [guideStatus, guideSteps, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 0, bottom: 12, right: 0)
+        return stack
+    }
+
+    @objc private func openKeyboardShortcuts() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension?Shortcuts") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// ⇧⌘3 → Capture Fullscreen, ⇧⌘4 → Capture Area, taking them from any other action that has them.
+    @objc private func assignMacShortcuts() {
+        for (action, combo) in [(HotKeyAction.captureFullscreen, Self.shiftCommand3), (.captureArea, Self.shiftCommand4)] {
+            if case .taken(let other)? = ShortcutStore.problem(with: combo, for: action, in: ShortcutStore.bindings()) {
+                ShortcutCenter.shared.set(nil, for: other)
+            }
+            ShortcutCenter.shared.set(combo, for: action)
+        }
+        refusal = nil
+        refresh()
+    }
+
+    /// Called when Settings comes to the front: the macOS shortcuts may have changed in System Settings meanwhile.
+    func refreshMacShortcuts() { refresh() }
+
+    private func refreshGuide(_ hotkeys: [String: Any]?, _ bindings: [HotKeyAction: KeyCombo]) {
+        let macTakes = MacScreenshotShortcuts.takesShiftCommand3Or4(in: hotkeys)
+        let assigned = bindings[.captureFullscreen] == Self.shiftCommand3 && bindings[.captureArea] == Self.shiftCommand4
+        if macTakes {
+            guideStatus.stringValue = assigned
+                ? "Skreener has ⇧⌘3 and ⇧⌘4, but macOS still uses them for its own screenshots and gets them first."
+                : "macOS uses ⇧⌘3 and ⇧⌘4 for its own screenshots."
+        } else if assigned {
+            guideStatus.stringValue = "⇧⌘3 and ⇧⌘4 start Skreener's Capture Fullscreen and Capture Area."
+        } else {
+            guideStatus.stringValue = "macOS's ⇧⌘3 and ⇧⌘4 are off. Click Use ⇧⌘3 and ⇧⌘4 to give them to Skreener."
+        }
+        guideSteps.isHidden = !macTakes
+        assignButton.isEnabled = !assigned
     }
 
     /// Reset button, recorder and (when there is one) a warning under them.
@@ -281,6 +349,8 @@ private extension KeyCombo {
 
     private func refresh() {
         let bindings = ShortcutStore.bindings()
+        let hotkeys = MacScreenshotShortcuts.current()
+        refreshGuide(hotkeys, bindings)
         for (action, row) in rows {
             let combo = bindings[action]
             row.recorder.combo = combo
@@ -293,7 +363,7 @@ private extension KeyCombo {
             } else if let combo, ShortcutCenter.shared.unavailable.contains(action) {
                 text = "Couldn't register \(combo.displayString): another app may be using it."
                 color = .systemRed
-            } else if let combo {
+            } else if let combo, !MacScreenshotShortcuts.isFree(combo, in: hotkeys) {
                 text = combo.systemWarning
             }
             row.message.stringValue = text ?? ""

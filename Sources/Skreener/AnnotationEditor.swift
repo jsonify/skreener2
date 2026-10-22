@@ -263,6 +263,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private(set) var style = Style()
     /// Called when a single-key shortcut switches the tool.
     var onToolShortcut: ((Tool) -> Void)?
+    /// Esc with nothing selected and no mode active (the editor may then copy or save and close, #115).
+    var onEscape: (() -> Void)?
     /// Called whenever the attributes bar should change: the tool whose options apply and the style to show.
     var onContextChange: ((Tool, Style) -> Void)?
 
@@ -510,7 +512,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let step: CGFloat = shift ? 10 : 1
         switch event.keyCode {
         case 51, 117: deleteSelection(); return                         // ⌫, ⌦
-        case 53: selectedID = nil; needsDisplay = true; return          // Esc
+        case 53:                                                        // Esc
+            if selectedID != nil {
+                selectedID = nil; needsDisplay = true
+            } else if ruler == nil {
+                onEscape?()
+            }
+            return
         case 36, 76:                                                    // Return / Enter edits selected text
             if let i = selectedIndex, items[i].tool == .text { beginTextEditing(at: i) }
             return

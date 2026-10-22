@@ -129,4 +129,52 @@ final class ShortcutTests: XCTestCase {
         XCTAssertNil(KeyCombo(keyCode: kVK_ANSI_4, modifiers: ctrlShift).systemWarning)
         XCTAssertNil(KeyCombo(keyCode: kVK_ANSI_7, modifiers: cmdKey | shiftKey).systemWarning)
     }
+
+    // MARK: macOS screenshot shortcuts (#114)
+
+    private let shiftCmd3 = KeyCombo(keyCode: kVK_ANSI_3, modifiers: cmdKey | shiftKey)
+    private let shiftCmd4 = KeyCombo(keyCode: kVK_ANSI_4, modifiers: cmdKey | shiftKey)
+
+    /// An AppleSymbolicHotKeys entry as macOS writes it: [character, key code, modifier flags].
+    private func entry(enabled: Bool, keyCode: Int, flags: Int) -> [String: Any] {
+        let value: [String: Any] = ["parameters": [65535, keyCode, flags], "type": "standard"]
+        return ["enabled": enabled, "value": value]
+    }
+
+    func testMacScreenshotShortcutsDefaultToOn() {
+        XCTAssertTrue(MacScreenshotShortcuts.takesShiftCommand3Or4(in: nil))
+        XCTAssertTrue(MacScreenshotShortcuts.takesShiftCommand3Or4(in: [:]))
+        XCTAssertFalse(MacScreenshotShortcuts.isFree(shiftCmd4, in: nil))
+    }
+
+    func testMacScreenshotShortcutsTurnedOff() {
+        let off: [String: Any] = ["28": entry(enabled: false, keyCode: kVK_ANSI_3, flags: 0x120000),
+                                  "30": entry(enabled: false, keyCode: kVK_ANSI_4, flags: 0x120000)]
+        XCTAssertFalse(MacScreenshotShortcuts.takesShiftCommand3Or4(in: off))
+        XCTAssertTrue(MacScreenshotShortcuts.isFree(shiftCmd3, in: off))
+        XCTAssertTrue(MacScreenshotShortcuts.isFree(shiftCmd4, in: off))
+        // ⌃⇧⌘4 (31) is not in the list, so macOS still has it.
+        XCTAssertFalse(MacScreenshotShortcuts.isFree(KeyCombo(keyCode: kVK_ANSI_4, modifiers: controlKey | shiftKey | cmdKey),
+                                                     in: off))
+    }
+
+    func testMacScreenshotShortcutsOneStillOn() {
+        let one: [String: Any] = ["28": entry(enabled: false, keyCode: kVK_ANSI_3, flags: 0x120000),
+                                  "30": entry(enabled: true, keyCode: kVK_ANSI_4, flags: 0x120000)]
+        XCTAssertTrue(MacScreenshotShortcuts.takesShiftCommand3Or4(in: one))
+        XCTAssertTrue(MacScreenshotShortcuts.isFree(shiftCmd3, in: one))
+        XCTAssertFalse(MacScreenshotShortcuts.isFree(shiftCmd4, in: one))
+    }
+
+    func testMacScreenshotShortcutMovedToOtherKeys() {
+        // ⇧⌘4's job moved to ⌃⌥4: ⇧⌘4 is free.
+        let moved: [String: Any] = ["30": entry(enabled: true, keyCode: kVK_ANSI_4, flags: 0xC0000)]
+        XCTAssertTrue(MacScreenshotShortcuts.isFree(shiftCmd4, in: moved))
+        XCTAssertFalse(MacScreenshotShortcuts.isFree(KeyCombo(keyCode: kVK_ANSI_K, modifiers: cmdKey), in: moved))
+    }
+
+    func testActiveWindowHasNoDefaultShortcut() {
+        XCTAssertNil(HotKeyAction.captureActiveWindow.defaultCombo)
+        XCTAssertEqual(HotKeyAction.captureActiveWindow.section, .screenshots)
+    }
 }
