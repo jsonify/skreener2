@@ -5,8 +5,9 @@ import ScreenCaptureKit
 enum RecordingError: Error { case noDisplay, noFrames, writerFailed }
 
 /// Records a display, or an area of it, to an H.264 MP4: ScreenCaptureKit frames (and optionally system audio
-/// and, on macOS 15+, the microphone) go straight into an AVAssetWriter. Skreener's own windows (HUD, area
-/// frame) are left out of the recording. Sample buffers arrive on `queue`; everything the writer touches stays there.
+/// and, on macOS 15+, the microphone) go straight into an AVAssetWriter; with both audio sources the two audio
+/// tracks are mixed into one afterwards (`AudioMixer`). Skreener's own windows (HUD, area frame) are left out of
+/// the recording. Sample buffers arrive on `queue`; everything the writer touches stays there.
 final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     struct Options {
         var systemAudio = Preferences.recordSystemAudio
@@ -98,7 +99,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             writer.add(input)
             return input
         }
-        // System audio and the microphone go to separate tracks.
+        // System audio and the microphone go to separate tracks while recording; `finish` mixes them into one.
         let systemAudio = options.systemAudio ? audio(channels: 2) : nil
         let mic = microphone ? audio(channels: 1) : nil
         guard writer.startWriting() else { throw writer.error ?? RecordingError.writerFailed }
@@ -221,7 +222,15 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         writer.finishWriting { [self] in
             queue.async { [self] in
                 guard let writer = self.writer else { return }
-                report(writer.status == .completed ? .success(url) : .failure(writer.error ?? RecordingError.writerFailed))
+                guard writer.status == .completed else { report(.failure(writer.error ?? RecordingError.writerFailed)); return }
+                guard audioInput != nil, micInput != nil else { report(.success(url)); return }
+                // Players that only play the first audio track would miss the mic, so both are mixed into one.
+                Task { [self] in
+                    do { try await AudioMixer.mixAudioTracks(of: url) } catch {
+                        NSLog("Mixing the audio tracks failed, keeping them separate: \(error)")
+                    }
+                    report(.success(url))
+                }
             }
         }
     }

@@ -348,7 +348,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Audio", [
                     toggle("System audio", "Sound from other apps.", Preferences.recordSystemAudio) { Preferences.recordSystemAudio = $0 },
                     row("Microphone", micNote, mic),
-                ], note: "Each source is recorded to its own audio track."),
+                ], note: "With both on, they are mixed into one audio track."),
                 group("Video", [
                     row("Frame rate", fps),
                     toggle("Show cursor", nil, Preferences.recordShowsCursor) { Preferences.recordShowsCursor = $0 },

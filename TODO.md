@@ -31,7 +31,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 
 ## Batch 3 — screen recording (biggest gap)
 - [~] Record area/fullscreen to MP4 (SCStream + AVAssetWriter; Record Screen ⌃⇧7: drag an area or Space to pick a window, whole-screen button in the picker; saved to the save folder; afterwards the same Quick Access preview as screenshots, with open / show in Finder / share / copy; control bar matches the scrolling-capture bar (#95)) — L (#53)
-- [~] System audio + microphone options (Settings → Screen Recording; mic needs macOS 15; each goes to its own audio track), cursor, 30/60 fps — M (#54)
+- [~] System audio + microphone options (Settings → Screen Recording; mic needs macOS 15; with both on they end up in one mixed track, see below), cursor, 30/60 fps — M (#54)
 - [~] Record Screen picker (CleanShot-style): "Drag to record… Press Space to select a window" banner on every screen (other screens stay dimmed with the banner while adjusting; drag there to move the selection; Space picks a window; with "Remember last selection" it opens on the saved area with the banner on top); then the selection stays adjustable (handles, move, drag a new one, arrow keys, typed width × height, whole screen, aspect/size presets); mode bar (Area, Fullscreen, Window, Timer, OCR, Recording + size card); Recording (or ↩) shows the panel with options, mic / system audio / click / keystroke toggles, Record GIF ⌥↩ / Record Video ↩ — M (#55)
 - [~] Recording options popover: show controls, remember last selection, time in menu bar, dim screen, countdown, cursor, highlight clicks (color, size), keystrokes (all/shortcuts, size, top/bottom), frame rate — M (#56)
 - [ ] "Do Not Disturb" while recording (no public API; maybe via a user Shortcut) — S (#23)
@@ -41,7 +41,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Click highlighting and keystroke display, drawn into the video (keystrokes need Accessibility access) — M (#58)
 - [ ] Trim editor for recordings — M (#26)
 - [~] Recording HUD (timer, pause/resume, stop; dashed frame around the area) and menu-bar stop (the icon turns into a stop button; ⌃⇧7 stops too) — S (#59)
-- [ ] Mix system audio and microphone into one track (players that only play the first audio track miss the mic) — S (#27)
+- [~] Mix system audio and microphone into one track (players that only play the first audio track miss the mic): recorded to separate tracks, then mixed into one stereo AAC track after stopping (video copied, not re-encoded); if mixing fails the separate tracks are kept — S (#27)
 
 ## Batch 4 — editor
 - [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M (#60)
