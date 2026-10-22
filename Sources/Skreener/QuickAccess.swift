@@ -5,7 +5,8 @@ import AVFoundation
 /// done with it: hovering shows round buttons in the corners (close, edit, pin, share) and Copy / Save pills in the
 /// middle, and any of them dismisses it. Previews of later captures stack upwards, newest at the bottom. While a new
 /// capture is being taken they fade away, and come back once it is done (after its editor has opened). A finished
-/// recording gets the same preview, showing its first frame, with Open and Show in Finder for Edit and Pin.
+/// recording gets the same preview, showing its first frame, with Open and Show in Finder for Edit and Pin. Previews
+/// are semi-transparent unless the pointer is over them (#98).
 @MainActor final class QuickAccessController: NSObject, NSSharingServicePickerDelegate {
     private static var live: [QuickAccessController] = []
     /// The screen the stack is on: the one the newest preview appeared on.
@@ -24,6 +25,7 @@ import AVFoundation
     /// The editor that opened with this capture, shown again by Edit while it is still open.
     private weak var editor: EditorWindowController?
     private let panel: NSPanel
+    private var card: QuickAccessCard? { panel.contentView as? QuickAccessCard }
 
     // The app's capture flows (not main-actor isolated themselves) call these on the main thread.
 
@@ -34,7 +36,10 @@ import AVFoundation
             screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             live.append(qa)
             layout(animated: true)
-            if !suspended { qa.panel.orderFrontRegardless() }
+            if !suspended {
+                qa.panel.orderFrontRegardless()
+                qa.card?.syncHover()
+            }
         }
     }
 
@@ -45,7 +50,10 @@ import AVFoundation
             Self.screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             Self.live.append(qa)
             Self.layout(animated: true)
-            if !Self.suspended { qa.panel.orderFrontRegardless() }
+            if !Self.suspended {
+                qa.panel.orderFrontRegardless()
+                qa.card?.syncHover()
+            }
         }
     }
 
@@ -157,6 +165,7 @@ import AVFoundation
         if show {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
+            card?.syncHover()
         }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = show ? 0.2 : 0.1
@@ -212,13 +221,20 @@ import AVFoundation
     }
 
     private func share(from view: NSView) {
+        card?.held = true   // stays opaque with its buttons while the share sheet is open
         if let recording { Output.share(recording, from: view, delegate: self) } else { Output.share(image, from: view, delegate: self) }
     }
 
     /// Once a share service is picked the preview has done its job; a cancelled share sheet leaves it.
     nonisolated func sharingServicePicker(_ picker: NSSharingServicePicker, didChoose service: NSSharingService?) {
-        guard service != nil else { return }
-        MainActor.assumeIsolated { close() }
+        MainActor.assumeIsolated {
+            guard service != nil else {
+                card?.syncHover()
+                card?.held = false
+                return
+            }
+            close()
+        }
     }
 
     func close() {
@@ -229,17 +245,33 @@ import AVFoundation
     }
 }
 
+/// Quick Access previews (of screenshots and recordings) rest semi-transparent, so they don't hide what is under them,
+/// and turn opaque while the pointer is over them (#98).
+enum PreviewHover {
+    static let restingAlpha: CGFloat = 0.65
+
+    /// Whether the pointer is over `view` now. A preview that appears under a still pointer gets no mouseEntered.
+    @MainActor static func isPointer(inside view: NSView) -> Bool {
+        guard let window = view.window else { return false }
+        return view.bounds.contains(view.convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+}
+
 /// The preview's content: the thumbnail, and on hover a dark veil with the corner buttons and the middle pills.
 private final class QuickAccessCard: NSView {
     enum Corner { case topLeft, topRight, bottomLeft, bottomRight }
 
     private let controls = NSView()
+    private var pointerInside = false { didSet { hovering = pointerInside || held } }
+    /// Keeps the card opaque with its buttons showing whatever the pointer does, e.g. while its share sheet is open.
+    var held = false { didSet { hovering = pointerInside || held } }
     private var hovering = false {
         didSet {
             guard hovering != oldValue else { return }
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.12
                 controls.animator().alphaValue = hovering ? 1 : 0
+                animator().alphaValue = hovering ? 1 : PreviewHover.restingAlpha
             }
         }
     }
@@ -266,6 +298,7 @@ private final class QuickAccessCard: NSView {
         controls.wantsLayer = true
         controls.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
         controls.alphaValue = 0
+        alphaValue = PreviewHover.restingAlpha
         // White pills with dark content on the dark veil, whatever the system appearance.
         controls.appearance = NSAppearance(named: .aqua)
         addSubview(controls)
@@ -301,7 +334,10 @@ private final class QuickAccessCard: NSView {
         stack.centerYAnchor.constraint(equalTo: controls.centerYAnchor).isActive = true
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    /// Matches the hover state to where the pointer is, for when the card shows up (or comes back) under it.
+    func syncHover() { pointerInside = PreviewHover.isPointer(inside: self) }
+
+    override func mouseEntered(with event: NSEvent) { pointerInside = true }
+    override func mouseExited(with event: NSEvent) { pointerInside = false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
