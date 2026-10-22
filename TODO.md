@@ -78,7 +78,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 ## Batch 6 — sharing & output
 - [~] Settings window: existing options moved out of the menu, shortcut list, version + build commit — S (#85)
 - [~] Settings: format PNG/JPEG (JPEG flattens transparency onto white), filename template (%Y %y %m %d %H %M %S; " 2" etc. when the name is taken), save Retina captures at 1× — S (#86)
-- [ ] Settings: hotkey rebinding — M (#31)
+- [~] Settings: hotkey rebinding, CleanShot-style Shortcuts pane: groups (Screenshots, Screen Recording, Other) with a shortcut recorder per action (click and type; Esc cancels, Delete / × clears; reset arrow per row; Restore Defaults); refuses combinations used by another action or without ⌘/⌃/⌥ (F-keys alone are fine), warns about macOS ones (⇧⌘3/4/5, ⌘Space…), plain ⌘ + key, and ones macOS won't register; saved in UserDefaults, re-registered live, shown in the menu; self-timer, desktop icons, open / pin can have shortcuts too — M (#31, #97)
 - [~] Settings window redesign (CleanShot-style): sidebar with colored icons (General, After Capture, Shortcuts, Screenshots, Screen Recording, Annotate, About), options in rounded groups with switches; 810 pt wide (fixed), 660 pt tall by default, height resizable — M (#87)
 - [~] Quick Access (CleanShot-style, #21): shown alongside the editor (own Settings toggle); stays until an action; hover shows corner buttons (close, edit, pin, share) and Copy / Save pills; previews stack upwards, newest at the bottom; they fade out while a new capture is taken and come back after its editor opens; Edit brings back the capture's editor tab if it is still open — M (#88)
 - [ ] Quick Access: drag-and-drop out, swipe to dismiss, position setting — M (#32)
