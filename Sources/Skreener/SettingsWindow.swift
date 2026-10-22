@@ -16,11 +16,6 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         return build.map { "\(short) (\($0))" } ?? short
     }
 
-    private static let shortcuts = [("⌃⇧4", "Capture Area"), ("⌃⇧1", "Capture Previous Area"), ("⌃⇧6", "Capture Area & Pin"),
-                                    ("⌃⇧3", "Capture Fullscreen"), ("⌃⇧5", "Capture Window"), ("⌃⇧2", "Capture Text (OCR)"), ("⌃⇧8", "Capture Scrolling / Finish"),
-                                    ("⌃⇧7", "Record Screen / Stop Recording"),
-                                    ("⌃⇧H", "Capture History")]
-
     private static let width: CGFloat = 810
     private static let sidebarWidth: CGFloat = 200
 
@@ -66,6 +61,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private var actions: [ControlAction] = []
     private let folderLabel = NSTextField(labelWithString: "")
     private let loginSwitch = NSSwitch()
+    private let shortcutsPane = ShortcutsPane()
     private let sidebar = NSTableView()
     private let detail = NSScrollView()
     /// Each pane is built once, the first time it is shown.
@@ -270,12 +266,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             ]
 
         case .shortcuts:
-            return [group("Global Shortcuts", Self.shortcuts.map { keys, title in
-                let k = NSTextField(labelWithString: keys)
-                k.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-                k.textColor = .secondaryLabelColor
-                return row(title, k)
-            }, note: "Shortcuts can't be changed yet.")]
+            return shortcutsPane.build(group: { group($0, $1, note: $2) }, row: { row($0, $1, $2) })
 
         case .screenshots:
             // Example file name under the template field, updated as the template or the format changes.

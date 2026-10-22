@@ -206,7 +206,7 @@ final class RecordingController {
         let pause = PillButton(title: nil, symbol: "pause.fill", style: .tinted) { [weak self] in self?.togglePause() }
         pause.toolTip = "Pause"
         let stop = PillButton(title: "Stop", symbol: "stop.fill", style: .filled) { [weak self] in self?.stop() }
-        stop.toolTip = "Stop Recording (⌃⇧7)"
+        stop.toolTip = ShortcutStore.combo(for: .recordScreen).map { "Stop Recording (\($0.displayString))" } ?? "Stop Recording"
         let row = NSStackView(views: [d, l, pause, stop])
         row.spacing = 8
         row.setCustomSpacing(14, after: l)

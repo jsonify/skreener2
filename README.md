@@ -4,7 +4,7 @@ A clean-room, CleanShot X–style screenshot tool for macOS 14+ (menu bar app, S
 Built from publicly documented behavior only; no code from CleanShot X was decompiled or copied.
 
 ## Features
-- Capture area / fullscreen / window (global hotkeys ⌃⇧4 / ⌃⇧3 / ⌃⇧5), previous area (⌃⇧1), area & pin (⌃⇧6)
+- Capture area / fullscreen / window (global hotkeys ⌃⇧4 / ⌃⇧3 / ⌃⇧5 by default; every hotkey can be changed in Settings → Shortcuts), previous area (⌃⇧1), area & pin (⌃⇧6)
 - Area selection: crosshair + pixel magnifier, arrow keys nudge the pointer (Shift = 10 pt), hold Space to move the selection, optional frozen screen
 - Window capture options: shadow, transparent or white background, padding
 - After a capture the screenshot opens in the editor, and a Quick Access preview appears in the bottom-left corner (each can be turned off in Settings → After Capture). The preview stays until you do something with it: hover it for round close / edit / pin / share buttons in the corners and Copy / Save pills in the middle. Previews of later captures stack upwards, and fade away while a new capture is taken. Previews stay semi-transparent until the pointer is over them (#98). Capture Text and Capture Area & Pin skip both
@@ -17,7 +17,7 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 - Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close)
 - Open… / Open from Clipboard into the editor, Pin to the Screen… from a file or the clipboard
 - Show/Hide Desktop Icons toggle (or hide them only while capturing), About panel
-- Settings window (⌘, the menu bar icon, or the editor's gear button), CleanShot-style with a sidebar: General (launch at login, freeze screen, cursor, desktop icons, export location), After Capture (copy / save / open editor, capture history), Shortcuts, Screenshots (PNG/JPEG, save Retina captures at 1×, file name template, window capture style), Screen Recording (audio, frame rate, cursor), Annotate (drop shadow, editor tabs), About (version + build commit)
+- Settings window (⌘, the menu bar icon, or the editor's gear button), CleanShot-style with a sidebar: General (launch at login, freeze screen, cursor, desktop icons, export location), After Capture (copy / save / open editor, capture history), Shortcuts (click a shortcut and type a new one, for any capture, recording, self-timer, history, desktop icons or open / pin command; × clears, the arrow resets one, Restore Defaults resets all; warns about combinations macOS or another action already uses; changes apply at once and show in the menu), Screenshots (PNG/JPEG, save Retina captures at 1×, file name template, window capture style), Screen Recording (audio, frame rate, cursor), Annotate (drop shadow, editor tabs), About (version + build commit)
 
 ## Build
 ```
