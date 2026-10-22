@@ -9,38 +9,38 @@ strings, Swift field metadata, decoded nibs and shottr.cc. "#NN" = existing GitH
 
 | Gap | Area | Existing | Report |
 |---|---|---|---|
-| Area selection stays adjustable after the drag; Return/double-click captures (reuse `RecordAreaPicker` selection view) | Capture | — | capture #1 |
-| Area keyboard: Shift = square, arrows move 1/10 px, ⌘+arrows resize, `[` `]` grow/shrink | Capture | — | capture #2 |
-| URL scheme automation (`skreener://grab/area?then=copy,save`), opt-in with first-use confirm | App | — | prefs #1, capture #19 |
+| Area selection stays adjustable after the drag; Return/double-click captures (reuse `RecordAreaPicker` selection view) | Capture | #102 | capture #1 |
+| Area keyboard: Shift = square, arrows move 1/10 px, ⌘+arrows resize, `[` `]` grow/shrink | Capture | #103 | capture #2 |
+| URL scheme automation (`skreener://grab/area?then=copy,save`), opt-in with first-use confirm | App | #104 | prefs #1, capture #19 |
 | Upload to S3-compatible + copy link (SigV4, presigned/public URL, Test Connection, Keychain secret, size fallback) | Output | #33 | output #1–2 |
-| Smart Erase (fill with detected background) and Erase/Blur Text (only text inside a box) | Editor | — | editor #1 |
-| Magnifier callout annotation (M) | Editor | — | editor #2, measure #18 |
+| Smart Erase (fill with detected background) and Erase/Blur Text (only text inside a box) | Editor | #105 | editor #1 |
+| Magnifier callout annotation (M) | Editor | #106 | editor #2, measure #18 |
 
 ## Medium
 
 | Gap | Area | Existing | Report |
 |---|---|---|---|
-| Pixel ruler with auto edge detection (1/2 or arrows; Shift = outer; click to imprint) | Measure | — | measure #1 |
-| Color picker (Tab/Shift+Tab/C), 8 copy formats, live pixel-color box | Measure | — | measure #4–6 |
-| Contrast checker (WCAG 2 + APCA) | Measure | — | measure #7 |
-| Capture Active Window (frontmost, no click) | Capture | related #100 | capture #4 |
-| Editor opens on the capture's display, not `NSScreen.main` | Capture | — | capture #6 |
-| Explanatory capture/permission errors instead of beeps; permission status view with Privacy deep links | Capture/App | — | capture #11, prefs #18 |
-| Confirmation style: None / system notification / HUD; sounds can be turned off | App | — | prefs #3 |
+| Pixel ruler with auto edge detection (1/2 or arrows; Shift = outer; click to imprint) | Measure | #107 | measure #1 |
+| Color picker (Tab/Shift+Tab/C), 8 copy formats, live pixel-color box | Measure | #108 | measure #4–6 |
+| Contrast checker (WCAG 2 + APCA) | Measure | #109 | measure #7 |
+| Capture Active Window (frontmost, no click) | Capture | #110 (related #100) | capture #4 |
+| Editor opens on the capture's display, not `NSScreen.main` | Capture | #111 | capture #6 |
+| Explanatory capture/permission errors instead of beeps; permission status view with Privacy deep links | Capture/App | #112 | capture #11, prefs #18 |
+| Confirmation style: None / system notification / HUD; sounds can be turned off | App | #113 | prefs #3 |
 | Update check | App | #34 | prefs #8 |
-| ⇧⌘3/⇧⌘4 reassignment guide with Open System Settings | App | related #35 | prefs #6 |
-| Esc copies or saves, then closes the editor | Editor | — | editor #25, prefs #11 |
-| Pins: hover toolbar, context menu (50/100/200%, copy, edit), drag out as file | Output | — | output #4–7 |
-| Library indexes the save folder; search + filters | Output | related #30 | output #8–9 |
-| Re-save edits over the same file instead of a new " 2" copy | Output | — | output #15 |
+| ⇧⌘3/⇧⌘4 reassignment guide with Open System Settings | App | #114 (related #35) | prefs #6 |
+| Esc copies or saves, then closes the editor | Editor | #115 | editor #25, prefs #11 |
+| Pins: hover toolbar, context menu (50/100/200%, copy, edit), drag out as file | Output | #116 | output #4–7 |
+| Library indexes the save folder; search + filters | Output | #117 (related #30) | output #8–9 |
+| Re-save edits over the same file instead of a new " 2" copy | Output | #118 | output #15 |
 | Drag out of the Quick Access thumbnail | Output | #32 | output #19 |
-| Hand-drawn/curved arrows; freehand shape correction and smoothing | Editor | — | editor #3–4 |
-| Translucent fill and filled oval; text background box, callout tail, wrapping | Editor | — | editor #5, #7 |
-| Cut Out (likely background removal via Vision; unconfirmed) | Editor | — | editor #10 |
-| Resize image to exact pixels | Editor | — | editor #11 |
-| Snap to objects while drawing | Editor | — | editor #13 |
-| Backdrop: aspect presets, gradients, custom image, inset, shadow slider | Editor | — | editor #14 |
-| Copy/paste annotations between screenshots | Editor | — | editor #17 |
+| Hand-drawn/curved arrows; freehand shape correction and smoothing | Editor | #119 | editor #3–4 |
+| Translucent fill and filled oval; text background box, callout tail, wrapping | Editor | #120 | editor #5, #7 |
+| Cut Out (likely background removal via Vision; unconfirmed) | Editor | #121 | editor #10 |
+| Resize image to exact pixels | Editor | #122 | editor #11 |
+| Snap to objects while drawing | Editor | #123 | editor #13 |
+| Backdrop: aspect presets, gradients, custom image, inset, shadow slider | Editor | #124 | editor #14 |
+| Copy/paste annotations between screenshots | Editor | #125 | editor #17 |
 
 ## Low / quick wins
 
