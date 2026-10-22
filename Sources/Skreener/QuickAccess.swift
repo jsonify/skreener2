@@ -5,8 +5,8 @@ import AVFoundation
 /// done with it: hovering shows round buttons in the corners (close, edit, pin, share) and Copy / Save pills in the
 /// middle, and any of them dismisses it. Previews of later captures stack upwards, newest at the bottom. While a new
 /// capture is being taken they fade away, and come back once it is done (after its editor has opened). A finished
-/// recording gets the same preview, showing its first frame, with Open and Show in Finder for Edit and Pin. Previews
-/// are semi-transparent unless the pointer is over them (#98).
+/// recording gets the same preview, showing its first frame, with Open and Show in Finder for Edit and Pin, and Trim.
+/// Previews are semi-transparent unless the pointer is over them (#98).
 @MainActor final class QuickAccessController: NSObject, NSSharingServicePickerDelegate {
     private static var live: [QuickAccessController] = []
     /// The screen the stack is on: the one the newest preview appeared on.
@@ -22,6 +22,9 @@ import AVFoundation
     private let image: NSImage
     /// The video or GIF file when this previews a recording; `image` is then its first frame.
     private let recording: URL?
+    /// For a GIF recording, the temporary MP4 it was made from, kept for Trim; deleted when the preview goes away
+    /// (unless the trim editor took it over).
+    private var video: URL?
     /// The editor that opened with this capture, shown again by Edit while it is still open.
     private weak var editor: EditorWindowController?
     private let panel: NSPanel
@@ -43,10 +46,12 @@ import AVFoundation
         }
     }
 
-    /// Adds a preview of a finished recording once its first frame is ready (a GIF shows animated).
-    nonisolated static func show(recording url: URL) {
+    /// Adds a preview of a finished recording once its first frame is ready (a GIF shows animated). `video` is the
+    /// temporary MP4 a GIF was made from, which the preview then looks after.
+    nonisolated static func show(recording url: URL, video: URL? = nil) {
         Task { @MainActor in
             let qa = QuickAccessController(image: await Self.thumbnail(of: url), recording: url)
+            qa.video = video == url ? nil : video
             Self.screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             Self.live.append(qa)
             Self.layout(animated: true)
@@ -130,7 +135,7 @@ import AVFoundation
             if let card { self?.share(from: card) }
         }
         if recording != nil {
-            card.addCenter([("Copy", { [weak self] in self?.copy() })])
+            card.addCenter([("Copy", { [weak self] in self?.copy() }), ("Trim", { [weak self] in self?.trim() })])
         } else {
             card.addCenter([("Copy", { [weak self] in self?.copy() }), ("Save", { [weak self] in self?.save() })])
         }
@@ -157,7 +162,7 @@ import AVFoundation
             }
             y += size.height + gap
         }
-        for qa in overflow { qa.panel.orderOut(nil) }
+        for qa in overflow { qa.panel.orderOut(nil); qa.discardVideo() }
         live.removeAll { qa in overflow.contains { $0 === qa } }
     }
 
@@ -215,6 +220,18 @@ import AVFoundation
         close()
     }
 
+    /// Opens the trim editor, which takes over the GIF's video.
+    private func trim() {
+        if let recording { RecordingTrimWindow.open(recording, video: video ?? recording) }
+        video = nil
+        close()
+    }
+
+    private func discardVideo() {
+        if let video { try? FileManager.default.removeItem(at: video) }
+        video = nil
+    }
+
     private func showInFinder() {
         if let recording { NSWorkspace.shared.activateFileViewerSelecting([recording]) }
         close()
@@ -241,6 +258,7 @@ import AVFoundation
         guard Self.live.contains(where: { $0 === self }) else { return }
         Self.live.removeAll { $0 === self }
         panel.orderOut(nil)
+        discardVideo()
         Self.layout(animated: true)
     }
 }
