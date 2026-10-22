@@ -246,6 +246,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 ]),
                 group("Export", [row("Export location", folder)],
                       note: "Where screenshots are saved after a capture, and where screen recordings go."),
+                group("Automation", [
+                    toggle("Allow URL scheme", "For Raycast, Alfred, Shortcuts and scripts.", Preferences.allowURLScheme) {
+                        Preferences.allowURLScheme = $0
+                    },
+                ], note: "Links like skreener://grab/area?then=copy,save start a capture; then= picks copy, save, edit, pin "
+                    + "and quickaccess for that capture. Other commands: grab/fullscreen, grab/window, grab/previous, "
+                    + "grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, history, settings."),
             ]
 
         case .afterCapture:
