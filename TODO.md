@@ -26,7 +26,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Freeze screen during area selection (menu toggle; crops from the frozen frame) — S (#48)
 - [~] Crosshair magnifier + pixel/size readout, arrow-key nudge (Shift = 10 pt), Space to move selection — M (#49)
 - [~] Adjustable area selection: after the drag it stays with handles (move, resize, drag a new one, also on another screen); Return or double-click captures, Esc cancels; Settings → General toggle, on by default (Record Screen keeps its own picker) — M (#102)
-- [~] Area selection keys: Shift-drag = square, ⌥-drag = from the center; on the adjustable selection arrows move 1/10 pt, ⌘ + arrows resize the right/bottom edge, `]` / `[` grow/shrink every side (math in `SelectionGeometry`, unit-tested) — S (#103)
+- [~] Area selection keys: Shift-drag = square, ⌥-drag = from the center; on the adjustable selection arrows move 1/10 pt, ⌘ + arrows resize the right/bottom edge, scroll wheel up/down grows/shrinks every side; middle button does nothing; moving no longer grows it (math in `SelectionGeometry`, unit-tested) — S (#103)
 - [~] Window capture options: transparent background, shadow toggle, padding (menu → Window Capture) — M (#50)
 - [~] Auto-hide desktop icons only while capturing (menu toggle; restores after the capture) — S (#51)
 - [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S (#52)

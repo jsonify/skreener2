@@ -12,15 +12,12 @@ final class SelectionGeometryTests: XCTestCase {
     }
 
     func testKeyMapping() {
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 123, characters: nil), .left)
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 124, characters: nil), .right)
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 125, characters: nil), .down)
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 126, characters: nil), .up)
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 30, characters: "]"), .grow)
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 30, characters: "}"), .grow)
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 33, characters: "["), .shrink)
-        XCTAssertEqual(SelectionGeometry.key(keyCode: 33, characters: "{"), .shrink)
-        XCTAssertNil(SelectionGeometry.key(keyCode: 0, characters: "a"))
+        XCTAssertEqual(SelectionGeometry.key(keyCode: 123), .left)
+        XCTAssertEqual(SelectionGeometry.key(keyCode: 124), .right)
+        XCTAssertEqual(SelectionGeometry.key(keyCode: 125), .down)
+        XCTAssertEqual(SelectionGeometry.key(keyCode: 126), .up)
+        XCTAssertNil(SelectionGeometry.key(keyCode: 30))   // ] no longer resizes: the scroll wheel does
+        XCTAssertNil(SelectionGeometry.key(keyCode: 0))
     }
 
     func testArrowsMoveOneOrTenPoints() {
@@ -56,19 +53,27 @@ final class SelectionGeometryTests: XCTestCase {
         XCTAssertEqual(apply(.up, command: true, shift: true, to: tiny), CGRect(x: 10, y: 12, width: 3, height: 1))
     }
 
-    func testBracketsGrowAndShrinkEverySide() {
-        XCTAssertEqual(apply(.grow), CGRect(x: 99, y: 99, width: 202, height: 152))
-        XCTAssertEqual(apply(.grow, shift: true), CGRect(x: 90, y: 90, width: 220, height: 170))
-        XCTAssertEqual(apply(.shrink), CGRect(x: 101, y: 101, width: 198, height: 148))
-        XCTAssertEqual(apply(.shrink, shift: true), CGRect(x: 110, y: 110, width: 180, height: 130))
+    func testScrollGrowsAndShrinksEverySide() {
+        XCTAssertEqual(SelectionGeometry.resizeAllSides(rect, by: 1, in: bounds), CGRect(x: 99, y: 99, width: 202, height: 152))
+        XCTAssertEqual(SelectionGeometry.resizeAllSides(rect, by: 10, in: bounds), CGRect(x: 90, y: 90, width: 220, height: 170))
+        XCTAssertEqual(SelectionGeometry.resizeAllSides(rect, by: -1, in: bounds), CGRect(x: 101, y: 101, width: 198, height: 148))
+        XCTAssertEqual(SelectionGeometry.resizeAllSides(rect, by: -10, in: bounds), CGRect(x: 110, y: 110, width: 180, height: 130))
     }
 
     func testGrowStopsAtTheScreenAndShrinkKeepsAPoint() {
-        XCTAssertEqual(apply(.grow, shift: true, to: CGRect(x: 2, y: 0, width: 50, height: 40)),
+        XCTAssertEqual(SelectionGeometry.resizeAllSides(CGRect(x: 2, y: 0, width: 50, height: 40), by: 10, in: bounds),
                        CGRect(x: 0, y: 0, width: 62, height: 50))
-        XCTAssertEqual(apply(.grow, to: bounds), bounds)
+        XCTAssertEqual(SelectionGeometry.resizeAllSides(bounds, by: 1, in: bounds), bounds)
         let small = CGRect(x: 10, y: 10, width: 5, height: 1)
-        XCTAssertEqual(apply(.shrink, shift: true, to: small), CGRect(x: 12, y: 10, width: 1, height: 1))
+        XCTAssertEqual(SelectionGeometry.resizeAllSides(small, by: -10, in: bounds), CGRect(x: 12, y: 10, width: 1, height: 1))
+    }
+
+    func testRoundingKeepsTheSizeOfAFractionalPosition() {
+        // `integral` would make this 201 × 151; dragging repeated that on every move and grew the selection.
+        let r = CGRect(x: 100.5, y: 99.5, width: 200, height: 150)
+        XCTAssertEqual(SelectionGeometry.rounded(r).size, r.size)
+        XCTAssertEqual(SelectionGeometry.rounded(CGRect(x: 10.2, y: 20.7, width: 30.6, height: 40.1)),
+                       CGRect(x: 10, y: 21, width: 31, height: 40))
     }
 
     func testPlainDragSpansStartAndCurrent() {

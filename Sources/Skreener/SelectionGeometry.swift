@@ -3,29 +3,24 @@ import Foundation
 /// Rect math for the area selection (#102, #103), kept free of AppKit so `swift test` covers it. Rects are in
 /// view coordinates (bottom-left origin, points).
 enum SelectionGeometry {
-    enum Key: Equatable { case left, right, down, up, grow, shrink }
+    enum Key: Equatable { case left, right, down, up }
 
-    /// Smallest selection the keys shrink to.
+    /// Smallest selection the keys and the scroll wheel shrink to.
     static let minSide: CGFloat = 1
 
-    /// The selection key for a key code (arrows) or typed character (`[` `]`, or `{` `}` with Shift).
-    static func key(keyCode: UInt16, characters: String?) -> Key? {
+    /// The selection key for an arrow key code.
+    static func key(keyCode: UInt16) -> Key? {
         switch keyCode {
         case 123: return .left
         case 124: return .right
         case 125: return .down
         case 126: return .up
-        default: break
-        }
-        switch characters {
-        case "]", "}": return .grow
-        case "[", "{": return .shrink
         default: return nil
         }
     }
 
-    /// Arrows move the selection; ⌘ + arrows move its right or bottom edge (→ / ↓ grow, ← / ↑ shrink); `]` / `[` grow
-    /// or shrink every side. One point per press, ten with Shift. The result stays inside `bounds`.
+    /// Arrows move the selection; ⌘ + arrows move its right or bottom edge (→ / ↓ grow, ← / ↑ shrink). One point per
+    /// press, ten with Shift. The result stays inside `bounds`.
     static func apply(_ key: Key, command: Bool, shift: Bool, to rect: CGRect, in bounds: CGRect) -> CGRect {
         let step: CGFloat = shift ? 10 : 1
         var r = rect
@@ -45,16 +40,26 @@ enum SelectionGeometry {
         case (.up, true):
             let h = max(r.height - step, minSide)
             r = CGRect(x: r.minX, y: r.maxY - h, width: r.width, height: h)
-        case (.grow, _):
-            return r.insetBy(dx: -step, dy: -step).intersection(bounds)
-        case (.shrink, _):
-            let dx = min(step, max((r.width - minSide) / 2, 0)), dy = min(step, max((r.height - minSide) / 2, 0))
-            return r.insetBy(dx: dx, dy: dy)
         }
         // A move slides the whole rect back inside the bounds.
         r.origin.x = min(max(r.minX, bounds.minX), bounds.maxX - r.width)
         r.origin.y = min(max(r.minY, bounds.minY), bounds.maxY - r.height)
         return r
+    }
+
+    /// Grows (positive `points`) or shrinks every side of `rect` by `points`, for the scroll wheel. A grown rect stays
+    /// inside `bounds`; a shrunk one keeps at least `minSide` each way.
+    static func resizeAllSides(_ rect: CGRect, by points: CGFloat, in bounds: CGRect) -> CGRect {
+        if points >= 0 { return rect.insetBy(dx: -points, dy: -points).intersection(bounds) }
+        let dx = min(-points, max((rect.width - minSide) / 2, 0)), dy = min(-points, max((rect.height - minSide) / 2, 0))
+        return rect.insetBy(dx: dx, dy: dy)
+    }
+
+    /// `rect` with each edge on the nearest whole point. Unlike `integral`, which rounds outwards, this keeps the size
+    /// when only the position is fractional, so moving a selection never grows it.
+    static func rounded(_ rect: CGRect) -> CGRect {
+        let minX = rect.minX.rounded(), minY = rect.minY.rounded()
+        return CGRect(x: minX, y: minY, width: rect.maxX.rounded() - minX, height: rect.maxY.rounded() - minY)
     }
 
     /// The rect being dragged from `start` to `current`. `square` (Shift) makes it a square on the longer side;

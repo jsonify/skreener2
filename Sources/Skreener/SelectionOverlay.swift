@@ -184,6 +184,8 @@ private final class SelectionView: NSView {
     private var hoverWindow: SCWindow?
     private var spaceDown = false
     private var dismantled = false
+    /// Scrolling not yet applied: the selection changes by whole points.
+    private var scrollRemainder: CGFloat = 0
     private static let grab: CGFloat = 8
 
     var isAdjusting: Bool { adjusted != nil }
@@ -276,6 +278,8 @@ private final class SelectionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // Only the primary button selects; mice can report other buttons through the primary-button events too.
+        guard event.buttonNumber == 0 else { return }
         let p = convert(event.locationInWindow, from: nil)
         if mode == .window {
             // Hit-test at the click itself: after Space switched modes there may have been no mouse move yet.
@@ -307,10 +311,15 @@ private final class SelectionView: NSView {
         cursorPoint = p
         switch drag {
         case .move(let offset)?:
-            if let r = adjusted { adjusted = SelectionGeometry.move(r, to: NSPoint(x: p.x - offset.x, y: p.y - offset.y), in: bounds).integral }
+            if let r = adjusted {
+                // Whole-point origin, same size: `integral` grew the selection by a point on fractional positions.
+                let o = NSPoint(x: (p.x - offset.x).rounded(), y: (p.y - offset.y).rounded())
+                adjusted = SelectionGeometry.move(r, to: o, in: bounds)
+            }
         case .resize(let i, let r)?:
             let n = SelectionGeometry.resize(r, handle: i, to: p, in: bounds)
-            if n.width >= 1, n.height >= 1 { adjusted = n.integral }
+            let e = SelectionGeometry.rounded(n)
+            if e.width >= 1, e.height >= 1 { adjusted = e }
         case .new?:
             // Holding Space moves the whole selection instead of resizing it.
             if spaceDown, let s = start, let c = current {
@@ -333,11 +342,32 @@ private final class SelectionView: NSView {
         needsDisplay = true
         guard mode == .area, let r = rect, r.width > 3, r.height > 3 else { return }
         if adjustable {
-            adjusted = r.integral
+            adjusted = SelectionGeometry.rounded(r)
             updateCursor(at: convert(event.locationInWindow, from: nil))
         } else {
             take(r)
         }
+    }
+
+    // The middle and other buttons do nothing here.
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
+
+    /// Wheel (or two-finger scroll) up grows every side of the selection being adjusted, down shrinks it.
+    override func scrollWheel(with event: NSEvent) {
+        guard mode == .area, let r = adjusted, drag == nil else { return }
+        // Shift turns a mouse wheel into horizontal scrolling. Natural scrolling flips the sign; undo that so
+        // up always grows.
+        var d = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
+        if event.isDirectionInvertedFromDevice { d = -d }
+        // A wheel notch is a line: two points per line; a trackpad reports points already.
+        scrollRemainder += event.hasPreciseScrollingDeltas ? d : d * 2
+        let step = scrollRemainder.rounded(.towardZero)
+        guard step != 0 else { return }
+        scrollRemainder -= step
+        adjusted = SelectionGeometry.rounded(SelectionGeometry.resizeAllSides(r, by: step, in: bounds))
+        needsDisplay = true
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -357,7 +387,7 @@ private final class SelectionView: NSView {
             case 36, 76: take(r)
             case 49: break   // no switching to window picking with a selection on screen
             default:
-                guard let key = SelectionGeometry.key(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers) else {
+                guard let key = SelectionGeometry.key(keyCode: event.keyCode) else {
                     super.keyDown(with: event); return
                 }
                 let mods = event.modifierFlags
