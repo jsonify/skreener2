@@ -28,6 +28,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Adjustable area selection: after the drag it stays with handles (move, resize, drag a new one, also on another screen); Return or double-click captures, Esc cancels; Settings → General toggle, on by default (Record Screen keeps its own picker) — M (#102)
 - [~] Area selection keys: Shift-drag = square, ⌥-drag = from the center; on the adjustable selection arrows move 1/10 pt, ⌘ + arrows resize the right/bottom edge, scroll wheel up/down grows/shrinks every side; middle button does nothing; moving no longer grows it (math in `SelectionGeometry`, unit-tested) — S (#103)
 - [~] Window capture options: transparent background, shadow toggle, padding (menu → Window Capture) — M (#50)
+- [~] Window picking: the screen isn't dimmed; the window under the pointer gets a blue tint over its whole frame (also where other windows cover it), the pointer is a camera, nothing is reordered — S (#129)
 - [~] Auto-hide desktop icons only while capturing (menu toggle; restores after the capture) — S (#51)
 - [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S (#52)
 
@@ -70,6 +71,9 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Drag Me: Skreener hides while dragging, with a 100×85 pt preview card under the pointer (pointer over its bottom-right quadrant); a cancelled drag brings it back, after a drop the Dock icon / ⌘-Tab does. Pinned screenshots and Quick Access stay on screen — S (#81)
 - [~] Smart Erase (E; fills the box with the most common color around it) and Text Only for pixelate, blur and erase (OCR finds the lines in the box; only those are hidden) — M (#105)
 - [~] Magnifier (M): lens showing an area at 1.5/2/3/4×, circle or rectangle, border and connector line; lens and area move separately — M (#106)
+- [~] Pixel ruler: hold 1 / ← → (across) or 2 / ↑ ↓ (up and down; arrows only with nothing selected) to measure the run of color under the pointer, Shift adds a border on each side, click keeps it as an editable ruler annotation (pt and px on Retina; `RulerScanner`, unit-tested) — M (#107)
+- [~] Color picker: Tab copies the pixel under the pointer, ⇧Tab the darkest color within 10 px, ⇧C the average color of a dragged area; formats HEX, HEX without #, CSS rgba, RGB 0–1, Android, UIColor, C#, OKLCH (picked from the footer's live color readout, remembered); Tab while typing a label inserts the color — M (#108)
+- [~] Check Contrast (⇧K, footer color menu or Image menu): drag over text and its background; WCAG 2 ratio with AA/AAA, or APCA Lc (button or ⌥-click switches); each drag measures again, Esc ends — M (#109)
 
 ## Batch 5 — capture modes
 - [~] Scrolling capture (Capture Scrolling ⌃⇧8): pick an area, scroll it yourself; frames are grabbed ~8×/s (display filter set up once) and stitched off the main thread by matching rows, leaving out blank rows and the scroll-bar strip at the right edge; sticky header/footer worked out per frame and kept once, including a footer that appears mid-capture; mostly blank stretches are bridged (blank space may come out shorter); scrolling back up a little is followed, not lost; max 30,000 px; Done / ⌃⇧8 finishes, Esc / Cancel throws it away — L (#82)

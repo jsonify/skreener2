@@ -75,6 +75,16 @@ enum Preferences {
         get { d.bool(forKey: "matchExtensionColor") }
         set { d.set(newValue, forKey: "matchExtensionColor") }
     }
+    /// How the editor's color picker writes colors (#108).
+    static var colorFormat: ColorFormat {
+        get { d.string(forKey: "colorFormat").flatMap(ColorFormat.init(rawValue:)) ?? .hex }
+        set { d.set(newValue.rawValue, forKey: "colorFormat") }
+    }
+    /// The editor's contrast checker: a WCAG 2 ratio or an APCA Lc (#109).
+    static var contrastMethod: Contrast.Method {
+        get { d.string(forKey: "contrastMethod").flatMap(Contrast.Method.init(rawValue:)) ?? .wcag }
+        set { d.set(newValue.rawValue, forKey: "contrastMethod") }
+    }
     /// Run skreener:// links (Raycast, Alfred, Shortcuts, scripts). Off until the user allows it, from Settings or
     /// from the prompt the first link shows.
     static var allowURLScheme: Bool {
