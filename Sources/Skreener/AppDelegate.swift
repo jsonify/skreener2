@@ -168,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
         Preferences.allowURLScheme = true
+        if SettingsWindowController.isOpen { SettingsWindowController.shared.refreshURLScheme() }
         return true
     }
 
