@@ -31,7 +31,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 
 ## Batch 3 — screen recording (biggest gap)
 - [~] Record area/fullscreen to MP4 (SCStream + AVAssetWriter; Record Screen ⌃⇧7: drag an area or Space to pick a window, whole-screen button in the picker; saved to the save folder; afterwards the same Quick Access preview as screenshots, with open / show in Finder / share / copy; control bar matches the scrolling-capture bar (#95)) — L (#53)
-- [~] System audio + microphone options (Settings → Screen Recording; mic needs macOS 15; each goes to its own audio track), cursor, 30/60 fps — M (#54)
+- [~] System audio + microphone options (Settings → Screen Recording; mic needs macOS 15; with both on they end up in one mixed track, see below), cursor, 30/60 fps — M (#54)
 - [~] Record Screen picker (CleanShot-style): "Drag to record… Press Space to select a window" banner on every screen (other screens stay dimmed with the banner while adjusting; drag there to move the selection; Space picks a window; with "Remember last selection" it opens on the saved area with the banner on top); then the selection stays adjustable (handles, move, drag a new one, arrow keys, typed width × height, whole screen, aspect/size presets); mode bar (Area, Fullscreen, Window, Timer, OCR, Recording + size card); Recording (or ↩) shows the panel with options, mic / system audio / click / keystroke toggles, Record GIF ⌥↩ / Record Video ↩ — M (#55)
 - [~] Recording options popover: show controls, remember last selection, time in menu bar, dim screen, countdown, cursor, highlight clicks (color, size), keystrokes (all/shortcuts, size, top/bottom), frame rate — M (#56)
 - [ ] "Do Not Disturb" while recording (no public API; maybe via a user Shortcut) — S (#23)
@@ -39,9 +39,9 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [ ] Webcam overlay in recordings — M (#25)
 - [~] Record to GIF (records an MP4, converts at 15 fps, max 960 px wide) — M (#57)
 - [~] Click highlighting and keystroke display, drawn into the video (keystrokes need Accessibility access) — M (#58)
-- [ ] Trim editor for recordings — M (#26)
+- [~] Trim editor for recordings: Trim on the recording's Quick Access preview opens a player with AVKit's trim bar; Trim saves the cut over the file (passthrough, no re-encode); a GIF is made again from its trimmed video — M (#26)
 - [~] Recording HUD (timer, pause/resume, stop; dashed frame around the area) and menu-bar stop (the icon turns into a stop button; ⌃⇧7 stops too) — S (#59)
-- [ ] Mix system audio and microphone into one track (players that only play the first audio track miss the mic) — S (#27)
+- [~] Mix system audio and microphone into one track (players that only play the first audio track miss the mic): recorded to separate tracks, then mixed into one stereo AAC track after stopping (video copied, not re-encoded); if mixing fails the separate tracks are kept — S (#27)
 
 ## Batch 4 — editor
 - [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M (#60)
@@ -78,10 +78,11 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 ## Batch 6 — sharing & output
 - [~] Settings window: existing options moved out of the menu, shortcut list, version + build commit — S (#85)
 - [~] Settings: format PNG/JPEG (JPEG flattens transparency onto white), filename template (%Y %y %m %d %H %M %S; " 2" etc. when the name is taken), save Retina captures at 1× — S (#86)
-- [ ] Settings: hotkey rebinding — M (#31)
+- [~] Settings: hotkey rebinding, CleanShot-style Shortcuts pane: groups (Screenshots, Screen Recording, Other) with a shortcut recorder per action (click and type; Esc cancels, Delete / × clears; reset arrow per row; Restore Defaults); refuses combinations used by another action or without ⌘/⌃/⌥ (F-keys alone are fine), warns about macOS ones (⇧⌘3/4/5, ⌘Space…), plain ⌘ + key, and ones macOS won't register; saved in UserDefaults, re-registered live, shown in the menu; self-timer, desktop icons, open / pin can have shortcuts too — M (#31, #97)
 - [~] Settings window redesign (CleanShot-style): sidebar with colored icons (General, After Capture, Shortcuts, Screenshots, Screen Recording, Annotate, About), options in rounded groups with switches; 810 pt wide (fixed), 660 pt tall by default, height resizable — M (#87)
 - [~] Quick Access (CleanShot-style, #21): shown alongside the editor (own Settings toggle); stays until an action; hover shows corner buttons (close, edit, pin, share) and Copy / Save pills; previews stack upwards, newest at the bottom; they fade out while a new capture is taken and come back after its editor opens; Edit brings back the capture's editor tab if it is still open — M (#88)
 - [ ] Quick Access: drag-and-drop out, swipe to dismiss, position setting — M (#32)
+- [~] Quick Access previews (screenshots and recordings) rest semi-transparent (65%) and turn opaque while hovered; a preview that appears under the pointer, or whose share sheet is open, is opaque — S (#98)
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M (#33)
 - [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history; always shares a named file so the sheet shows its thumbnail and name — S (#89)
 - [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S (#90)
@@ -94,5 +95,5 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 ## Engineering
 - [x] CI: macOS runner builds the app and runs `swift test` (test target `SkreenerTests`), warnings as errors — S (#36)
 - [x] Unit tests: coordinate conversion, file names + PNG/JPEG/1× output, OCR + redaction on rendered text, scroll matching, GIF export — M (#37)
-- [ ] Developer-ID signing + notarisation script — M (#38)
+- [~] Developer-ID signing + notarisation script (`Scripts/release.sh`: hardened runtime + entitlements, notarytool, stapler, DMG + zip; opt-in tag workflow `release.yml`) — M (#38)
 - [~] App icon and menu-bar template image — S (#91)

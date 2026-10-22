@@ -101,12 +101,12 @@ final class RecordingController {
             Task { @MainActor [weak self] in
                 do {
                     try await GIFExporter.export(url, to: gif)
-                    self?.delivered(gif)
+                    self?.delivered(gif, video: url)
                 } catch {
                     NSLog("GIF export failed: \(error)")
                     NSSound.beep()
+                    try? FileManager.default.removeItem(at: url)
                 }
-                try? FileManager.default.removeItem(at: url)
             }
         case .failure(let error):
             NSLog("Recording failed: \(error)")
@@ -114,13 +114,18 @@ final class RecordingController {
         }
     }
 
-    private func delivered(_ url: URL) {
+    /// `video` is the temporary MP4 a GIF was made from: the preview keeps it for Trim, else it is deleted here.
+    private func delivered(_ url: URL, video: URL? = nil) {
         NSSound(named: "Glass")?.play()
         if Preferences.copyToClipboard {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([url as NSURL])
         }
-        if Preferences.showQuickAccess { QuickAccessController.show(recording: url) }
+        if Preferences.showQuickAccess {
+            QuickAccessController.show(recording: url, video: video)
+        } else if let video {
+            try? FileManager.default.removeItem(at: video)
+        }
     }
 
     private func hideWindows() {
@@ -201,7 +206,7 @@ final class RecordingController {
         let pause = PillButton(title: nil, symbol: "pause.fill", style: .tinted) { [weak self] in self?.togglePause() }
         pause.toolTip = "Pause"
         let stop = PillButton(title: "Stop", symbol: "stop.fill", style: .filled) { [weak self] in self?.stop() }
-        stop.toolTip = "Stop Recording (⌃⇧7)"
+        stop.toolTip = ShortcutStore.combo(for: .recordScreen).map { "Stop Recording (\($0.displayString))" } ?? "Stop Recording"
         let row = NSStackView(views: [d, l, pause, stop])
         row.spacing = 8
         row.setCustomSpacing(14, after: l)

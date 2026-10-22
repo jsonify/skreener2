@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let selfTimer = SelfTimer()
     private var lastArea: (NSScreen, CGRect)?
     private var desktopIconsItem: NSMenuItem!
+    /// Menu items that show their action's global shortcut (see `updateMenuShortcuts`).
+    private var shortcutItems: [HotKeyAction: NSMenuItem] = [:]
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
@@ -33,16 +35,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Editor tabs are Skreener's own, so AppKit's Show Tab Bar / Show All Tabs menu items would do nothing.
         NSWindow.allowsAutomaticWindowTabbing = false
 
-        let mods = controlKey | shiftKey
-        HotKeys.shared.register(keyCode: kVK_ANSI_1, modifiers: mods) { [weak self] in self?.capturePreviousArea() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_2, modifiers: mods) { [weak self] in self?.captureText() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_3, modifiers: mods) { [weak self] in self?.captureFullscreen() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_4, modifiers: mods) { [weak self] in self?.captureArea() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_5, modifiers: mods) { [weak self] in self?.captureWindow() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_6, modifiers: mods) { [weak self] in self?.captureAreaAndPin() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_7, modifiers: mods) { [weak self] in self?.recordScreen() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_8, modifiers: mods) { [weak self] in self?.captureScrolling() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_H, modifiers: mods) { [weak self] in self?.showHistory() }
+        // Global shortcuts (rebindable in Settings → Shortcuts, re-registered as soon as one changes).
+        let shortcuts = ShortcutCenter.shared
+        shortcuts.handlers = [
+            .captureArea: { [weak self] in self?.captureArea() },
+            .capturePreviousArea: { [weak self] in self?.capturePreviousArea() },
+            .captureAreaAndPin: { [weak self] in self?.captureAreaAndPin() },
+            .captureFullscreen: { [weak self] in self?.captureFullscreen() },
+            .captureWindow: { [weak self] in self?.captureWindow() },
+            .captureScrolling: { [weak self] in self?.captureScrolling() },
+            .captureText: { [weak self] in self?.captureText() },
+            .timedArea: { [weak self] in self?.timedArea() },
+            .timedWindow: { [weak self] in self?.timedWindow() },
+            .timedFullscreen: { [weak self] in self?.timedFullscreen() },
+            .recordScreen: { [weak self] in self?.recordScreen() },
+            .showHistory: { [weak self] in self?.showHistory() },
+            .toggleDesktopIcons: { [weak self] in self?.toggleDesktopIcons() },
+            .openFile: { [weak self] in self?.openFile() },
+            .openClipboard: { [weak self] in self?.openClipboard() },
+            .pinFile: { [weak self] in self?.pinFile() },
+            .pinClipboard: { [weak self] in self?.pinClipboard() },
+        ]
+        shortcuts.onChange = { [weak self] in self?.updateMenuShortcuts() }
+        shortcuts.register()
+        updateMenuShortcuts()
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
         recording.onTick = { [weak self] time in
             self?.statusItem.button?.title = Preferences.recordTimeInMenuBar ? " " + time : ""
@@ -57,22 +73,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func buildMenu() -> NSMenu {
         let m = NSMenu()
-        func add(_ t: String, _ s: Selector, _ key: String = "") {
-            let i = NSMenuItem(title: t, action: s, keyEquivalent: key)
-            i.keyEquivalentModifierMask = [.control, .shift]; i.target = self; m.addItem(i)
+        // Key equivalents come from the global shortcuts (`updateMenuShortcuts`).
+        func add(_ t: String, _ s: Selector, _ shortcut: HotKeyAction) {
+            let i = NSMenuItem(title: t, action: s, keyEquivalent: "")
+            i.target = self; m.addItem(i)
+            shortcutItems[shortcut] = i
         }
-        add("Capture Area", #selector(captureArea), "4")
-        add("Capture Previous Area", #selector(capturePreviousArea), "1")
-        add("Capture Area & Pin", #selector(captureAreaAndPin), "6")
-        add("Capture Fullscreen", #selector(captureFullscreen), "3")
-        add("Capture Window", #selector(captureWindow), "5")
-        add("Capture Scrolling", #selector(captureScrolling), "8")
-        add("Capture Text (OCR)", #selector(captureText), "2")
+        add("Capture Area", #selector(captureArea), .captureArea)
+        add("Capture Previous Area", #selector(capturePreviousArea), .capturePreviousArea)
+        add("Capture Area & Pin", #selector(captureAreaAndPin), .captureAreaAndPin)
+        add("Capture Fullscreen", #selector(captureFullscreen), .captureFullscreen)
+        add("Capture Window", #selector(captureWindow), .captureWindow)
+        add("Capture Scrolling", #selector(captureScrolling), .captureScrolling)
+        add("Capture Text (OCR)", #selector(captureText), .captureText)
         let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
         let timerMenu = NSMenu()
-        for (title, sel) in [("Area…", #selector(timedArea)), ("Window…", #selector(timedWindow)),
-                             ("Fullscreen", #selector(timedFullscreen))] {
+        for (title, sel, shortcut) in [("Area…", #selector(timedArea), HotKeyAction.timedArea),
+                                       ("Window…", #selector(timedWindow), HotKeyAction.timedWindow),
+                                       ("Fullscreen", #selector(timedFullscreen), HotKeyAction.timedFullscreen)] {
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; timerMenu.addItem(i)
+            shortcutItems[shortcut] = i
         }
         timerMenu.addItem(.separator())
         for s in [3, 5, 10] {
@@ -82,19 +102,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timerMenu.delegate = self
         timerItem.submenu = timerMenu; m.addItem(timerItem)
         m.addItem(.separator())
-        add("Record Screen", #selector(recordScreen), "7")
+        add("Record Screen", #selector(recordScreen), .recordScreen)
         m.addItem(.separator())
-        add("Capture History", #selector(showHistory), "h")
+        add("Capture History", #selector(showHistory), .showHistory)
         m.addItem(.separator())
         desktopIconsItem = NSMenuItem(title: DesktopIcons.visible ? "Hide Desktop Icons" : "Show Desktop Icons",
                                       action: #selector(toggleDesktopIcons), keyEquivalent: "")
         desktopIconsItem.target = self; m.addItem(desktopIconsItem)
+        shortcutItems[.toggleDesktopIcons] = desktopIconsItem
         m.addItem(.separator())
-        for (title, sel, key) in [("Open…", #selector(openFile), ""), ("Open from Clipboard", #selector(openClipboard), "v"),
-                                  ("Pin to the Screen…", #selector(pinFile), ""),
-                                  ("Pin from Clipboard", #selector(pinClipboard), "")] {
-            let i = NSMenuItem(title: title, action: sel, keyEquivalent: key)
-            i.keyEquivalentModifierMask = key.isEmpty ? [] : [.command]; i.target = self; m.addItem(i)
+        for (title, sel, shortcut) in [("Open…", #selector(openFile), HotKeyAction.openFile),
+                                       ("Open from Clipboard", #selector(openClipboard), HotKeyAction.openClipboard),
+                                       ("Pin to the Screen…", #selector(pinFile), HotKeyAction.pinFile),
+                                       ("Pin from Clipboard", #selector(pinClipboard), HotKeyAction.pinClipboard)] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; m.addItem(i)
+            shortcutItems[shortcut] = i
         }
         m.addItem(.separator())
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
@@ -108,6 +130,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+
+    /// Shows each action's current global shortcut in the menu. Open from Clipboard keeps its ⌘V (which only works
+    /// while the menu is open) when it has no global shortcut.
+    private func updateMenuShortcuts() {
+        for (action, item) in shortcutItems {
+            if let combo = ShortcutStore.combo(for: action), let key = combo.keyEquivalent {
+                item.keyEquivalent = key
+                item.keyEquivalentModifierMask = combo.modifierFlags
+            } else if action == .openClipboard {
+                item.keyEquivalent = "v"
+                item.keyEquivalentModifierMask = [.command]
+            } else {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+        }
+    }
 
     /// Self-Timer submenu: tick the current delay.
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -355,7 +394,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             button.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop Recording")
             button.contentTintColor = .systemRed
             button.imagePosition = .imageLeading
-            button.toolTip = "Stop Recording (⌃⇧7)"
+            button.toolTip = ShortcutStore.combo(for: .recordScreen).map { "Stop Recording (\($0.displayString))" }
+                ?? "Stop Recording"
             button.target = self; button.action = #selector(stopRecording)
         } else {
             endCapture()

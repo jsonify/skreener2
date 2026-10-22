@@ -11,6 +11,8 @@ fi
 APP=build/Skreener.app
 # Shown in About Skreener, so you can tell which commit is actually running.
 BUILD=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
+# Marketing version (About, Finder). Scripts/release.sh sets it from --version or the git tag.
+VERSION="${SKREENER_VERSION:-0.1.0}"
 # A running copy keeps the old code (and its hotkeys), so quit it before replacing the bundle.
 pkill -x Skreener 2>/dev/null && sleep 0.5 || true
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -27,7 +29,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSScreenCaptureUsageDescription</key><string>Skreener needs screen recording access to take screenshots and record the screen.</string>
@@ -54,6 +56,6 @@ else
 fi
 codesign --force --sign "$IDENTITY" "$APP"
 [ "$IDENTITY" = "-" ] && SIGNED="ad-hoc" || SIGNED="\"$IDENTITY\""
-echo "Built $APP at $BUILD (signed with $SIGNED)"
+echo "Built $APP $VERSION at $BUILD (signed with $SIGNED)"
 # Pass --run to launch it right away.
 if [ "${1:-}" = "--run" ]; then open "$APP"; fi
