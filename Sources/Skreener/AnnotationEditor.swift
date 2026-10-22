@@ -1379,7 +1379,14 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let dx = p.x - r.midX, dy = p.y - r.midY
         let hw = max(r.width / 2, 0.5), hh = max(r.height / 2, 0.5)
         guard dx != 0 || dy != 0 else { return NSPoint(x: r.midX, y: r.midY) }
-        let t = oval ? 1 / hypot(dx / hw, dy / hh) : min(dx == 0 ? .infinity : hw / abs(dx), dy == 0 ? .infinity : hh / abs(dy))
+        let t: CGFloat
+        if oval {
+            t = 1 / hypot(dx / hw, dy / hh)
+        } else {
+            let tx: CGFloat = dx == 0 ? .infinity : hw / abs(dx)
+            let ty: CGFloat = dy == 0 ? .infinity : hh / abs(dy)
+            t = min(tx, ty)
+        }
         return NSPoint(x: r.midX + dx * t, y: r.midY + dy * t)
     }
 

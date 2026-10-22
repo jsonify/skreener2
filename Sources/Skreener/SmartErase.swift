@@ -17,7 +17,8 @@ enum SmartErase {
         var buckets: [Int: (count: Int, r: Int, g: Int, b: Int, a: Int)] = [:]
         for strip in strips {
             for px in pixels(of: image, in: strip.intersection(bounds)) {
-                let key = (px.r >> 3) << 15 | (px.g >> 3) << 10 | (px.b >> 3) << 5 | (px.a >> 3)
+                let hi: Int = (px.r >> 3) << 15 | (px.g >> 3) << 10
+                let key: Int = hi | (px.b >> 3) << 5 | (px.a >> 3)
                 var s = buckets[key] ?? (count: 0, r: 0, g: 0, b: 0, a: 0)
                 s.count += 1; s.r += px.r; s.g += px.g; s.b += px.b; s.a += px.a
                 buckets[key] = s
@@ -44,8 +45,14 @@ enum SmartErase {
             return true
         }
         guard drawn else { return [] }
-        return stride(from: 0, to: buf.count, by: 4).map { i in
-            (r: Int(buf[i]), g: Int(buf[i + 1]), b: Int(buf[i + 2]), a: Int(buf[i + 3]))
+        var out: [(r: Int, g: Int, b: Int, a: Int)] = []
+        out.reserveCapacity(w * h)
+        var i = 0
+        while i + 3 < buf.count {
+            let r = Int(buf[i]), g = Int(buf[i + 1]), b = Int(buf[i + 2]), a = Int(buf[i + 3])
+            out.append((r: r, g: g, b: b, a: a))
+            i += 4
         }
+        return out
     }
 }

@@ -138,11 +138,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: skreener:// links
 
-    func application(_ application: NSApplication, open urls: [URL]) {
+    @MainActor func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls { openLink(url) }
     }
 
-    private func openLink(_ url: URL) {
+    @MainActor private func openLink(_ url: URL) {
         switch URLCommand.parse(url) {
         case .failure(let error):
             NSApp.activate(ignoringOtherApps: true)
@@ -157,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Links are off until the user says so: the first one asks, naming what it would do.
-    private func askToAllowLinks(_ url: URL, _ command: URLCommand) -> Bool {
+    @MainActor private func askToAllowLinks(_ url: URL, _ command: URLCommand) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Allow links to control Skreener?"
@@ -171,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
-    private func perform(_ command: URLCommand) {
+    @MainActor private func perform(_ command: URLCommand) {
         switch command.command {
         case .settings:
             openSettings()
