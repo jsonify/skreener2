@@ -498,15 +498,15 @@ private final class SelectionView: NSView {
         }
     }
 
-    /// Window picking (#129): the screen stays as it is; the window under the pointer gets a blue tint over its
-    /// whole frame, also the parts other windows cover, so it's clear which window a click takes. Nothing is
-    /// reordered: the window is captured on its own wherever it sits in the stack.
+    /// Window picking (#129): the screen stays as it is; the window under the pointer gets a tint (blue unless Settings
+    /// says otherwise) over its whole frame, also the parts other windows cover, so it's clear which window a click
+    /// takes. Nothing is reordered: the window is captured on its own wherever it sits in the stack.
     private func drawWindowHighlight() {
         if let w = hoverWindow {
-            let r = viewRect(for: w)
-            NSColor.systemBlue.withAlphaComponent(0.28).setFill()
+            let r = viewRect(for: w), tint = Preferences.windowHighlightColor
+            tint.withAlphaComponent(0.28).setFill()
             r.fill()
-            NSColor.systemBlue.withAlphaComponent(0.85).setStroke()
+            tint.withAlphaComponent(0.85).setStroke()
             let b = NSBezierPath(rect: r.insetBy(dx: 1, dy: 1)); b.lineWidth = 2; b.stroke()
         }
         if let hint, hoverWindow == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }

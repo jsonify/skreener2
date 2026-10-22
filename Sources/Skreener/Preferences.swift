@@ -209,6 +209,20 @@ enum Preferences {
         get { d.object(forKey: "windowTransparentBackground") as? Bool ?? true }
         set { d.set(newValue, forKey: "windowTransparentBackground") }
     }
+    /// The tint over the window under the pointer while picking a window (#129); the system blue until changed.
+    static var windowHighlightColor: NSColor {
+        get {
+            guard let hex = d.string(forKey: "windowHighlightColor"), let v = Int(hex, radix: 16) else { return .systemBlue }
+            return NSColor(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
+                           blue: CGFloat(v & 0xFF) / 255, alpha: 1)
+        }
+        set {
+            guard let c = newValue.usingColorSpace(.sRGB) else { return }
+            let byte = { (v: CGFloat) in Int((min(max(v, 0), 1) * 255).rounded()) }
+            d.set(String(format: "%02lX%02lX%02lX", byte(c.redComponent), byte(c.greenComponent), byte(c.blueComponent)),
+                  forKey: "windowHighlightColor")
+        }
+    }
     /// Extra space (points) around window captures.
     static var windowPadding: Int {
         get { d.integer(forKey: "windowPadding") }

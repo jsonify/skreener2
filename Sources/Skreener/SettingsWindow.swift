@@ -317,6 +317,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             padding.selectItem(withTag: Preferences.windowPadding)
             bind(padding) { Preferences.windowPadding = ($0 as? NSPopUpButton)?.selectedTag() ?? 0 }
 
+            let highlight = NSColorWell(style: .minimal)
+            highlight.color = Preferences.windowHighlightColor
+            highlight.supportsAlpha = false
+            bind(highlight) { Preferences.windowHighlightColor = ($0 as? NSColorWell)?.color ?? .systemBlue }
+
             return [
                 group("File", [
                     row("Format", "JPEG has no transparency: transparent areas become white.", format),
@@ -332,6 +337,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         Preferences.windowTransparentBackground = $0
                     },
                     row("Padding", padding),
+                    row("Highlight color", "Tints the window under the pointer while you pick one.", highlight),
                 ]),
             ]
 
