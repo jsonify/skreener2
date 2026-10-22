@@ -226,10 +226,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
                 guard audioInput != nil, micInput != nil else { report(.success(url)); return }
                 // Players that only play the first audio track would miss the mic, so both are mixed into one.
                 Task { [self] in
-                    do { try await AudioMixer.mixAudioTracks(of: url) } catch {
+                    do { try await AudioMixer.mixAudioTracks(of: self.url) } catch {
                         NSLog("Mixing the audio tracks failed, keeping them separate: \(error)")
                     }
-                    report(.success(url))
+                    self.report(.success(self.url))
                 }
             }
         }
