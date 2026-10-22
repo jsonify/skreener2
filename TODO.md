@@ -28,7 +28,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Adjustable area selection: after the drag it stays with handles (move, resize, drag a new one, also on another screen); Return or double-click captures, Esc cancels; Settings → General toggle, on by default (Record Screen keeps its own picker) — M (#102)
 - [~] Area selection keys: Shift-drag = square, ⌥-drag = from the center; on the adjustable selection arrows move 1/10 pt, ⌘ + arrows resize the right/bottom edge, scroll wheel up/down grows/shrinks every side; middle button does nothing; moving no longer grows it (math in `SelectionGeometry`, unit-tested) — S (#103)
 - [~] Window capture options: transparent background, shadow toggle, padding (menu → Window Capture) — M (#50)
-- [~] Window picking: the screen isn't dimmed; the window under the pointer gets a blue tint over its whole frame (also where other windows cover it), the pointer is a camera, nothing is reordered; the tint color is in Settings → Screenshots — S (#129)
+- [~] Window picking: the screen isn't dimmed; the visible part of the window under the pointer gets a blue tint (windows in front of it stay clear), the pointer is a camera, nothing is reordered; the tint color is in Settings → Screenshots — S (#129)
 - [~] Auto-hide desktop icons only while capturing (menu toggle; restores after the capture) — S (#51)
 - [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S (#52)
 

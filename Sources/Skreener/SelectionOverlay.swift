@@ -498,16 +498,27 @@ private final class SelectionView: NSView {
         }
     }
 
-    /// Window picking (#129): the screen stays as it is; the window under the pointer gets a tint (blue unless Settings
-    /// says otherwise) over its whole frame, also the parts other windows cover, so it's clear which window a click
-    /// takes. Nothing is reordered: the window is captured on its own wherever it sits in the stack.
+    /// Window picking (#129): the screen stays as it is; the part of the window under the pointer that can be seen gets
+    /// a tint (blue unless Settings says otherwise) and a border. Windows in front of it stay clear. Nothing is
+    /// reordered: the window is captured on its own, whole, wherever it sits in the stack.
     private func drawWindowHighlight() {
-        if let w = hoverWindow {
+        if let w = hoverWindow, let i = windows.firstIndex(where: { $0.windowID == w.windowID }),
+           let ctx = NSGraphicsContext.current?.cgContext {
             let r = viewRect(for: w), tint = Preferences.windowHighlightColor
+            ctx.saveGState()
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             tint.withAlphaComponent(0.28).setFill()
             r.fill()
             tint.withAlphaComponent(0.85).setStroke()
             let b = NSBezierPath(rect: r.insetBy(dx: 1, dy: 1)); b.lineWidth = 2; b.stroke()
+            // `windows` runs front to back: the ones before this window cover it, so cut them out of the tint.
+            ctx.setBlendMode(.clear)
+            for front in windows[..<i] {
+                let f = viewRect(for: front)
+                if f.intersects(r) { ctx.fill(f) }
+            }
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
         }
         if let hint, hoverWindow == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
     }
