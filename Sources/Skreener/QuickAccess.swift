@@ -139,6 +139,11 @@ import AVFoundation
         } else {
             card.addCenter([("Copy", { [weak self] in self?.copy() }), ("Save", { [weak self] in self?.save() })])
         }
+        // Double-clicking the preview does what Edit does (Open for a recording) (#127).
+        card.onDoubleClick = { [weak self] in
+            guard let self else { return }
+            if recording != nil { open() } else { edit() }
+        }
         panel.contentView = card
     }
 
@@ -280,6 +285,9 @@ private final class QuickAccessCard: NSView {
     enum Corner { case topLeft, topRight, bottomLeft, bottomRight }
 
     private let controls = NSView()
+    private let thumb = NSImageView()
+    /// A double-click anywhere but on a button.
+    var onDoubleClick: (() -> Void)?
     private var pointerInside = false { didSet { hovering = pointerInside || held } }
     /// Keeps the card opaque with its buttons showing whatever the pointer does, e.g. while its share sheet is open.
     var held = false { didSet { hovering = pointerInside || held } }
@@ -304,7 +312,7 @@ private final class QuickAccessCard: NSView {
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
 
-        let thumb = NSImageView(frame: bounds)
+        thumb.frame = bounds
         thumb.image = image
         thumb.imageScaling = .scaleProportionallyUpOrDown
         thumb.animates = true   // a GIF recording plays
@@ -354,6 +362,16 @@ private final class QuickAccessCard: NSView {
 
     /// Matches the hover state to where the pointer is, for when the card shows up (or comes back) under it.
     func syncHover() { pointerInside = PreviewHover.isPointer(inside: self) }
+
+    /// Clicks on the thumbnail or the veil land here (not on the image view), so a double-click can open the editor.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === thumb || hit === controls ? self : hit
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 { onDoubleClick?() }
+    }
 
     override func mouseEntered(with event: NSEvent) { pointerInside = true }
     override func mouseExited(with event: NSEvent) { pointerInside = false }
