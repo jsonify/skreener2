@@ -245,6 +245,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Capture", [
                     toggle("Freeze screen while selecting", "Shows a still frame while you pick an area and captures from it.",
                            Preferences.freezeScreen) { Preferences.freezeScreen = $0 },
+                    toggle("Adjust the area before capturing",
+                           "The selection stays after the drag: drag its handles, move it or use the keys, then press "
+                           + "Return or double-click it to capture. Esc cancels.",
+                           Preferences.adjustAreaBeforeCapture) { Preferences.adjustAreaBeforeCapture = $0 },
                     toggle("Show cursor in screenshots", nil, Preferences.showCursor) { Preferences.showCursor = $0 },
                     toggle("Hide desktop icons while capturing", nil, Preferences.hideIconsWhileCapturing) {
                         Preferences.hideIconsWhileCapturing = $0

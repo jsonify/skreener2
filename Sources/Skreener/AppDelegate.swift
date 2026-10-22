@@ -389,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ]
         Task { @MainActor [weak self] in
             let windows = mode == .window ? await CaptureService.onScreenWindows() : []
-            self?.overlay.begin(mode: mode, windows: windows, hints: hints) { [weak self] sel in
+            self?.overlay.begin(mode: mode, windows: windows, hints: hints, adjustable: false) { [weak self] sel in
                 guard let self else { return }
                 switch sel {
                 case .area(let screen, let rect, _)?:

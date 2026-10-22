@@ -33,13 +33,18 @@ final class SelectionOverlay {
     /// Banner text shown in the middle of every screen, per mode (nil = no banner). With both set, Space
     /// (before a drag starts) switches between picking an area and picking a window.
     private var hints: [Mode: String] = [:]
+    /// The selection stays adjustable after the drag; Return or a double-click takes it (#102).
+    private var adjustable = false
 
-    func begin(mode: Mode, windows: [SCWindow], hints: [Mode: String] = [:], completion: @escaping (Selection?) -> Void) {
+    /// `adjustable` keeps the dragged area on screen to refine it before it is taken (Settings → General).
+    func begin(mode: Mode, windows: [SCWindow], hints: [Mode: String] = [:],
+               adjustable: Bool = Preferences.adjustAreaBeforeCapture, completion: @escaping (Selection?) -> Void) {
         // One selection at a time: a second hotkey press while picking would stack another set of panels.
         guard self.completion == nil else { return }
         self.mode = mode
         self.windows = windows
         self.hints = hints
+        self.adjustable = adjustable
         self.completion = completion
         guard mode == .area else { show(snapshots: [:]); return }
         // Grab a clean frame of every display first so the magnifier can show real pixels (not the dim overlay).
@@ -71,6 +76,9 @@ final class SelectionOverlay {
             v.snapshot = snapshots[ObjectIdentifier(screen)]
             v.frozen = mode == .area && Preferences.freezeScreen && v.snapshot != nil
             v.onFinish = { [weak self] sel in self?.finish(sel) }
+            v.adjustable = adjustable
+            v.onSelectionStarted = { [weak self, weak v] in self?.selectionStarted(in: v) }
+            v.keyHeldElsewhere = { [weak self, weak v] in self?.isAdjusting(besides: v) ?? false }
             v.hint = hints[mode]
             if hints.count == 2 { v.onToggleMode = { [weak self] in self?.toggleMode() } }
             p.contentView = v
@@ -84,6 +92,22 @@ final class SelectionOverlay {
         }
         NSCursor.crosshair.push(); cursorPushed = true
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// A new selection on one screen replaces one waiting to be adjusted on another.
+    private func selectionStarted(in view: SelectionView?) {
+        for p in panels {
+            guard let v = p.contentView as? SelectionView, v !== view else { continue }
+            v.clearSelection()
+        }
+    }
+
+    /// Whether a screen other than `view`'s holds a selection being adjusted (its keys stay with it).
+    private func isAdjusting(besides view: SelectionView?) -> Bool {
+        panels.contains { p in
+            guard let v = p.contentView as? SelectionView, v !== view else { return false }
+            return v.isAdjusting
+        }
     }
 
     /// Space: area ⇄ window. The window list is fetched the first time it's needed.
@@ -142,17 +166,42 @@ private final class SelectionView: NSView {
     /// Set when Space (before a drag) switches between area and window picking.
     var onToggleMode: (() -> Void)?
 
+    /// Keep the selection after the drag, adjustable, until Return or a double-click (#102).
+    var adjustable = false
+    /// Called when a new selection drag starts here, so other screens drop theirs.
+    var onSelectionStarted: (() -> Void)?
+    /// True while another screen holds a selection being adjusted: the pointer passing over this one mustn't take
+    /// the keyboard from it.
+    var keyHeldElsewhere: (() -> Bool)?
+
+    private enum Drag { case new, move(NSPoint), resize(Int, NSRect) }
     private var cursorPoint: NSPoint?
     private var start: NSPoint?
     private var current: NSPoint?
+    private var drag: Drag?
+    /// The selection once the drag has ended, while it is being adjusted.
+    private var adjusted: NSRect?
     private var hoverWindow: SCWindow?
     private var spaceDown = false
     private var dismantled = false
+    /// Scrolling not yet applied: the selection changes by whole points.
+    private var scrollRemainder: CGFloat = 0
+    private static let grab: CGFloat = 8
+
+    var isAdjusting: Bool { adjusted != nil }
+
+    func clearSelection() {
+        guard adjusted != nil || start != nil else { return }
+        adjusted = nil; start = nil; current = nil; drag = nil
+        needsDisplay = true
+    }
 
     /// Called when the overlay closes: stops all further event handling and drawing.
     func dismantle() {
         dismantled = true
         onFinish = nil
+        onSelectionStarted = nil
+        keyHeldElsewhere = nil
         trackingAreas.forEach(removeTrackingArea)
     }
 
@@ -166,9 +215,36 @@ private final class SelectionView: NSView {
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
+    /// The rect being dragged out (Shift: square, ⌥: from the center), or the one being adjusted.
     private var selectionRect: NSRect? {
-        guard let s = start, let c = current else { return nil }
-        return NSRect(x: min(s.x, c.x), y: min(s.y, c.y), width: abs(s.x - c.x), height: abs(s.y - c.y))
+        if case .new? = drag, let s = start, let c = current {
+            let mods = NSEvent.modifierFlags
+            return SelectionGeometry.dragRect(from: s, to: c, square: mods.contains(.shift), fromCenter: mods.contains(.option), in: bounds)
+        }
+        return adjusted
+    }
+
+    /// Handle positions, counter-clockwise from bottom-left: corners at even indexes, edge midpoints at odd ones.
+    private func handles(of r: NSRect) -> [NSPoint] {
+        [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.midX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
+         NSPoint(x: r.maxX, y: r.midY), NSPoint(x: r.maxX, y: r.maxY), NSPoint(x: r.midX, y: r.maxY),
+         NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.minX, y: r.midY)]
+    }
+
+    private func handle(at p: NSPoint, of r: NSRect) -> Int? {
+        handles(of: r).firstIndex { abs($0.x - p.x) <= Self.grab && abs($0.y - p.y) <= Self.grab }
+    }
+
+    /// Resize arrows over the handles, an open hand inside the selection, the crosshair elsewhere.
+    private func updateCursor(at p: NSPoint) {
+        guard mode == .area, let r = adjusted, drag == nil else { return }
+        if let i = handle(at: p, of: r) {
+            (i % 2 == 0 ? NSCursor.crosshair : (i == 1 || i == 5 ? NSCursor.resizeUpDown : NSCursor.resizeLeftRight)).set()
+        } else if r.contains(p) {
+            NSCursor.openHand.set()
+        } else {
+            NSCursor.crosshair.set()
+        }
     }
 
     /// SCWindow.frame is top-left origin in global space; convert to this view's coordinates.
@@ -187,7 +263,7 @@ private final class SelectionView: NSView {
 
     override func mouseExited(with event: NSEvent) { cursorPoint = nil; needsDisplay = true }
     override func mouseEntered(with event: NSEvent) {
-        guard !dismantled, window?.isVisible == true else { return }
+        guard !dismantled, window?.isVisible == true, keyHeldElsewhere?() != true else { return }
         window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(self)
     }
@@ -195,40 +271,131 @@ private final class SelectionView: NSView {
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         cursorPoint = p
+        updateCursor(at: p)
         guard mode == .window else { needsDisplay = true; return }
         hoverWindow = windows.first { viewRect(for: $0).contains(p) }
         needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
+        // Only the primary button selects; mice can report other buttons through the primary-button events too.
+        guard event.buttonNumber == 0 else { return }
+        let p = convert(event.locationInWindow, from: nil)
         if mode == .window {
             // Hit-test at the click itself: after Space switched modes there may have been no mouse move yet.
-            let p = convert(event.locationInWindow, from: nil)
             if let w = windows.first(where: { viewRect(for: $0).contains(p) }) ?? hoverWindow { onFinish?(.window(w)) }
             return
         }
+        window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(self)
-        start = convert(event.locationInWindow, from: nil)
-        current = start
+        if let r = adjusted {
+            if event.clickCount >= 2, r.contains(p) { take(r); return }
+            if let i = handle(at: p, of: r) { drag = .resize(i, r); return }
+            if r.contains(p) {
+                drag = .move(NSPoint(x: p.x - r.minX, y: p.y - r.minY))
+                NSCursor.closedHand.set()
+                return
+            }
+        }
+        // Outside any selection: drag out a new one.
+        adjusted = nil
+        drag = .new
+        start = p
+        current = p
+        onSelectionStarted?()
+        needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        // Holding Space moves the whole selection instead of resizing it.
-        if spaceDown, let s = start, let c = current {
-            start = NSPoint(x: s.x + p.x - c.x, y: s.y + p.y - c.y)
-        }
-        current = p
         cursorPoint = p
+        switch drag {
+        case .move(let offset)?:
+            if let r = adjusted {
+                // Whole-point origin, same size: `integral` grew the selection by a point on fractional positions.
+                let o = NSPoint(x: (p.x - offset.x).rounded(), y: (p.y - offset.y).rounded())
+                adjusted = SelectionGeometry.move(r, to: o, in: bounds)
+            }
+        case .resize(let i, let r)?:
+            let n = SelectionGeometry.resize(r, handle: i, to: p, in: bounds)
+            let e = SelectionGeometry.rounded(n)
+            if e.width >= 1, e.height >= 1 { adjusted = e }
+        case .new?:
+            // Holding Space moves the whole selection instead of resizing it.
+            if spaceDown, let s = start, let c = current {
+                start = NSPoint(x: s.x + p.x - c.x, y: s.y + p.y - c.y)
+            }
+            current = p
+        case nil: break
+        }
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard mode == .area, let r = selectionRect, r.width > 3, r.height > 3 else { start = nil; current = nil; needsDisplay = true; return }
+        guard case .new? = drag else {
+            drag = nil
+            updateCursor(at: convert(event.locationInWindow, from: nil))
+            return
+        }
+        let rect = selectionRect
+        drag = nil; start = nil; current = nil
+        needsDisplay = true
+        guard mode == .area, let r = rect, r.width > 3, r.height > 3 else { return }
+        if adjustable {
+            adjusted = SelectionGeometry.rounded(r)
+            updateCursor(at: convert(event.locationInWindow, from: nil))
+        } else {
+            take(r)
+        }
+    }
+
+    // The middle and other buttons do nothing here.
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
+
+    /// Wheel (or two-finger scroll) up grows every side of the selection being adjusted, down shrinks it.
+    override func scrollWheel(with event: NSEvent) {
+        guard mode == .area, let r = adjusted, drag == nil else { return }
+        // Shift turns a mouse wheel into horizontal scrolling. Natural scrolling flips the sign; undo that so
+        // up always grows.
+        var d = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
+        if event.isDirectionInvertedFromDevice { d = -d }
+        // A wheel notch is a line: two points per line; a trackpad reports points already.
+        scrollRemainder += event.hasPreciseScrollingDeltas ? d : d * 2
+        let step = scrollRemainder.rounded(.towardZero)
+        guard step != 0 else { return }
+        scrollRemainder -= step
+        adjusted = SelectionGeometry.rounded(SelectionGeometry.resizeAllSides(r, by: step, in: bounds))
+        needsDisplay = true
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        // Shift (square) and ⌥ (from the center) apply as soon as they are pressed or let go mid-drag.
+        if case .new? = drag { needsDisplay = true }
+        super.flagsChanged(with: event)
+    }
+
+    private func take(_ r: NSRect) {
         onFinish?(.area(screen, r.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY), frozen: frozen ? snapshot : nil))
     }
 
     override func keyDown(with event: NSEvent) {
+        if let r = adjusted, drag == nil {
+            switch event.keyCode {
+            case 53: onFinish?(nil)
+            case 36, 76: take(r)
+            case 49: break   // no switching to window picking with a selection on screen
+            default:
+                guard let key = SelectionGeometry.key(keyCode: event.keyCode) else {
+                    super.keyDown(with: event); return
+                }
+                let mods = event.modifierFlags
+                adjusted = SelectionGeometry.apply(key, command: mods.contains(.command), shift: mods.contains(.shift), to: r, in: bounds)
+                needsDisplay = true
+            }
+            return
+        }
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
         case 53: onFinish?(nil)
@@ -270,14 +437,19 @@ private final class SelectionView: NSView {
         let path = NSBezierPath(rect: bounds)
         if let h = hole { path.append(NSBezierPath(rect: h)); path.windingRule = .evenOdd }
         dim.setFill(); path.fill()
-        if mode == .area, let c = cursorPoint { drawCrosshair(at: c) }
-        defer { if mode == .area, let c = cursorPoint { drawLoupe(at: c) } }
-        if let hint, start == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
+        // While a selection waits to be adjusted, the crosshair and loupe only show while dragging it.
+        let pointerAids = mode == .area && (adjusted == nil || drag != nil)
+        if pointerAids, let c = cursorPoint { drawCrosshair(at: c) }
+        defer { if pointerAids, let c = cursorPoint { drawLoupe(at: c) } }
+        if let hint, start == nil, adjusted == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
         guard let h = hole else { return }
         NSColor.white.setStroke()
         let b = NSBezierPath(rect: h); b.lineWidth = 1; b.stroke()
+        // A new drag clears `adjusted`, so handles show only on a selection being adjusted.
+        if mode == .area, adjusted != nil { drawHandles(around: h) }
         if mode == .area {
-            let label = "\(Int(h.width)) × \(Int(h.height))" as NSString
+            let dims = "\(Int(h.width)) × \(Int(h.height))"
+            let label = (adjusted != nil && drag == nil ? dims + "   ↩ Capture · Esc Cancel" : dims) as NSString
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
                                                         .foregroundColor: NSColor.white]
             let size = label.size(withAttributes: attrs)
@@ -285,6 +457,15 @@ private final class SelectionView: NSView {
             NSColor.black.withAlphaComponent(0.7).setFill()
             NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
             label.draw(at: NSPoint(x: box.minX + 5, y: box.minY + 2), withAttributes: attrs)
+        }
+    }
+
+    /// Small square handles on the corners and edge midpoints of the selection being adjusted.
+    private func drawHandles(around r: NSRect) {
+        for p in handles(of: r) {
+            let box = NSRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)
+            NSColor.white.setFill(); box.fill()
+            NSColor.black.withAlphaComponent(0.5).setStroke(); NSBezierPath(rect: box).stroke()
         }
     }
 

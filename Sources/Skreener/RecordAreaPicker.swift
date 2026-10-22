@@ -705,9 +705,10 @@ private final class AdjustView: NSView {
         switch drag {
         case .move(let offset)?:
             var r = selection
-            r.origin = NSPoint(x: min(max(p.x - offset.x, 0), bounds.maxX - r.width),
-                               y: min(max(p.y - offset.y, 0), bounds.maxY - r.height))
-            selection = r.integral
+            // Whole-point origin, same size: `integral` grew the selection by a point on fractional positions.
+            r.origin = NSPoint(x: min(max((p.x - offset.x).rounded(), 0), bounds.maxX - r.width),
+                               y: min(max((p.y - offset.y).rounded(), 0), bounds.maxY - r.height))
+            selection = r
         case .resize(let i, let start)?:
             var minX = start.minX, maxX = start.maxX, minY = start.minY, maxY = start.maxY
             if [0, 6, 7].contains(i) { minX = q.x }
