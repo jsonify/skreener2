@@ -94,5 +94,5 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 ## Engineering
 - [x] CI: macOS runner builds the app and runs `swift test` (test target `SkreenerTests`), warnings as errors — S (#36)
 - [x] Unit tests: coordinate conversion, file names + PNG/JPEG/1× output, OCR + redaction on rendered text, scroll matching, GIF export — M (#37)
-- [ ] Developer-ID signing + notarisation script — M (#38)
+- [~] Developer-ID signing + notarisation script (`Scripts/release.sh`: hardened runtime + entitlements, notarytool, stapler, DMG + zip; opt-in tag workflow `release.yml`) — M (#38)
 - [~] App icon and menu-bar template image — S (#91)

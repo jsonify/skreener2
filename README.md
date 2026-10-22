@@ -32,5 +32,29 @@ Scripts/make_dev_cert.sh          # creates "Skreener Dev"; build_app.sh then us
 Scripts/build_app.sh --run        # quits the running copy, rebuilds, relaunches
 ```
 
+## Release (Developer ID + notarisation)
+`Scripts/release.sh` builds the app, signs it with your Developer ID Application certificate (hardened
+runtime, `Resources/Skreener.entitlements`), notarises and staples it, and writes
+`build/release/Skreener-<version>.dmg`, `.zip` and `SHA256SUMS`. Credentials come from your keychain
+or environment, never the repo. One-time setup:
+1. A **Developer ID Application** certificate in your login keychain (Xcode → Settings → Accounts →
+   Manage Certificates → + → Developer ID Application).
+2. A notarytool keychain profile (asks for an app-specific password from appleid.apple.com):
+   ```
+   xcrun notarytool store-credentials skreener-notary --apple-id you@example.com --team-id TEAMID
+   ```
+
+Then:
+```
+SKREENER_NOTARY_PROFILE=skreener-notary Scripts/release.sh --version 0.2.0
+Scripts/release.sh --skip-notarize      # sign + package only, to check signing without Apple
+Scripts/release.sh --help               # all options, API-key / Apple ID credentials
+```
+With several Developer ID identities, pick one with `SKREENER_DEVELOPER_ID="Developer ID Application: Name (TEAMID)"`.
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which does the same on CI and attaches the
+DMG and zip to a draft GitHub release. It needs the secrets listed at the top of that file
+(the certificate as a base64 `.p12` and an App Store Connect API key); normal pushes and PRs never run it.
+
 ## Not yet implemented (vs. CleanShot X)
 See [TODO.md](TODO.md) for the full roadmap.
