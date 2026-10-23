@@ -277,6 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Cut", #selector(NSText.cut(_:)), "x"),
             item("Copy", #selector(NSText.copy(_:)), "c"),
             item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Duplicate", #selector(CanvasView.duplicate(_:)), "d"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         let plain: ([(String, Selector)]) -> [NSMenuItem] = { $0.map { item($0.0, $0.1, "", []) } }
@@ -290,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         var imageItems: [NSMenuItem] = []
         for group in [plain(CanvasView.imageCommands), sizeItems, plain(CanvasView.redactCommands), textItems,
-                      plain(CanvasView.colorCommands)] {
+                      plain(CanvasView.colorCommands), plain(CanvasView.snapCommands)] {
             if !imageItems.isEmpty { imageItems.append(.separator()) }   // a new separator each time: menus can't share items
             imageItems += group
         }
