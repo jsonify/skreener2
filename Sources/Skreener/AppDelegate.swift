@@ -275,8 +275,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Copy Text from Area…", #selector(CanvasView.copyTextFromArea(_:)), "t", [.command, .shift]),
             item("Copy All Text", #selector(CanvasView.copyAllText(_:))),
         ]
+        let sizeItems = plain(CanvasView.sizeCommands)
+        if let resize = sizeItems.first(where: { $0.action == #selector(CanvasView.resizeImage(_:)) }) {
+            resize.keyEquivalent = "r"; resize.keyEquivalentModifierMask = [.command, .shift]
+        }
         var imageItems: [NSMenuItem] = []
-        for group in [plain(CanvasView.imageCommands), plain(CanvasView.redactCommands), textItems, plain(CanvasView.colorCommands)] {
+        for group in [plain(CanvasView.imageCommands), sizeItems, plain(CanvasView.redactCommands), textItems,
+                      plain(CanvasView.colorCommands)] {
             if !imageItems.isEmpty { imageItems.append(.separator()) }   // a new separator each time: menus can't share items
             imageItems += group
         }

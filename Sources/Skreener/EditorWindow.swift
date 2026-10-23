@@ -376,6 +376,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         canvas.onTextCopied = { [weak self] text in self?.textCopied(text) }
         canvas.onEscape = { [weak self] in self?.escapePressed() }
         canvas.onColorCopied = { [weak self] text in self?.showToast("Copied \(text)") }
+        canvas.onMessage = { [weak self] text in self?.showToast(text) }
+        canvas.onResizeRequest = { [weak self] in self?.showResize() }
         canvas.onHoverColor = { [weak self] c in self?.hoverColor = c; self?.refreshColorReadout() }
         canvas.onContrastChange = { [weak self] line in
             self?.contrastLabel.stringValue = line ?? ""
@@ -758,13 +760,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        /// A menu of canvas commands.
-        func commands(_ list: [(String, Selector)]) -> NSMenu {
+        /// A menu of canvas commands, a separator between each list.
+        func commands(_ lists: [(String, Selector)]...) -> NSMenu {
             let m = NSMenu()
-            for (title, action) in list {
-                let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
-                i.target = canvas
-                m.addItem(i)
+            for list in lists {
+                if m.numberOfItems > 0 { m.addItem(.separator()) }
+                for (title, action) in list {
+                    let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                    i.target = canvas
+                    m.addItem(i)
+                }
             }
             return m
         }
@@ -772,7 +777,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .imageActionsItem:
             return groupItem(id, "Image", [
                 iconButton("crop", "Crop (C)", self, #selector(cropIt)),
-                iconMenuButton("rotate.right", "Rotate or flip the screenshot and its annotations", commands(CanvasView.imageCommands)),
+                iconMenuButton("rotate.right", "Rotate, flip, resize or cut out part of the screenshot",
+                               commands(CanvasView.imageCommands, CanvasView.sizeCommands)),
                 iconMenuButton("plus.rectangle.on.rectangle",
                                "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu()),
                 iconButton("photo", "Background", self, #selector(backgroundIt)),
@@ -898,6 +904,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .contrast?:
             attributesTitle.stringValue = "Contrast"
             areaHint.stringValue = "Drag over text and its background · Esc when done"
+        case .cutOut?:
+            attributesTitle.stringValue = "Cut Out"
+            areaHint.stringValue = "Drag across the part to remove · ⌥-drag for a vertical strip · Esc to cancel"
         default:
             attributesTitle.stringValue = "Copy Text"
             areaHint.stringValue = "Drag over the text to copy it · Esc to cancel"
@@ -1223,6 +1232,31 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         refreshStrip()
     }
     @objc private func redoIt() { canvas.redo() }
+
+    // MARK: Resize (#122)
+
+    /// The Resize Image sheet: width × height in pixels or points, with Keep proportions and percent presets.
+    private func showResize() {
+        guard let w = window, w.attachedSheet == nil else { return }
+        let original = canvas.pixelSize
+        let form = ResizeForm(original: original, density: canvas.pixelDensity)
+        let alert = NSAlert()
+        alert.messageText = "Resize Image"
+        alert.informativeText = "Now \(original.width) × \(original.height) px. Annotations are resized with the image."
+        alert.accessoryView = form
+        let resize = alert.addButton(withTitle: "Resize")
+        alert.addButton(withTitle: "Cancel")
+        form.onValidityChange = { resize.isEnabled = $0 }
+        alert.window.initialFirstResponder = form.widthField
+        alert.beginSheetModal(for: w) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn else { return }
+            let size = form.pixels
+            if size.width != original.width || size.height != original.height {
+                self.canvas.resize(toWidth: size.width, height: size.height)
+            }
+            self.window?.makeFirstResponder(self.canvas)
+        }
+    }
     @objc private func backgroundShadowToggled() {
         bgShadowBox.isOn.toggle()
         backgroundChanged()

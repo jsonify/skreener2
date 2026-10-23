@@ -73,6 +73,11 @@ struct Style: Equatable {
     var magnification: CGFloat = 2
     var lensShape = LensShape.circle
 
+    /// Every size scaled by `k`, for an image resized by that factor (#122).
+    mutating func scale(by k: CGFloat) {
+        lineWidth *= k; fontSize *= k; pixelSize *= k; cornerRadius *= k
+    }
+
     var font: NSFont {
         if fontName.isEmpty { return .systemFont(ofSize: fontSize, weight: bold ? .semibold : .regular) }
         let f = NSFont(name: fontName, size: fontSize) ?? .systemFont(ofSize: fontSize)
@@ -165,10 +170,14 @@ struct Annotation: Equatable {
     private static func nextSeq() -> Int { lastSeq += 1; return lastSeq }
 
     mutating func translate(dx: CGFloat, dy: CGFloat) {
-        start.x += dx; start.y += dy
-        end.x += dx; end.y += dy
-        points = points.map { NSPoint(x: $0.x + dx, y: $0.y + dy) }
-        lens = lens.map { NSPoint(x: $0.x + dx, y: $0.y + dy) }
+        mapPoints { NSPoint(x: $0.x + dx, y: $0.y + dy) }
+    }
+
+    /// Moves every point the annotation is made of with `f`.
+    mutating func mapPoints(_ f: (NSPoint) -> NSPoint) {
+        start = f(start); end = f(end)
+        points = points.map(f)
+        lens = lens.map(f)
     }
 }
 
@@ -383,7 +392,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let p = convert(event.locationInWindow, from: nil)
         pointerMoved(to: p)
         if let a = areaAnchor {
-            areaDraft = NSRect(x: min(a.x, p.x), y: min(a.y, p.y), width: abs(p.x - a.x), height: abs(p.y - a.y))
+            if areaPick == .cutOut {
+                areaDraft = cutBand(from: a, to: p, vertical: event.modifierFlags.contains(.option))
+            } else {
+                areaDraft = NSRect(x: min(a.x, p.x), y: min(a.y, p.y), width: abs(p.x - a.x), height: abs(p.y - a.y))
+            }
             return
         }
         switch drag {
@@ -453,6 +466,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             case .contrast:
                 contrastArea = r
                 refreshContrast()
+            case .cutOut:
+                endAreaPick()
+                cutOut(r, axis: cutAxis)
             }
             return
         }
@@ -713,6 +729,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         ("Flip Horizontal", #selector(CanvasView.flipHorizontal(_:))), ("Flip Vertical", #selector(CanvasView.flipVertical(_:))),
     ]
 
+    /// Resize, Cut Out and Remove Background (#121, #122).
+    static let sizeCommands: [(String, Selector)] = [
+        ("Resize Image…", #selector(CanvasView.resizeImage(_:))), ("Cut Out…", #selector(CanvasView.cutOut(_:))),
+        ("Remove Background", #selector(CanvasView.removeBackground(_:))),
+    ]
+
     /// The same orientation change as an affine map, for a w×h area with a bottom-left origin.
     private static func transform(_ op: Orientation, width w: CGFloat, height h: CGFloat) -> CGAffineTransform {
         switch op {
@@ -767,6 +789,115 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
     }
 
+    // MARK: Resize, Cut Out, Remove Background (#121, #122)
+
+    /// Image → Resize Image…: the editor asks for the new size, then calls `resize(toWidth:height:)`.
+    var onResizeRequest: (() -> Void)?
+    /// A short message for the editor to show over the canvas.
+    var onMessage: ((String) -> Void)?
+
+    /// The screenshot's size in pixels.
+    var pixelSize: (width: Int, height: Int) {
+        guard let cg = baseCG else { return (Int(base.size.width.rounded()), Int(base.size.height.rounded())) }
+        return (cg.width, cg.height)
+    }
+    /// Pixels per point (2 for a Retina screenshot).
+    var pixelDensity: CGFloat { pixelScale.x }
+
+    @objc func resizeImage(_ sender: Any?) {
+        finishTextEditing()
+        applyCrop()
+        onResizeRequest?()
+    }
+
+    /// Resamples the screenshot to `width` × `height` pixels; annotations, their sizes and the crop scale with it.
+    func resize(toWidth width: Int, height: Int) {
+        finishTextEditing()
+        cancelCrop()
+        guard ImageOps.resizeProblem(width: width, height: height) == nil, base.size.width > 0, base.size.height > 0,
+              let newBase = ImageOps.resized(base, width: width, height: height) else { NSSound.beep(); return }
+        let sx = newBase.size.width / base.size.width, sy = newBase.size.height / base.size.height
+        let scale = { (p: NSPoint) in NSPoint(x: p.x * sx, y: p.y * sy) }
+        mutate {
+            base = newBase
+            items = items.map { a in
+                var a = a
+                a.mapPoints(scale)
+                a.style.scale(by: (sx + sy) / 2)
+                return a
+            }
+            crop = crop.map { NSRect(x: $0.minX * sx, y: $0.minY * sy, width: $0.width * sx, height: $0.height * sy) }
+        }
+    }
+
+    /// Drag across the part of the screenshot to remove (⌥-drag for a vertical strip); the parts either side join.
+    @objc func cutOut(_ sender: Any?) { startAreaPick(.cutOut) }
+
+    /// Which way the strip being dragged for Cut Out runs.
+    private var cutAxis = ImageOps.Axis.horizontal
+
+    /// The strip between `a` and `p` across the whole screenshot: rows, or with `vertical` columns.
+    private func cutBand(from a: NSPoint, to p: NSPoint, vertical: Bool) -> NSRect {
+        cutAxis = vertical ? .vertical : .horizontal
+        let r = imageRect
+        if vertical {
+            let x0 = min(max(min(a.x, p.x), r.minX), r.maxX), x1 = min(max(max(a.x, p.x), r.minX), r.maxX)
+            return NSRect(x: x0, y: r.minY, width: x1 - x0, height: r.height)
+        }
+        let y0 = min(max(min(a.y, p.y), r.minY), r.maxY), y1 = min(max(max(a.y, p.y), r.minY), r.maxY)
+        return NSRect(x: r.minX, y: y0, width: r.width, height: y1 - y0)
+    }
+
+    /// Removes the strip `r` from the screenshot. Annotations past it move up (or left) with the image; those wholly
+    /// inside it are deleted. One undo step.
+    private func cutOut(_ r: NSRect, axis: ImageOps.Axis) {
+        let s = pixelScale, h = base.size.height
+        // In whole pixels, counted from the top (rows) or the left (columns).
+        let lo: Int, hi: Int
+        switch axis {
+        case .horizontal: lo = Int(((h - r.maxY) * s.y).rounded()); hi = Int(((h - r.minY) * s.y).rounded())
+        case .vertical: lo = Int((r.minX * s.x).rounded()); hi = Int((r.maxX * s.x).rounded())
+        }
+        guard hi > lo, let newBase = ImageOps.removing(lo..<hi, axis: axis, from: base) else { NSSound.beep(); return }
+        // The strip as cut, in image points (bottom-left origin).
+        let p0 = axis == .horizontal ? h - CGFloat(hi) / s.y : CGFloat(lo) / s.x
+        let p1 = axis == .horizontal ? h - CGFloat(lo) / s.y : CGFloat(hi) / s.x
+        let move: (NSPoint) -> NSPoint = axis == .horizontal
+            ? { NSPoint(x: $0.x, y: ImageOps.afterCut($0.y, lo: p0, hi: p1)) }
+            : { NSPoint(x: ImageOps.afterCut($0.x, lo: p0, hi: p1), y: $0.y) }
+        let inside = { (b: NSRect) in
+            axis == .horizontal ? b.minY >= p0 && b.maxY <= p1 : b.minX >= p0 && b.maxX <= p1
+        }
+        mutate {
+            items = items.filter { !inside(bounds(of: $0)) }.map { a in
+                var a = a
+                a.mapPoints(move)
+                return a
+            }
+            base = newBase
+            crop = crop.map { c in
+                let a = move(NSPoint(x: c.minX, y: c.minY)), b = move(NSPoint(x: c.maxX, y: c.maxY))
+                return NSRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+            }
+        }
+        if selectedIndex == nil { selectedID = nil }
+    }
+
+    /// Keeps only the screenshot's subject (Vision's foreground mask); the rest becomes transparent. One undo step.
+    @objc func removeBackground(_ sender: Any?) {
+        finishTextEditing()
+        cancelCrop()
+        let image = base
+        onMessage?("Looking for the subject…")
+        Task { @MainActor [weak self] in
+            let kept = await ImageOps.removingBackground(image)
+            guard let self, self.base === image else { return }
+            guard let kept else { self.onMessage?("No subject found to keep"); NSSound.beep(); return }
+            self.mutate { self.base = kept }
+            self.onMessage?("Background removed")
+        }
+    }
+
     // MARK: Redact (OCR finds the text; each match gets an editable pixelate box)
 
     @objc func redactAllText(_ sender: Any?) { redact(.allText) }
@@ -803,8 +934,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Called with the text Copy Text found (empty when there was none); it is already on the clipboard.
     var onTextCopied: ((String) -> Void)?
     /// What a drag over the screenshot picks an area for, instead of drawing: Copy Text from Area, Copy Average Color,
-    /// or Check Contrast (which stays on, measuring each new area, until Esc).
-    enum AreaPick { case text, averageColor, contrast }
+    /// Check Contrast (which stays on, measuring each new area, until Esc), or the strip Cut Out removes.
+    enum AreaPick { case text, averageColor, contrast, cutOut }
 
     /// Called when picking an area starts, changes kind, or ends (nil).
     var onAreaPickChange: ((AreaPick?) -> Void)?
