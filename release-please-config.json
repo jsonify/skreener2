@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "initial-version": "0.2.0",
+  "bootstrap-sha": "8e274fc623c930667a1b3b736c3e28e4f2adfc5a",
+  "packages": {
+    ".": {
+      "package-name": "Skreener",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

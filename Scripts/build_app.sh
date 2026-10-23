@@ -9,10 +9,19 @@ else
   swift build -c release
 fi
 APP=build/Skreener.app
-# Shown in About Skreener, so you can tell which commit is actually running.
-BUILD=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
-# Marketing version (About, Finder). Scripts/release.sh sets it from --version or the git tag.
-VERSION="${SKREENER_VERSION:-0.1.0}"
+# Version info comes from git, so it changes on its own with every commit and release (#135); nothing to edit by hand.
+# Marketing version (About, Finder): SKREENER_VERSION (release.sh sets it from --version or the tag), else the newest
+# vX.Y.Z tag this commit descends from, without the "v", else version.txt. release-please moves both on when its
+# release PR is merged (.github/workflows/release-please.yml).
+TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+VERSION="${SKREENER_VERSION:-${TAG#v}}"
+VERSION="${VERSION:-$(tr -d '[:space:]' < version.txt)}"
+# Build number: the count of commits up to this one, so it goes up with every commit (CI needs the full history).
+BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+# Shown in About Skreener next to the version, so you can tell which commit is actually running. "+" marks a build
+# with uncommitted changes.
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
+if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then COMMIT="$COMMIT+"; fi
 # A running copy keeps the old code (and its hotkeys), so quit it before replacing the bundle.
 pkill -x Skreener 2>/dev/null && sleep 0.5 || true
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -30,6 +39,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>SkreenerCommit</key><string>$COMMIT</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>CFBundleURLTypes</key><array><dict>
@@ -60,6 +70,6 @@ else
 fi
 codesign --force --sign "$IDENTITY" "$APP"
 [ "$IDENTITY" = "-" ] && SIGNED="ad-hoc" || SIGNED="\"$IDENTITY\""
-echo "Built $APP $VERSION at $BUILD (signed with $SIGNED)"
+echo "Built $APP $VERSION ($BUILD, $COMMIT) (signed with $SIGNED)"
 # Pass --run to launch it right away.
 if [ "${1:-}" = "--run" ]; then open "$APP"; fi

@@ -94,14 +94,22 @@ enum CaptureService {
         let scale = NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })?.backingScaleFactor ?? 2
         let cfg = makeConfig(width: window.frame.width, height: window.frame.height, scale: scale)
         cfg.ignoreShadowsSingleWindow = true   // we draw our own shadow so it fits inside the image
+        // Keep the alpha channel: without these the window's rounded corners came out filled in (black), so the
+        // "transparent background" option had nothing transparent to keep (#138). The white fill, when that option
+        // is off, is ours in `decorateWindow`.
+        cfg.pixelFormat = kCVPixelFormatType_32BGRA
+        cfg.backgroundColor = .clear
+        cfg.shouldBeOpaque = false
         let cg = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
         return image(decorateWindow(cg, scale: scale), scale: scale)
     }
 
     /// Applies the window-capture options: drop shadow, padding, transparent or white background.
-    private static func decorateWindow(_ cg: CGImage, scale: CGFloat) -> CGImage {
-        let shadow = Preferences.windowShadow, opaque = !Preferences.windowTransparentBackground
-        let margin = Int(((shadow ? 40 : 0) + CGFloat(max(Preferences.windowPadding, 0))) * scale)
+    static func decorateWindow(_ cg: CGImage, scale: CGFloat, shadow: Bool = Preferences.windowShadow,
+                               transparent: Bool = Preferences.windowTransparentBackground,
+                               padding: Int = Preferences.windowPadding) -> CGImage {
+        let opaque = !transparent
+        let margin = Int(((shadow ? 40 : 0) + CGFloat(max(padding, 0))) * scale)
         guard margin > 0 || opaque,
               let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: cg.width + margin * 2, height: cg.height + margin * 2,

@@ -8,12 +8,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     @MainActor static var isOpen: Bool { created?.window?.isVisible == true }
     @MainActor private static weak var created: SettingsWindowController?
 
-    /// "0.1.0 (48db438)": marketing version plus the git commit stamped in by build_app.sh.
-    nonisolated static var version: String {
-        let info = Bundle.main.infoDictionary
+    /// "0.2.0 (412, 48db438)": the version, build number and git commit build_app.sh stamps in from git (#135).
+    nonisolated static var version: String { versionLine(Bundle.main.infoDictionary) }
+
+    nonisolated static func versionLine(_ info: [String: Any]?) -> String {
         let short = info?["CFBundleShortVersionString"] as? String ?? "dev"
-        let build = info?["CFBundleVersion"] as? String
-        return build.map { "\(short) (\($0))" } ?? short
+        let details = [info?["CFBundleVersion"], info?["SkreenerCommit"]].compactMap { $0 as? String }.filter { !$0.isEmpty }
+        return details.isEmpty ? short : "\(short) (\(details.joined(separator: ", ")))"
     }
 
     private static let width: CGFloat = 810
@@ -394,7 +395,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 ]),
                 group("Window Capture", [
                     toggle("Shadow", nil, Preferences.windowShadow) { Preferences.windowShadow = $0 },
-                    toggle("Transparent background", "White when off.", Preferences.windowTransparentBackground) {
+                    toggle("Transparent around the window",
+                           "The rounded corners, shadow and padding stay see-through in PNGs. Off: they're filled with white.",
+                           Preferences.windowTransparentBackground) {
                         Preferences.windowTransparentBackground = $0
                     },
                     row("Padding", padding),
