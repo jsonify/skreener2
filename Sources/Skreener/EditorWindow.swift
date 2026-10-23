@@ -268,6 +268,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let textOnlyButton = PillButton(title: "Text Only", symbol: "text.viewfinder", style: .raised, height: pillHeight)
     private let magnificationPopup = PillPopUp(pullsDown: false)
     private let lensShapePopup = PillPopUp(pullsDown: false)
+    private let shapeFillPopup = PillPopUp(pullsDown: false)
+    private let textBoxPopup = PillPopUp(pullsDown: false)
+    private let tailButton = PillButton(title: "Tail", symbol: "bubble.left", style: .raised, height: pillHeight)
+    private let handDrawnButton = PillButton(title: "Hand-Drawn", symbol: "scribble", style: .raised, height: pillHeight)
+    private let shapeCorrectionButton = PillButton(title: "Shapes", symbol: "pencil.and.outline", style: .raised, height: pillHeight)
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
@@ -301,9 +306,20 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let toastLabel = NSTextField(labelWithString: "")
     private var toastTask: Task<Void, Never>?
 
-    /// `title` names the editor's tab; it defaults to the time the editor opened.
-    init(image: NSImage, title: String? = nil) {
+    /// The file this screenshot was saved to or opened from: Save writes the edited image over it (#118).
+    private(set) var fileURL: URL? {
+        didSet {
+            guard let url = fileURL, url != oldValue else { return }
+            window?.title = url.deletingPathExtension().lastPathComponent
+            tabGroup.refresh()
+        }
+    }
+
+    /// `title` names the editor's tab; it defaults to the time the editor opened, or the name of `file`, the file the
+    /// screenshot was saved to or opened from.
+    init(image: NSImage, title: String? = nil, file: URL? = nil) {
         self.image = image
+        fileURL = file
         canvas = CanvasView(image: image)
 
         let floor = EditorWindowController.minimumSize
@@ -312,7 +328,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
         let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        w.title = title ?? "Screenshot \(time)"
+        w.title = title ?? file?.deletingPathExtension().lastPathComponent ?? "Screenshot \(time)"
         // Editors open as tabs of one window (Settings → Editor can turn that off), drawn by `EditorTabGroup`
         // rather than AppKit.
         w.tabbingMode = .disallowed
@@ -365,6 +381,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         canvas.onTextCopied = { [weak self] text in self?.textCopied(text) }
         canvas.onEscape = { [weak self] in self?.escapePressed() }
         canvas.onColorCopied = { [weak self] text in self?.showToast("Copied \(text)") }
+        canvas.onMessage = { [weak self] text in self?.showToast(text) }
+        canvas.onResizeRequest = { [weak self] in self?.showResize() }
         canvas.onHoverColor = { [weak self] c in self?.hoverColor = c; self?.refreshColorReadout() }
         canvas.onContrastChange = { [weak self] line in
             self?.contrastLabel.stringValue = line ?? ""
@@ -617,7 +635,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         let actions = [("square.and.arrow.up", "Share", #selector(shareIt(_:))),
                        ("pin", "Pin to Screen", #selector(pinIt)),
                        ("doc.on.doc", "Copy", #selector(copyIt)),
-                       ("square.and.arrow.down", "Save", #selector(saveIt))].map { sym, tip, sel in
+                       ("square.and.arrow.down", "Save (⌘S)", #selector(saveIt))].map { sym, tip, sel in
             iconButton(sym, tip, self, sel, height: 28)
         }
         let right = pillRow(actions, spacing: 8)
@@ -747,13 +765,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        /// A menu of canvas commands.
-        func commands(_ list: [(String, Selector)]) -> NSMenu {
+        /// A menu of canvas commands, a separator between each list.
+        func commands(_ lists: [(String, Selector)]...) -> NSMenu {
             let m = NSMenu()
-            for (title, action) in list {
-                let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
-                i.target = canvas
-                m.addItem(i)
+            for list in lists {
+                if m.numberOfItems > 0 { m.addItem(.separator()) }
+                for (title, action) in list {
+                    let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                    i.target = canvas
+                    m.addItem(i)
+                }
             }
             return m
         }
@@ -761,7 +782,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .imageActionsItem:
             return groupItem(id, "Image", [
                 iconButton("crop", "Crop (C)", self, #selector(cropIt)),
-                iconMenuButton("rotate.right", "Rotate or flip the screenshot and its annotations", commands(CanvasView.imageCommands)),
+                iconMenuButton("rotate.right", "Rotate, flip, resize or cut out part of the screenshot",
+                               commands(CanvasView.imageCommands, CanvasView.sizeCommands)),
                 iconMenuButton("plus.rectangle.on.rectangle",
                                "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu()),
                 iconButton("photo", "Background", self, #selector(backgroundIt)),
@@ -785,8 +807,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .settingsItem:
             return groupItem(id, "Settings", [iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings))])
         case .saveAsItem:
-            let b = textButton("Save as…", self, #selector(saveIt), filled: true)
-            b.keyEquivalent = "s"; b.keyEquivalentModifierMask = [.command, .shift]
+            // ⇧⌘S is in the File menu.
+            let b = textButton("Save as…", self, #selector(saveAsIt), filled: true)
             b.toolTip = "Save as… (⇧⌘S)"
             return groupItem(id, "Save as…", [b])
         default: return nil
@@ -813,12 +835,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         setUp(cornerStylePopup, "Corners", [("Sharp Corners", 0), ("Slightly Rounded", 2), ("Rounded", 8), ("Very Rounded", 16)],
               #selector(cornerPicked(_:)))
         setUp(arrowStylePopup, "Arrow style", [("Filled Head", ArrowStyle.filled.rawValue), ("Open Head", ArrowStyle.open.rawValue),
-                                               ("Double-Headed", ArrowStyle.double.rawValue)], #selector(arrowStylePicked(_:)))
+                                               ("Double-Headed", ArrowStyle.double.rawValue), ("Tapered", ArrowStyle.tapered.rawValue)],
+              #selector(arrowStylePicked(_:)))
         // Tags are tenths: 15 is 1.5×.
         setUp(magnificationPopup, "Magnification", [("1.5×", 15), ("2×", 20), ("3×", 30), ("4×", 40)],
               #selector(magnificationPicked(_:)))
         setUp(lensShapePopup, "Lens shape", [("Circle", LensShape.circle.rawValue), ("Rectangle", LensShape.rectangle.rawValue)],
               #selector(lensShapePicked(_:)))
+        setUp(shapeFillPopup, "Fill", [("No Fill", ShapeFill.outline.rawValue), ("Translucent Fill", ShapeFill.translucent.rawValue),
+                                        ("Solid Fill", ShapeFill.solid.rawValue)], #selector(shapeFillPicked(_:)))
+        setUp(textBoxPopup, "Text background", [("No Box", TextBox.plain.rawValue), ("Solid Box", TextBox.solid.rawValue),
+                                                ("Outlined Box", TextBox.outline.rawValue)], #selector(textBoxPicked(_:)))
         setUp(fontPopup, "Font", [], #selector(fontPicked(_:)))
         for (title, name) in Self.fontChoices {
             fontPopup.addItem(withTitle: title)
@@ -833,6 +860,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
         textOnlyButton.toolTip = "Hide only the text found in the box (OCR), not all of it"
         textOnlyButton.target = self; textOnlyButton.action = #selector(textOnlyToggled(_:))
+        tailButton.toolTip = "Speech-bubble tail: drag its tip to point it. Drag the label's right-hand handle to wrap it."
+        tailButton.target = self; tailButton.action = #selector(tailToggled(_:))
+        handDrawnButton.toolTip = "Draw with a slight hand-drawn wobble. Drag an arrow's or line's middle handle to bend it."
+        handDrawnButton.target = self; handDrawnButton.action = #selector(handDrawnToggled(_:))
+        shapeCorrectionButton.toolTip = "Shape correction: a stroke drawn as a line, circle or box becomes one. Shift keeps a stroke straight."
+        shapeCorrectionButton.target = self; shapeCorrectionButton.action = #selector(shapeCorrectionToggled(_:))
 
         arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
         arrangeButton.addItem(withTitle: "Arrange")
@@ -845,8 +878,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             arrangeButton.lastItem?.target = canvas
         }
 
-        [colorWell, strokePopup, arrowStylePopup, cornerStylePopup, fontPopup, sizePopup, boldButton, pixelPopup,
-         textOnlyButton, magnificationPopup, lensShapePopup, arrangeButton].forEach(attributesBar.addArrangedSubview)
+        [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, handDrawnButton, shapeCorrectionButton, cornerStylePopup,
+         fontPopup, sizePopup, boldButton, textBoxPopup, tailButton, pixelPopup, textOnlyButton, magnificationPopup, lensShapePopup,
+         arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
     }
 
@@ -887,6 +921,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .contrast?:
             attributesTitle.stringValue = "Contrast"
             areaHint.stringValue = "Drag over text and its background · Esc when done"
+        case .cutOut?:
+            attributesTitle.stringValue = "Cut Out"
+            areaHint.stringValue = "Drag across the part to remove · ⌥-drag for a vertical strip · Esc to cancel"
         default:
             attributesTitle.stringValue = "Copy Text"
             areaHint.stringValue = "Drag over the text to copy it · Esc to cancel"
@@ -991,7 +1028,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesHint.isHidden = tool != .select
         colorWell.isHidden = [.select, .pixelate, .blur, .erase, .spotlight, .image].contains(tool)
         strokePopup.isHidden = !tool.usesStroke
-        [fontPopup, boldButton].forEach { $0.isHidden = tool != .text }
+        [fontPopup, boldButton, textBoxPopup, tailButton].forEach { $0.isHidden = tool != .text }
+        shapeFillPopup.isHidden = tool != .rect && tool != .ellipse
+        handDrawnButton.isHidden = ![.arrow, .line, .rect, .ellipse].contains(tool)
+        shapeCorrectionButton.isHidden = tool != .pen
         sizePopup.isHidden = tool != .text && tool != .counter
         pixelPopup.isHidden = !tool.hasStrength
         textOnlyButton.isHidden = !tool.obscures
@@ -1013,6 +1053,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             fontPopup.selectItem(at: i)
         }
         boldButton.isOn = style.bold
+        shapeFillPopup.selectItem(withTag: style.fill.rawValue)
+        textBoxPopup.selectItem(withTag: style.textBox.rawValue)
+        tailButton.isOn = style.tail && style.textBox != .plain
+        handDrawnButton.isOn = style.handDrawn
+        shapeCorrectionButton.isOn = style.shapeCorrection
     }
 
     @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
@@ -1034,6 +1079,31 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func textOnlyToggled(_ b: PillButton) {
         b.isOn.toggle()
         canvas.updateStyle { $0.textOnly = b.isOn }
+    }
+    @objc private func shapeFillPicked(_ p: PillPopUp) {
+        canvas.updateStyle { $0.fill = ShapeFill(rawValue: p.selectedTag()) ?? .outline }
+    }
+    @objc private func textBoxPicked(_ p: PillPopUp) {
+        let box = TextBox(rawValue: p.selectedTag()) ?? .plain
+        canvas.updateStyle { $0.textBox = box; if box == .plain { $0.tail = false } }
+        refreshStrip()
+    }
+    /// A tail needs a box: turning it on gives a label without one a solid box.
+    @objc private func tailToggled(_ b: PillButton) {
+        let on = !b.isOn
+        canvas.updateStyle { s in
+            s.tail = on
+            if on, s.textBox == .plain { s.textBox = .solid }
+        }
+        refreshStrip()
+    }
+    @objc private func handDrawnToggled(_ b: PillButton) {
+        b.isOn.toggle()
+        canvas.updateStyle { $0.handDrawn = b.isOn }
+    }
+    @objc private func shapeCorrectionToggled(_ b: PillButton) {
+        b.isOn.toggle()
+        canvas.updateStyle { $0.shapeCorrection = b.isOn }
     }
     @objc private func magnificationPicked(_ p: PillPopUp) {
         canvas.updateStyle { $0.magnification = CGFloat(p.selectedTag()) / 10 }
@@ -1067,16 +1137,50 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             Sound.play("Pop")
             Notifier.confirm("Screenshot copied")
         case .saveAndClose:
-            guard let url = Output.save(canvas.flattened()) else {
-                showToast("Couldn't save: check the export location in Settings")
-                NSSound.beep()
-                return
-            }
+            guard let url = save() else { return }
             Notifier.confirm("Screenshot saved", detail: url.lastPathComponent, file: url)
         }
         window?.close()
     }
-    @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
+
+    /// Save (⌘S): over the file the screenshot was saved to or opened from, when there is one and Settings allows it,
+    /// else a new file in the export location, which later saves then update (#118).
+    func saveScreenshot() {
+        guard let url = save() else { return }
+        showToast("Saved \(url.lastPathComponent)")
+    }
+
+    /// Save As… (⇧⌘S): the save panel; later saves go to the file picked there.
+    func saveScreenshotAs() {
+        let name = fileURL?.deletingPathExtension().lastPathComponent
+        if let url = Output.saveAs(canvas.flattened(), name: name) { fileURL = url }
+    }
+
+    /// Writes the image (see `saveScreenshot`) and returns where; nil after saying why it failed.
+    private func save() -> URL? {
+        let image = canvas.flattened()
+        if Preferences.saveOverExisting, let url = fileURL, ImageFormat(fileExtension: url.pathExtension) != nil,
+           FileManager.default.fileExists(atPath: url.path) {
+            if Output.overwrite(image, at: url) {
+                SavedLibrary.shared.note(url, edited: canvas.isEdited)
+                return url
+            }
+            showToast("Couldn't save over \(url.lastPathComponent)")
+            NSSound.beep()
+            return nil
+        }
+        guard let url = Output.save(image) else {
+            showToast("Couldn't save: check the export location in Settings")
+            NSSound.beep()
+            return nil
+        }
+        fileURL = url
+        SavedLibrary.shared.note(url, edited: canvas.isEdited)
+        return url
+    }
+
+    @objc private func saveIt() { saveScreenshot() }
+    @objc private func saveAsIt() { saveScreenshotAs() }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
     @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
@@ -1182,6 +1286,31 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         refreshStrip()
     }
     @objc private func redoIt() { canvas.redo() }
+
+    // MARK: Resize (#122)
+
+    /// The Resize Image sheet: width × height in pixels or points, with Keep proportions and percent presets.
+    private func showResize() {
+        guard let w = window, w.attachedSheet == nil else { return }
+        let original = canvas.pixelSize
+        let form = ResizeForm(original: original, density: canvas.pixelDensity)
+        let alert = NSAlert()
+        alert.messageText = "Resize Image"
+        alert.informativeText = "Now \(original.width) × \(original.height) px. Annotations are resized with the image."
+        alert.accessoryView = form
+        let resize = alert.addButton(withTitle: "Resize")
+        alert.addButton(withTitle: "Cancel")
+        form.onValidityChange = { resize.isEnabled = $0 }
+        alert.window.initialFirstResponder = form.widthField
+        alert.beginSheetModal(for: w) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn else { return }
+            let size = form.pixels
+            if size.width != original.width || size.height != original.height {
+                self.canvas.resize(toWidth: size.width, height: size.height)
+            }
+            self.window?.makeFirstResponder(self.canvas)
+        }
+    }
     @objc private func backgroundShadowToggled() {
         bgShadowBox.isOn.toggle()
         backgroundChanged()

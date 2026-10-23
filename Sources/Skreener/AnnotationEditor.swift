@@ -46,11 +46,23 @@ enum Tool: Int, CaseIterable {
 }
 
 enum ArrowStyle: Int {
-    case filled, open, double
+    /// `tapered`: a filled shaft that widens toward the head (#119).
+    case filled, open, double, tapered
 }
 
 enum LensShape: Int {
     case circle, rectangle
+}
+
+/// How rectangles and ellipses are filled (#120).
+enum ShapeFill: Int {
+    case outline, translucent, solid
+}
+
+/// The box behind a text label (#120): no box, filled in the style's color (the text then black or white, whichever
+/// reads better), or outlined in it.
+enum TextBox: Int {
+    case plain, solid, outline
 }
 
 /// Per-annotation look. New annotations copy the canvas's current style; editing the style of a
@@ -72,6 +84,20 @@ struct Style: Equatable {
     /// How much a magnifier enlarges, and the shape of its lens.
     var magnification: CGFloat = 2
     var lensShape = LensShape.circle
+    /// Rectangles and ellipses: outline only, or filled translucent or solid.
+    var fill = ShapeFill.outline
+    /// Text: the box behind it, and a speech-bubble tail on the box.
+    var textBox = TextBox.plain
+    var tail = false
+    /// Arrows, lines, rectangles and ellipses drawn with a slight hand-drawn wobble (#119).
+    var handDrawn = false
+    /// Pen: a stroke that is nearly a straight line, an ellipse or a rectangle becomes that shape when let go.
+    var shapeCorrection = false
+
+    /// Every size scaled by `k`, for an image resized by that factor (#122).
+    mutating func scale(by k: CGFloat) {
+        lineWidth *= k; fontSize *= k; pixelSize *= k; cornerRadius *= k
+    }
 
     var font: NSFont {
         if fontName.isEmpty { return .systemFont(ofSize: fontSize, weight: bold ? .semibold : .regular) }
@@ -79,7 +105,17 @@ struct Style: Equatable {
         return bold ? NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask) : f
     }
 
-    var textAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: color] }
+    var textAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: textColor] }
+
+    /// Text on a solid box is black or white, whichever reads better on the box's color; otherwise the style's color.
+    var textColor: NSColor {
+        guard textBox == .solid, let c = color.usingColorSpace(.sRGB) else { return color }
+        let luminance = 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent
+        return luminance > 0.6 ? .black : .white
+    }
+
+    /// Room between the text and the edge of its box.
+    var textBoxPadding: CGFloat { textBox == .plain ? 0 : (fontSize * 0.4).rounded() }
 
     /// Highlighter strokes are much wider than the chosen stroke width.
     var highlighterWidth: CGFloat { max(12, lineWidth * 5) }
@@ -159,16 +195,29 @@ struct Annotation: Equatable {
     /// A magnifier's lens center; `start`/`end` are the area it shows. Nil while it is being drawn (it then sits
     /// beside that area).
     var lens: NSPoint? = nil
+    /// Text: where its speech-bubble tail points (with `Style.tail`); nil puts it below the box's left side.
+    var tail: NSPoint? = nil
+    /// Text: the width it wraps at; nil keeps each line on one line.
+    var wrapWidth: CGFloat? = nil
+    /// Arrows and lines: how far the middle of the curve sits from the straight line, to its left (#119).
+    var bend: CGFloat = 0
+    /// Keeps the hand-drawn wobble the same every time it is drawn.
+    var seed = UInt64.random(in: 0...UInt64.max)
     var style: Style
 
     private static var lastSeq = 0
     private static func nextSeq() -> Int { lastSeq += 1; return lastSeq }
 
     mutating func translate(dx: CGFloat, dy: CGFloat) {
-        start.x += dx; start.y += dy
-        end.x += dx; end.y += dy
-        points = points.map { NSPoint(x: $0.x + dx, y: $0.y + dy) }
-        lens = lens.map { NSPoint(x: $0.x + dx, y: $0.y + dy) }
+        mapPoints { NSPoint(x: $0.x + dx, y: $0.y + dy) }
+    }
+
+    /// Moves every point the annotation is made of with `f`.
+    mutating func mapPoints(_ f: (NSPoint) -> NSPoint) {
+        start = f(start); end = f(end)
+        points = points.map(f)
+        lens = lens.map(f)
+        tail = tail.map(f)
     }
 }
 
@@ -275,6 +324,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case moveLens(last: NSPoint)
         case resizeCorner(anchor: NSPoint)
         case resizeEnd(isStart: Bool)
+        /// A text label's wrap width (its right-hand handle) or its tail's tip (#120).
+        case textWidth
+        case textTail
+        /// An arrow's or line's middle handle, which bends it (#119).
+        case bend
         case cropCorner(anchor: NSPoint)
         case cropEdges(CropEdges)
         case cropMove(last: NSPoint)
@@ -383,12 +437,22 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let p = convert(event.locationInWindow, from: nil)
         pointerMoved(to: p)
         if let a = areaAnchor {
-            areaDraft = NSRect(x: min(a.x, p.x), y: min(a.y, p.y), width: abs(p.x - a.x), height: abs(p.y - a.y))
+            if areaPick == .cutOut {
+                areaDraft = cutBand(from: a, to: p, vertical: event.modifierFlags.contains(.option))
+            } else {
+                areaDraft = NSRect(x: min(a.x, p.x), y: min(a.y, p.y), width: abs(p.x - a.x), height: abs(p.y - a.y))
+            }
             return
         }
         switch drag {
         case .draw?:
-            draft?.end = p; draft?.points.append(p)
+            draft?.end = p
+            // Shift keeps a pen or highlighter stroke straight.
+            if draft?.tool.isFreehand == true, event.modifierFlags.contains(.shift), let first = draft?.points.first {
+                draft?.points = [first, p]
+            } else {
+                draft?.points.append(p)
+            }
         case .move(let last)?:
             guard let i = selectedIndex else { return }
             // Dragging a magnifier's area leaves its lens where it is.
@@ -408,6 +472,18 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .resizeEnd(let isStart)?:
             guard let i = selectedIndex else { return }
             if isStart { items[i].start = p } else { items[i].end = p }
+        case .textWidth?:
+            guard let i = selectedIndex else { return }
+            let a = items[i]
+            items[i].wrapWidth = max(a.style.fontSize * 1.5, p.x - a.style.textBoxPadding - a.start.x).rounded()
+        case .textTail?:
+            guard let i = selectedIndex else { return }
+            items[i].tail = p
+        case .bend?:
+            guard let i = selectedIndex, let f = chordFrame(items[i]) else { return }
+            let b = (p.x - f.mid.x) * f.normal.x + (p.y - f.mid.y) * f.normal.y
+            // Close to straight snaps to straight.
+            items[i].bend = abs(b) < 3 / zoom ? 0 : b
         case .cropCorner(let anchor)?:
             let full = fullContentRect()
             let q = NSPoint(x: min(max(p.x, full.minX), full.maxX), y: min(max(p.y, full.minY), full.maxY))
@@ -453,6 +529,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             case .contrast:
                 contrastArea = r
                 refreshContrast()
+            case .cutOut:
+                endAreaPick()
+                cutOut(r, axis: cutAxis)
             }
             return
         }
@@ -460,12 +539,31 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if isCropping { drag = nil; return }  // the crop is recorded when it is applied
         if case .draw = d, var a = draft, isMeaningful(a) {
             if a.tool == .magnifier { a.lens = defaultLensCenter(a) }
+            if a.tool.isFreehand { a = finishedStroke(a) }
             items.append(a)
             selectedID = a.id
         }
         recordUndo(from: beforeDrag)
         draft = nil; drag = nil
         needsDisplay = true
+    }
+
+    /// A pen or highlighter stroke when let go: simplified (it is drawn smoothly through what is left), or, with Shape
+    /// Correction, the line, ellipse or rectangle it was meant as (#119).
+    private func finishedStroke(_ a: Annotation) -> Annotation {
+        if a.tool == .pen, a.style.shapeCorrection, let shape = StrokeShapes.fit(a.points) {
+            switch shape {
+            case .line(let p, let q):
+                return Annotation(tool: .line, start: p, end: q, style: a.style)
+            case .ellipse(let r):
+                return Annotation(tool: .ellipse, start: r.origin, end: NSPoint(x: r.maxX, y: r.maxY), style: a.style)
+            case .rect(let r):
+                return Annotation(tool: .rect, start: r.origin, end: NSPoint(x: r.maxX, y: r.maxY), style: a.style)
+            }
+        }
+        var a = a
+        a.points = StrokeShapes.simplify(a.points, epsilon: 1.5 / zoom)
+        return a
     }
 
     /// Corner for an image resized from `anchor` toward `p`, keeping the picture's proportions.
@@ -640,6 +738,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     // MARK: Arrange (the screenshot itself is not an annotation, so it always stays at the bottom)
 
     var hasSelection: Bool { selectedIndex != nil }
+    /// Something was changed since the editor opened (for the library's Edited filter, #117).
+    var isEdited: Bool { !undoStack.isEmpty }
 
     @objc func bringToFront(_ sender: Any?) { moveSelection { _, n in n - 1 } }
     @objc func bringForward(_ sender: Any?) { moveSelection { i, _ in i + 1 } }
@@ -713,6 +813,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         ("Flip Horizontal", #selector(CanvasView.flipHorizontal(_:))), ("Flip Vertical", #selector(CanvasView.flipVertical(_:))),
     ]
 
+    /// Resize, Cut Out and Remove Background (#121, #122).
+    static let sizeCommands: [(String, Selector)] = [
+        ("Resize Image…", #selector(CanvasView.resizeImage(_:))), ("Cut Out…", #selector(CanvasView.cutOut(_:))),
+        ("Remove Background", #selector(CanvasView.removeBackground(_:))),
+    ]
+
     /// The same orientation change as an affine map, for a w×h area with a bottom-left origin.
     private static func transform(_ op: Orientation, width w: CGFloat, height h: CGFloat) -> CGAffineTransform {
         switch op {
@@ -760,10 +866,123 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                     a.start = a.start.applying(t); a.end = a.end.applying(t)
                     a.points = a.points.map { $0.applying(t) }
                     a.lens = a.lens?.applying(t)
+                    // A mirror image bends the other way.
+                    if op == .flipHorizontal || op == .flipVertical { a.bend = -a.bend }
                 }
                 return a
             }
             crop = crop.map { $0.applying(t) }
+        }
+    }
+
+    // MARK: Resize, Cut Out, Remove Background (#121, #122)
+
+    /// Image → Resize Image…: the editor asks for the new size, then calls `resize(toWidth:height:)`.
+    var onResizeRequest: (() -> Void)?
+    /// A short message for the editor to show over the canvas.
+    var onMessage: ((String) -> Void)?
+
+    /// The screenshot's size in pixels.
+    var pixelSize: (width: Int, height: Int) {
+        guard let cg = baseCG else { return (Int(base.size.width.rounded()), Int(base.size.height.rounded())) }
+        return (cg.width, cg.height)
+    }
+    /// Pixels per point (2 for a Retina screenshot).
+    var pixelDensity: CGFloat { pixelScale.x }
+
+    @objc func resizeImage(_ sender: Any?) {
+        finishTextEditing()
+        applyCrop()
+        onResizeRequest?()
+    }
+
+    /// Resamples the screenshot to `width` × `height` pixels; annotations, their sizes and the crop scale with it.
+    func resize(toWidth width: Int, height: Int) {
+        finishTextEditing()
+        cancelCrop()
+        guard ImageOps.resizeProblem(width: width, height: height) == nil, base.size.width > 0, base.size.height > 0,
+              let newBase = ImageOps.resized(base, width: width, height: height) else { NSSound.beep(); return }
+        let sx = newBase.size.width / base.size.width, sy = newBase.size.height / base.size.height
+        let scale = { (p: NSPoint) in NSPoint(x: p.x * sx, y: p.y * sy) }
+        mutate {
+            base = newBase
+            items = items.map { a in
+                var a = a
+                a.mapPoints(scale)
+                a.style.scale(by: (sx + sy) / 2)
+                a.wrapWidth = a.wrapWidth.map { $0 * sx }
+                a.bend *= (sx + sy) / 2
+                return a
+            }
+            crop = crop.map { NSRect(x: $0.minX * sx, y: $0.minY * sy, width: $0.width * sx, height: $0.height * sy) }
+        }
+    }
+
+    /// Drag across the part of the screenshot to remove (⌥-drag for a vertical strip); the parts either side join.
+    @objc func cutOut(_ sender: Any?) { startAreaPick(.cutOut) }
+
+    /// Which way the strip being dragged for Cut Out runs.
+    private var cutAxis = ImageOps.Axis.horizontal
+
+    /// The strip between `a` and `p` across the whole screenshot: rows, or with `vertical` columns.
+    private func cutBand(from a: NSPoint, to p: NSPoint, vertical: Bool) -> NSRect {
+        cutAxis = vertical ? .vertical : .horizontal
+        let r = imageRect
+        if vertical {
+            let x0 = min(max(min(a.x, p.x), r.minX), r.maxX), x1 = min(max(max(a.x, p.x), r.minX), r.maxX)
+            return NSRect(x: x0, y: r.minY, width: x1 - x0, height: r.height)
+        }
+        let y0 = min(max(min(a.y, p.y), r.minY), r.maxY), y1 = min(max(max(a.y, p.y), r.minY), r.maxY)
+        return NSRect(x: r.minX, y: y0, width: r.width, height: y1 - y0)
+    }
+
+    /// Removes the strip `r` from the screenshot. Annotations past it move up (or left) with the image; those wholly
+    /// inside it are deleted. One undo step.
+    private func cutOut(_ r: NSRect, axis: ImageOps.Axis) {
+        let s = pixelScale, h = base.size.height
+        // In whole pixels, counted from the top (rows) or the left (columns).
+        let lo: Int, hi: Int
+        switch axis {
+        case .horizontal: lo = Int(((h - r.maxY) * s.y).rounded()); hi = Int(((h - r.minY) * s.y).rounded())
+        case .vertical: lo = Int((r.minX * s.x).rounded()); hi = Int((r.maxX * s.x).rounded())
+        }
+        guard hi > lo, let newBase = ImageOps.removing(lo..<hi, axis: axis, from: base) else { NSSound.beep(); return }
+        // The strip as cut, in image points (bottom-left origin).
+        let p0 = axis == .horizontal ? h - CGFloat(hi) / s.y : CGFloat(lo) / s.x
+        let p1 = axis == .horizontal ? h - CGFloat(lo) / s.y : CGFloat(hi) / s.x
+        let move: (NSPoint) -> NSPoint = axis == .horizontal
+            ? { NSPoint(x: $0.x, y: ImageOps.afterCut($0.y, lo: p0, hi: p1)) }
+            : { NSPoint(x: ImageOps.afterCut($0.x, lo: p0, hi: p1), y: $0.y) }
+        let inside = { (b: NSRect) in
+            axis == .horizontal ? b.minY >= p0 && b.maxY <= p1 : b.minX >= p0 && b.maxX <= p1
+        }
+        mutate {
+            items = items.filter { !inside(bounds(of: $0)) }.map { a in
+                var a = a
+                a.mapPoints(move)
+                return a
+            }
+            base = newBase
+            crop = crop.map { c in
+                let a = move(NSPoint(x: c.minX, y: c.minY)), b = move(NSPoint(x: c.maxX, y: c.maxY))
+                return NSRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+            }
+        }
+        if selectedIndex == nil { selectedID = nil }
+    }
+
+    /// Keeps only the screenshot's subject (Vision's foreground mask); the rest becomes transparent. One undo step.
+    @objc func removeBackground(_ sender: Any?) {
+        finishTextEditing()
+        cancelCrop()
+        let image = base
+        onMessage?("Looking for the subject…")
+        Task { @MainActor [weak self] in
+            let kept = await ImageOps.removingBackground(image)
+            guard let self, self.base === image else { return }
+            guard let kept else { self.onMessage?("No subject found to keep"); NSSound.beep(); return }
+            self.mutate { self.base = kept }
+            self.onMessage?("Background removed")
         }
     }
 
@@ -803,8 +1022,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Called with the text Copy Text found (empty when there was none); it is already on the clipboard.
     var onTextCopied: ((String) -> Void)?
     /// What a drag over the screenshot picks an area for, instead of drawing: Copy Text from Area, Copy Average Color,
-    /// or Check Contrast (which stays on, measuring each new area, until Esc).
-    enum AreaPick { case text, averageColor, contrast }
+    /// Check Contrast (which stays on, measuring each new area, until Esc), or the strip Cut Out removes.
+    enum AreaPick { case text, averageColor, contrast, cutOut }
 
     /// Called when picking an area starts, changes kind, or ends (nil).
     var onAreaPickChange: ((AreaPick?) -> Void)?
@@ -1216,8 +1435,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         tv.textContainerInset = .zero
         tv.textContainer?.lineFragmentPadding = 0
         tv.textContainer?.widthTracksTextView = false
-        tv.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        tv.isHorizontallyResizable = true
+        // A wrapped label wraps at the same width while it is typed (#120).
+        tv.textContainer?.containerSize = NSSize(width: a.wrapWidth ?? CGFloat.greatestFiniteMagnitude,
+                                                 height: CGFloat.greatestFiniteMagnitude)
+        tv.isHorizontallyResizable = a.wrapWidth == nil
         tv.isVerticallyResizable = true
         tv.wantsLayer = true
         tv.layer?.masksToBounds = false
@@ -1234,8 +1455,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private func styleEditor(_ tv: NSTextView, _ s: Style) {
         tv.font = s.font
-        tv.textColor = s.color
-        tv.insertionPointColor = s.color
+        tv.textColor = s.textColor
+        tv.insertionPointColor = s.textColor
         tv.typingAttributes = s.textAttributes
         tv.textStorage?.setAttributes(s.textAttributes, range: NSRange(location: 0, length: (tv.string as NSString).length))
     }
@@ -1247,7 +1468,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         lm.ensureLayout(for: tc)
         let used = lm.usedRect(for: tc).size
         let font = items[i].style.font
-        let size = NSSize(width: max(used.width, font.pointSize * 0.6) + 2,
+        let size = NSSize(width: items[i].wrapWidth ?? max(used.width, font.pointSize * 0.6) + 2,
                           height: max(used.height, lm.defaultLineHeight(for: font)))
         tv.minSize = size
         tv.frame = NSRect(x: items[i].start.x, y: items[i].start.y - size.height, width: size.width, height: size.height)
@@ -1317,7 +1538,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .text, .pixelate, .blur, .erase, .spotlight, .select, .filledRect, .counter, .image, .ruler: return 0
         case .highlighter: return a.style.highlighterWidth / 2
         case .arrow: return max(a.style.lineWidth / 2, max(12, a.style.lineWidth * 5) * 0.45)
-        default: return a.style.lineWidth / 2
+        default: return a.style.lineWidth / 2 + (a.style.handDrawn ? handDrawnAmplitude(a) : 0)
         }
     }
 
@@ -1329,14 +1550,44 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     private func textSize(_ a: Annotation) -> NSSize {
-        (a.text as NSString).size(withAttributes: a.style.textAttributes)
+        let attrs = a.style.textAttributes
+        guard let w = a.wrapWidth else { return (a.text as NSString).size(withAttributes: attrs) }
+        let r = (a.text as NSString).boundingRect(with: NSSize(width: w, height: .greatestFiniteMagnitude),
+                                                  options: [.usesLineFragmentOrigin], attributes: attrs)
+        return NSSize(width: w, height: ceil(r.height))
+    }
+
+    /// Where a text label's glyphs go (`start` is its top-left corner); at least one line high, so an empty label
+    /// being typed still has a box.
+    private func textRect(_ a: Annotation) -> NSRect {
+        let s = textSize(a), f = a.style.font
+        let h = max(s.height, ceil(f.ascender - f.descender + f.leading))
+        let w = a.text.isEmpty ? max(s.width, f.pointSize * 0.6) : s.width
+        return NSRect(x: a.start.x, y: a.start.y - h, width: w, height: h)
+    }
+
+    /// A text label's box (#120): its glyphs plus the padding.
+    private func textBoxRect(_ a: Annotation) -> NSRect {
+        let pad = a.style.textBoxPadding
+        return textRect(a).insetBy(dx: -pad, dy: -pad)
+    }
+
+    /// Where a text label's tail points, when it has one.
+    private func tailTip(_ a: Annotation) -> NSPoint? {
+        guard a.tool == .text, a.style.tail, a.style.textBox != .plain else { return nil }
+        if let t = a.tail { return t }
+        let box = textBoxRect(a)
+        return NSPoint(x: box.minX + min(box.width * 0.25, a.style.fontSize * 1.5), y: box.minY - a.style.fontSize * 1.2)
     }
 
     private func bounds(of a: Annotation) -> NSRect {
+        // A bent line or arrow bulges past its ends.
+        if a.tool == .line || a.tool == .arrow, a.bend != 0, let o = outline(a) { return o.bounds.union(rect(a)) }
         switch a.tool {
         case .text:
-            let s = textSize(a)
-            return NSRect(x: a.start.x, y: a.start.y - s.height, width: s.width, height: s.height)
+            let box = textBoxRect(a)
+            guard let tip = tailTip(a) else { return box }
+            return box.union(NSRect(origin: tip, size: .zero))
         case .counter:
             let r = a.style.counterRadius
             return NSRect(x: a.start.x - r, y: a.start.y - r, width: r * 2, height: r * 2)
@@ -1357,12 +1608,53 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
         case .ellipse: return NSBezierPath(ovalIn: rect(a))
         case .line, .arrow, .ruler:
-            let p = NSBezierPath(); p.move(to: a.start); p.line(to: a.end); return p
+            let p = NSBezierPath(); p.move(to: a.start)
+            if a.tool != .ruler, a.bend != 0 {
+                Self.quadCurve(p, to: a.end, control: bendControl(a))
+            } else {
+                p.line(to: a.end)
+            }
+            return p
         case .pen, .highlighter:
-            guard let f = a.points.first else { return nil }
-            let p = NSBezierPath(); p.move(to: f); a.points.dropFirst().forEach { p.line(to: $0) }; return p
+            guard !a.points.isEmpty else { return nil }
+            return StrokeShapes.smoothPath(a.points)
         case .text, .pixelate, .blur, .erase, .magnifier, .select, .counter, .image: return nil
         }
+    }
+
+    /// The outline as drawn: with the hand-drawn wobble when that is on (#119).
+    private func drawnOutline(_ a: Annotation) -> NSBezierPath? {
+        guard let p = outline(a) else { return nil }
+        guard a.style.handDrawn, [.rect, .ellipse, .line].contains(a.tool) else { return p }
+        return StrokeShapes.handDrawn(p, seed: a.seed, amplitude: handDrawnAmplitude(a))
+    }
+
+    private func handDrawnAmplitude(_ a: Annotation) -> CGFloat { min(1 + a.style.lineWidth * 0.35, 4) }
+
+    /// A line's or arrow's middle and its unit normal (to the left of start → end); nil when it has no length.
+    private func chordFrame(_ a: Annotation) -> (mid: NSPoint, normal: NSPoint)? {
+        let dx = a.end.x - a.start.x, dy = a.end.y - a.start.y, len = hypot(dx, dy)
+        guard len > 0 else { return nil }
+        return (NSPoint(x: (a.start.x + a.end.x) / 2, y: (a.start.y + a.end.y) / 2), NSPoint(x: -dy / len, y: dx / len))
+    }
+
+    /// The handle in the middle of a line or arrow: on the curve, `bend` from the straight line.
+    private func bendHandle(_ a: Annotation) -> NSPoint {
+        guard let f = chordFrame(a) else { return a.start }
+        return NSPoint(x: f.mid.x + f.normal.x * a.bend, y: f.mid.y + f.normal.y * a.bend)
+    }
+
+    /// The control point of the quadratic curve through the ends and `bendHandle` (the middle of a straight one).
+    private func bendControl(_ a: Annotation) -> NSPoint {
+        guard let f = chordFrame(a) else { return a.start }
+        return NSPoint(x: f.mid.x + f.normal.x * a.bend * 2, y: f.mid.y + f.normal.y * a.bend * 2)
+    }
+
+    /// Adds a quadratic curve to `p` (from its current point), as the cubic NSBezierPath draws.
+    private static func quadCurve(_ p: NSBezierPath, to end: NSPoint, control c: NSPoint) {
+        let s = p.currentPoint
+        p.curve(to: end, controlPoint1: NSPoint(x: s.x + (c.x - s.x) * 2 / 3, y: s.y + (c.y - s.y) * 2 / 3),
+                controlPoint2: NSPoint(x: end.x + (c.x - end.x) * 2 / 3, y: end.y + (c.y - end.y) * 2 / 3))
     }
 
     private func hits(_ a: Annotation, _ p: NSPoint) -> Bool {
@@ -1374,6 +1666,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if a.tool == .magnifier {
             return rect(a).insetBy(dx: -slop, dy: -slop).contains(p) || lensPath(a).contains(p)
         }
+        // A filled shape is hit anywhere inside, an outline only on its line.
+        if a.tool == .rect || a.tool == .ellipse, a.style.fill != .outline, outline(a)?.contains(p) == true { return true }
         guard let path = outline(a) else { return false }
         let width = a.tool == .highlighter ? a.style.highlighterWidth : a.style.lineWidth
         return path.cgPath.copy(strokingWithWidth: width + slop * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
@@ -1387,15 +1681,21 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             let r = rect(a)
             return [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
                     NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)]
-        case .line, .arrow, .ruler: return [a.start, a.end]
-        case .pen, .highlighter, .text, .counter, .select: return []
+        case .line, .arrow: return [a.start, a.end, bendHandle(a)]
+        case .ruler: return [a.start, a.end]
+        case .text:
+            // The wrap width on the right-hand side, then the tail's tip.
+            let box = textBoxRect(a)
+            return [NSPoint(x: box.maxX, y: box.midY)] + (tailTip(a).map { [$0] } ?? [])
+        case .pen, .highlighter, .counter, .select: return []
         }
     }
 
     private func handleDrag(for a: Annotation, at p: NSPoint) -> Drag? {
         let hs = handles(a), radius = 8 / zoom
         guard let h = hs.indices.first(where: { hypot(hs[$0].x - p.x, hs[$0].y - p.y) <= radius }) else { return nil }
-        if a.tool == .line || a.tool == .arrow || a.tool == .ruler { return .resizeEnd(isStart: h == 0) }
+        if a.tool == .line || a.tool == .arrow || a.tool == .ruler { return h == 2 ? .bend : .resizeEnd(isStart: h == 0) }
+        if a.tool == .text { return h == 0 ? .textWidth : .textTail }
         return .resizeCorner(anchor: hs[3 - h])   // the diagonally opposite corner stays put
     }
 
@@ -1420,7 +1720,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if contentRect != imageRect { backdrop.setFill(); contentRect.fill() }
         base.draw(in: imageRect)
         let all = items + (draft.map { [$0] } ?? [])
-        for a in all where a.id != editingID { render(a) }
+        for a in all {
+            // While a label is typed its text is in the text view; its box is still drawn under it.
+            if a.id == editingID { drawTextBox(a) } else { render(a) }
+        }
         drawSpotlights(all.filter { $0.tool == .spotlight })
         ctx?.restoreGState()
         if let r = cropDraft { drawCropOverlay(r) }
@@ -1486,8 +1789,18 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         a.style.color.setStroke(); a.style.color.setFill()
         let lw = a.style.lineWidth
         switch a.tool {
-        case .rect, .ellipse, .line, .pen:
-            guard let p = outline(a) else { return }
+        case .rect, .ellipse:
+            guard let p = drawnOutline(a) else { return }
+            switch a.style.fill {
+            case .outline: break
+            case .translucent:
+                a.style.color.withAlphaComponent(0.3).setFill(); p.fill()
+                a.style.color.setFill()
+            case .solid: p.fill()
+            }
+            p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
+        case .line, .pen:
+            guard let p = drawnOutline(a) else { return }
             p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
         case .filledRect:
             outline(a)?.fill()
@@ -1504,20 +1817,15 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .image:
             a.image?.draw(in: rect(a))
         case .arrow:
-            let dx = a.end.x - a.start.x, dy = a.end.y - a.start.y
-            let len = hypot(dx, dy); guard len > 2 else { return }
-            let ang = atan2(dy, dx), head: CGFloat = max(12, lw * 5)
-            let style = a.style.arrowStyle
-            // A filled head covers the end of the shaft, so stop the shaft short of the tip.
-            let inset = style == .open ? 0 : head * 0.6
-            let tail = style == .double ? NSPoint(x: a.start.x + cos(ang) * inset, y: a.start.y + sin(ang) * inset) : a.start
-            let line = NSBezierPath(); line.lineWidth = lw; line.lineCapStyle = .round
-            line.move(to: tail)
-            line.line(to: NSPoint(x: a.end.x - cos(ang) * inset, y: a.end.y - sin(ang) * inset)); line.stroke()
-            drawArrowHead(tip: a.end, angle: ang, size: head, open: style == .open, lineWidth: lw)
-            if style == .double { drawArrowHead(tip: a.start, angle: ang + .pi, size: head, open: false, lineWidth: lw) }
+            drawArrow(a)
         case .text:
-            (a.text as NSString).draw(at: bounds(of: a).origin, withAttributes: a.style.textAttributes)
+            drawTextBox(a)
+            let r = textRect(a)
+            if a.wrapWidth != nil {
+                (a.text as NSString).draw(with: r, options: [.usesLineFragmentOrigin], attributes: a.style.textAttributes)
+            } else {
+                (a.text as NSString).draw(at: r.origin, withAttributes: a.style.textAttributes)
+            }
         case .pixelate:
             for r in concealRects(a) { drawPixelated(r, block: a.style.pixelSize) }
         case .blur:
@@ -1540,6 +1848,106 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .spotlight, .select:
             break   // spotlights are drawn together by drawSpotlights
         }
+    }
+
+    /// A text label's box, with its tail, when it has one (#120).
+    private func drawTextBox(_ a: Annotation) {
+        guard a.tool == .text, a.style.textBox != .plain else { return }
+        let box = textBoxRect(a), radius = min(a.style.fontSize * 0.3, box.width / 2, box.height / 2)
+        let path = Self.bubblePath(box, radius: radius, tail: tailTip(a), tailWidth: a.style.fontSize * 0.8)
+        a.style.color.set()
+        if a.style.textBox == .solid {
+            path.fill()
+        } else {
+            path.lineWidth = max(1.5, a.style.fontSize / 12)
+            path.lineJoinStyle = .round
+            path.stroke()
+        }
+    }
+
+    /// A rounded rectangle, with a triangular tail out to `tail` (when it lies outside) as part of the same outline,
+    /// so an outlined bubble has no line across the tail's base.
+    static func bubblePath(_ r: NSRect, radius: CGFloat, tail: NSPoint?, tailWidth: CGFloat) -> NSBezierPath {
+        enum Side { case bottom, right, top, left }
+        var side: Side?
+        var base: CGFloat = 0
+        if let t = tail, !r.contains(t), r.width > 0, r.height > 0 {
+            let dx = (t.x - r.midX) / (r.width / 2), dy = (t.y - r.midY) / (r.height / 2)
+            if abs(dx) > abs(dy) { side = dx > 0 ? .right : .left } else { side = dy > 0 ? .top : .bottom }
+            let along = side == .bottom || side == .top
+            let lo = (along ? r.minX : r.minY) + radius + tailWidth / 2, hi = (along ? r.maxX : r.maxY) - radius - tailWidth / 2
+            let v = along ? t.x : t.y
+            base = lo <= hi ? min(max(v, lo), hi) : (along ? r.midX : r.midY)
+        }
+        let w = tailWidth / 2, p = NSBezierPath()
+        func tailOut(_ a: NSPoint, _ b: NSPoint) {
+            guard let t = tail else { return }
+            p.line(to: a); p.line(to: t); p.line(to: b)
+        }
+        // Counterclockwise from the bottom-left corner.
+        p.move(to: NSPoint(x: r.minX + radius, y: r.minY))
+        if side == .bottom { tailOut(NSPoint(x: base - w, y: r.minY), NSPoint(x: base + w, y: r.minY)) }
+        p.line(to: NSPoint(x: r.maxX - radius, y: r.minY))
+        p.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.minY + radius), radius: radius, startAngle: 270, endAngle: 360)
+        if side == .right { tailOut(NSPoint(x: r.maxX, y: base - w), NSPoint(x: r.maxX, y: base + w)) }
+        p.line(to: NSPoint(x: r.maxX, y: r.maxY - radius))
+        p.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.maxY - radius), radius: radius, startAngle: 0, endAngle: 90)
+        if side == .top { tailOut(NSPoint(x: base + w, y: r.maxY), NSPoint(x: base - w, y: r.maxY)) }
+        p.line(to: NSPoint(x: r.minX + radius, y: r.maxY))
+        p.appendArc(withCenter: NSPoint(x: r.minX + radius, y: r.maxY - radius), radius: radius, startAngle: 90, endAngle: 180)
+        if side == .left { tailOut(NSPoint(x: r.minX, y: base + w), NSPoint(x: r.minX, y: base - w)) }
+        p.line(to: NSPoint(x: r.minX, y: r.minY + radius))
+        p.appendArc(withCenter: NSPoint(x: r.minX + radius, y: r.minY + radius), radius: radius, startAngle: 180, endAngle: 270)
+        p.close()
+        return p
+    }
+
+    /// An arrow, straight or bent; its heads point along the curve at its ends. Colors are already set.
+    private func drawArrow(_ a: Annotation) {
+        let lw = a.style.lineWidth
+        guard hypot(a.end.x - a.start.x, a.end.y - a.start.y) > 2 else { return }
+        let c = bendControl(a), head: CGFloat = max(12, lw * 5), style = a.style.arrowStyle
+        // The directions the curve runs in at each end (for a straight arrow, both along it).
+        let endAngle = atan2(a.end.y - c.y, a.end.x - c.x), startAngle = atan2(a.start.y - c.y, a.start.x - c.x)
+        if style == .tapered { drawTaperedArrow(a, control: c, head: head, endAngle: endAngle); return }
+        // A filled head covers the end of the shaft, so stop the shaft short of the tip.
+        let inset = style == .open ? 0 : head * 0.6
+        let shaftEnd = NSPoint(x: a.end.x - cos(endAngle) * inset, y: a.end.y - sin(endAngle) * inset)
+        let shaftStart = style == .double ? NSPoint(x: a.start.x - cos(startAngle) * inset, y: a.start.y - sin(startAngle) * inset)
+                                          : a.start
+        var line = NSBezierPath()
+        line.move(to: shaftStart)
+        if a.bend != 0 { Self.quadCurve(line, to: shaftEnd, control: c) } else { line.line(to: shaftEnd) }
+        if a.style.handDrawn { line = StrokeShapes.handDrawn(line, seed: a.seed, amplitude: handDrawnAmplitude(a)) }
+        line.lineWidth = lw; line.lineCapStyle = .round; line.lineJoinStyle = .round
+        line.stroke()
+        drawArrowHead(tip: a.end, angle: endAngle, size: head, open: style == .open, lineWidth: lw)
+        if style == .double { drawArrowHead(tip: a.start, angle: startAngle, size: head, open: false, lineWidth: lw) }
+    }
+
+    /// A filled shaft that widens from 30% to its full width toward a filled head (#119).
+    private func drawTaperedArrow(_ a: Annotation, control c: NSPoint, head: CGFloat, endAngle: CGFloat) {
+        let w = max(a.style.lineWidth * 1.6, 4)
+        let base = NSPoint(x: a.end.x - cos(endAngle) * head * 0.7, y: a.end.y - sin(endAngle) * head * 0.7)
+        let n = 24
+        var left: [NSPoint] = [], right: [NSPoint] = []
+        for i in 0...n {
+            let t = CGFloat(i) / CGFloat(n), u = 1 - t
+            // A point on the quadratic curve from the start to the head's base, and the curve's direction there.
+            let p = NSPoint(x: u * u * a.start.x + 2 * u * t * c.x + t * t * base.x,
+                            y: u * u * a.start.y + 2 * u * t * c.y + t * t * base.y)
+            let dx = 2 * u * (c.x - a.start.x) + 2 * t * (base.x - c.x), dy = 2 * u * (c.y - a.start.y) + 2 * t * (base.y - c.y)
+            let len = max(hypot(dx, dy), 0.001), half = w * (0.3 + 0.7 * t) / 2
+            left.append(NSPoint(x: p.x - dy / len * half, y: p.y + dx / len * half))
+            right.append(NSPoint(x: p.x + dy / len * half, y: p.y - dx / len * half))
+        }
+        let shaft = NSBezierPath()
+        shaft.move(to: left[0])
+        left.dropFirst().forEach { shaft.line(to: $0) }
+        right.reversed().forEach { shaft.line(to: $0) }
+        shaft.close()
+        shaft.fill()
+        drawArrowHead(tip: a.end, angle: endAngle, size: max(head, w * 2.2), open: false, lineWidth: a.style.lineWidth)
     }
 
     private func drawArrowHead(tip: NSPoint, angle: CGFloat, size: CGFloat, open: Bool, lineWidth: CGFloat) {

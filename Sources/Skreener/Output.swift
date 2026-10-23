@@ -4,9 +4,9 @@ import UniformTypeIdentifiers
 enum Output {
     /// The image as a file in the format chosen in Settings (PNG or JPEG), downscaled to 1× when that is on.
     /// JPEG has no alpha, so transparent areas (window captures) become white.
-    static func fileData(_ image: NSImage) -> Data? {
+    static func fileData(_ image: NSImage, format: ImageFormat = Preferences.imageFormat) -> Data? {
         guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        let jpeg = Preferences.imageFormat == .jpeg
+        let jpeg = format == .jpeg
         var w = rep.pixelsWide, h = rep.pixelsHigh
         if Preferences.downscaleRetina, image.size.width >= 1, image.size.height >= 1 {
             w = min(w, Int(image.size.width.rounded()))
@@ -81,12 +81,24 @@ enum Output {
         do { try data.write(to: url); return url } catch { NSLog("Save failed: \(error)"); return nil }
     }
 
-    static func saveAs(_ image: NSImage) {
+    /// Writes the image over `url` (an earlier save of the same screenshot, #118), in that file's format. Fails for
+    /// a file that isn't a PNG or JPEG.
+    static func overwrite(_ image: NSImage, at url: URL) -> Bool {
+        guard let format = ImageFormat(fileExtension: url.pathExtension), let data = fileData(image, format: format) else {
+            return false
+        }
+        do { try data.write(to: url, options: .atomic); return true } catch { NSLog("Save failed: \(error)"); return false }
+    }
+
+    /// The save panel; returns where the image went (nil when cancelled or the write failed).
+    @discardableResult
+    static func saveAs(_ image: NSImage, name: String? = nil) -> URL? {
         let format = Preferences.imageFormat
         let panel = NSSavePanel()
         panel.allowedContentTypes = [format.contentType]
-        panel.nameFieldStringValue = filename() + "." + format.fileExtension
-        if panel.runModal() == .OK, let url = panel.url, let data = fileData(image) { try? data.write(to: url) }
+        panel.nameFieldStringValue = (name ?? filename()) + "." + format.fileExtension
+        guard panel.runModal() == .OK, let url = panel.url, let data = fileData(image) else { return nil }
+        do { try data.write(to: url, options: .atomic); return url } catch { NSLog("Save failed: \(error)"); return nil }
     }
 
     /// Writes the image to a temporary file named like a saved screenshot, for Drag Me and the share sheet.

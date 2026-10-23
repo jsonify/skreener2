@@ -73,6 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.statusItem.button?.title = Preferences.recordTimeInMenuBar ? " " + time : ""
         }
 
+        // The history panel's capture buttons (#117).
+        CaptureHistoryPanel.captureActions = [
+            ("viewfinder", "Capture Area", { [weak self] in self?.captureArea() }),
+            ("arrow.counterclockwise", "Capture Previous Area", { [weak self] in self?.capturePreviousArea() }),
+            ("macwindow", "Capture Window", { [weak self] in self?.captureWindow() }),
+            ("display", "Capture Fullscreen", { [weak self] in self?.captureFullscreen() }),
+            ("arrow.up.and.down.text.horizontal", "Capture Scrolling", { [weak self] in self?.captureScrolling() }),
+            ("doc.on.clipboard", "Open from Clipboard", { [weak self] in self?.openClipboard() }),
+        ]
         EditorWindowController.captureArea = { [weak self] done in
             if let self { self.captureAreaImage(done) } else { done(nil) }
         }
@@ -257,6 +266,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .separator(),
             item("Quit Skreener", #selector(NSApplication.terminate(_:)), "q"),
         ])
+        _ = submenu("File", [
+            item("Save", #selector(EditorWindow.saveScreenshot(_:)), "s"),
+            item("Save As…", #selector(EditorWindow.saveScreenshotAs(_:)), "s", [.command, .shift]),
+        ])
         _ = submenu("Edit", [
             item("Undo", #selector(CanvasView.undo(_:)), "z"),
             item("Redo", #selector(CanvasView.redo(_:)), "z", [.command, .shift]),
@@ -271,8 +284,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Copy Text from Area…", #selector(CanvasView.copyTextFromArea(_:)), "t", [.command, .shift]),
             item("Copy All Text", #selector(CanvasView.copyAllText(_:))),
         ]
+        let sizeItems = plain(CanvasView.sizeCommands)
+        if let resize = sizeItems.first(where: { $0.action == #selector(CanvasView.resizeImage(_:)) }) {
+            resize.keyEquivalent = "r"; resize.keyEquivalentModifierMask = [.command, .shift]
+        }
         var imageItems: [NSMenuItem] = []
-        for group in [plain(CanvasView.imageCommands), plain(CanvasView.redactCommands), textItems, plain(CanvasView.colorCommands)] {
+        for group in [plain(CanvasView.imageCommands), sizeItems, plain(CanvasView.redactCommands), textItems,
+                      plain(CanvasView.colorCommands)] {
             if !imageItems.isEmpty { imageItems.append(.separator()) }   // a new separator each time: menus can't share items
             imageItems += group
         }
@@ -305,7 +323,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @MainActor @objc private func openFile() {
         NSApp.activate(ignoringOtherApps: true)
-        if let img = ImageSource.pickFile() { EditorWindowController(image: img).present() }
+        // Saving the edited image writes over the file opened (#118).
+        if let picked = ImageSource.pickFile() { EditorWindowController(image: picked.image, file: picked.url).present() }
     }
 
     @objc private func openClipboard() {
@@ -315,7 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @MainActor @objc private func pinFile() {
         NSApp.activate(ignoringOtherApps: true)
-        if let img = ImageSource.pickFile() { PinnedScreenshotController.pin(img) }
+        if let picked = ImageSource.pickFile() { PinnedScreenshotController.pin(picked.image) }
     }
 
     @objc private func pinClipboard() {
@@ -697,6 +716,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var saved: URL?
         if actions.contains(.save) {
             saved = Output.save(image)
+            // For the library's App filter and search (#117).
+            if let saved { SavedLibrary.shared.note(saved, app: lastOtherApp.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName) }
             if saved == nil {
                 Notifier.problem("Couldn't save the screenshot",
                                  detail: "Check the export location in Settings → General.")
@@ -705,7 +726,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
         var editor: EditorWindowController?
         if actions.contains(.edit) {
-            editor = EditorWindowController(image: image)
+            // An auto-saved capture is saved again over the same file (#118).
+            editor = EditorWindowController(image: image, file: saved)
             editor?.present(on: screen)
         }
         if actions.contains(.pin) { PinnedScreenshotController.pin(image) }

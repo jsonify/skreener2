@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import QuickLookThumbnailing
 
 extension Notification.Name {
     /// Posted when a capture is added to or removed from the history.
@@ -7,14 +8,15 @@ extension Notification.Name {
 }
 
 /// Every capture is kept as a PNG in Application Support, newest first, so the history panel can show,
-/// copy, re-open or delete it. Only the newest `limit` captures are kept.
+/// copy, re-open or delete it. Only the newest `limit` captures are kept (Settings → After Capture).
 enum CaptureHistory {
     struct Entry {
         let url: URL
         let date: Date
     }
 
-    static let limit = 100
+    /// How many captures are kept; nil keeps them all.
+    static var limit: Int? { Preferences.historyLimit > 0 ? Preferences.historyLimit : nil }
 
     static var directory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -32,7 +34,7 @@ enum CaptureHistory {
         DispatchQueue.global(qos: .utility).async {
             guard let data = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return }
             do { try data.write(to: url) } catch { NSLog("History save failed: \(error)"); return }
-            for old in entries().dropFirst(limit) { try? FileManager.default.removeItem(at: old.url) }
+            prune()
             DispatchQueue.main.async { NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil) }
         }
     }
@@ -47,6 +49,12 @@ enum CaptureHistory {
             .sorted { $0.date > $1.date }
     }
 
+    /// Deletes the oldest captures past `limit` (right away when the limit is lowered).
+    static func prune() {
+        guard let limit else { return }
+        for old in entries().dropFirst(limit) { try? FileManager.default.removeItem(at: old.url) }
+    }
+
     static func delete(_ entry: Entry) {
         try? FileManager.default.removeItem(at: entry.url)
         NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
@@ -55,6 +63,24 @@ enum CaptureHistory {
     static func clear() {
         entries().forEach { try? FileManager.default.removeItem(at: $0.url) }
         NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
+    }
+
+    /// A small thumbnail of any file the panel shows: images decode only what they need; recordings and anything
+    /// ImageIO can't read go through Quick Look. Calls back on the main thread.
+    static func thumbnail(_ url: URL, maxPixels: Int, completion: @escaping (NSImage?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let img = thumbnail(url, maxPixels: maxPixels) {
+                DispatchQueue.main.async { completion(img) }
+                return
+            }
+            let side = CGFloat(maxPixels) / 2
+            let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: side), scale: 2,
+                                                       representationTypes: .thumbnail)
+            QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { rep, _ in
+                let img = rep?.nsImage
+                DispatchQueue.main.async { completion(img) }
+            }
+        }
     }
 
     /// A small, fast thumbnail (decodes only what it needs, unlike loading the full PNG).
@@ -69,24 +95,57 @@ enum CaptureHistory {
     }
 }
 
+
 private final class HistoryPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// CleanShot-style capture history: a strip of recent captures that slides down from the top of the screen.
-/// Hover a capture for Edit / Copy / Save / Share / Pin / Delete, double-click to edit, drag it out as a file.
-/// Esc, a click elsewhere, or the menu item again slides it away.
-final class CaptureHistoryPanel: NSObject {
+/// CleanShot-style capture history that slides down from the top of the screen, with two views: History (recent
+/// captures) and Saved Files (the export location, indexed by `SavedLibrary`, with search and filters, #117).
+/// Hover a capture for its actions, double-click to edit, right-click for more, ⌘-click to select several, drag it out
+/// as a file. Esc, a click elsewhere, or the menu item again slides it away.
+final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
     static let shared = CaptureHistoryPanel()
+    /// Capture buttons along the top (set by the app): symbol, name, action. The panel slides away before they run.
+    static var captureActions: [(symbol: String, title: String, run: () -> Void)] = []
+
+    enum Mode: Int { case history, library }
+    /// One thing the panel shows: a capture in the history, or a file in the export location.
+    struct Item {
+        let url: URL
+        let date: Date
+        let kind: SavedLibrary.Kind
+        let inLibrary: Bool
+    }
 
     private var panel: HistoryPanel?
     private let strip = NSStackView()
-    private let emptyLabel = NSTextField(labelWithString: "No captures yet. Screenshots you take show up here.")
+    private let emptyLabel = NSTextField(labelWithString: "")
+    private let modeControl = NSSegmentedControl(labels: ["History", "Saved Files"], trackingMode: .selectOne,
+                                                 target: nil, action: nil)
+    private let filterRow = NSStackView()
+    private let searchField = NSSearchField()
+    private let monthPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let appPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let kindPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let editedBox = NSButton(checkboxWithTitle: "Edited", target: nil, action: nil)
+    private let countLabel = NSTextField(labelWithString: "")
+    private var filterHeight: NSLayoutConstraint?
+    private var cells: [HistoryCell] = []
+    private var selection: Set<URL> = []
     private var monitors: [Any] = []
     private var shownFrame = NSRect.zero
     /// Bumped on every show, so a slide-out that finishes after the panel was shown again leaves it on screen.
     private var generation = 0
-    private static let height: CGFloat = 228
+    /// At most this many files show at once; the search and filters narrow it down.
+    private static let maxShown = 300
+
+    private var mode: Mode {
+        get { Mode(rawValue: UserDefaults.standard.integer(forKey: "historyPanelMode")) ?? .history }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "historyPanelMode") }
+    }
+    private var tileSize: NSSize { HistoryCell.sizes[min(max(Preferences.libraryTileSize, 0), HistoryCell.sizes.count - 1)] }
+    private var height: CGFloat { tileSize.height + 98 + (mode == .library ? 26 : 0) }
 
     var isVisible: Bool { panel?.isVisible == true }
 
@@ -94,13 +153,12 @@ final class CaptureHistoryPanel: NSObject {
 
     func show() {
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let width = min(screen.visibleFrame.width - 40, 1600)
-        shownFrame = NSRect(x: screen.visibleFrame.midX - width / 2, y: screen.visibleFrame.maxY - Self.height - 8,
-                            width: width, height: Self.height)
+        shownFrame = frame(on: screen)
         let p = panel ?? makePanel()
         panel = p
         generation += 1
-        reload()
+        selection = []
+        applyMode()
         // Start just above the top of the screen and slide down.
         var start = shownFrame
         start.origin.y = screen.frame.maxY
@@ -113,6 +171,11 @@ final class CaptureHistoryPanel: NSObject {
             p.animator().setFrame(shownFrame, display: true)
         }
         installMonitors()
+    }
+
+    private func frame(on screen: NSScreen) -> NSRect {
+        let width = min(screen.visibleFrame.width - 40, 1600)
+        return NSRect(x: screen.visibleFrame.midX - width / 2, y: screen.visibleFrame.maxY - height - 8, width: width, height: height)
     }
 
     func hide() {
@@ -146,9 +209,20 @@ final class CaptureHistoryPanel: NSObject {
         bg.layer?.cornerRadius = 16
         bg.layer?.masksToBounds = true
 
-        let title = NSTextField(labelWithString: "Capture History")
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.textColor = .secondaryLabelColor
+        modeControl.target = self
+        modeControl.action = #selector(modeChanged)
+        modeControl.controlSize = .small
+
+        // Capture buttons, like the menu's; the panel slides away first.
+        let captures = NSStackView(views: Self.captureActions.enumerated().map { i, a in
+            let b = NSButton(image: NSImage(systemSymbolName: a.symbol, accessibilityDescription: a.title) ?? NSImage(),
+                             target: self, action: #selector(captureClicked(_:)))
+            b.isBordered = false
+            b.tag = i
+            b.toolTip = a.title
+            return b
+        })
+        captures.spacing = 10
 
         let more = NSPopUpButton(frame: .zero, pullsDown: true)
         more.bezelStyle = .texturedRounded
@@ -156,15 +230,27 @@ final class CaptureHistoryPanel: NSObject {
         let menu = NSMenu()
         menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
         menu.item(at: 0)?.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: "More")
-        for (t, sel) in [("Open History Folder", #selector(openFolder)), ("Clear History…", #selector(clearHistory))] {
+        menu.addItem(.sectionHeader(title: "Thumbnails"))
+        for (i, t) in ["Small", "Medium", "Large"].enumerated() {
+            let item = NSMenuItem(title: t, action: #selector(tileSizePicked(_:)), keyEquivalent: "")
+            item.target = self; item.tag = i
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        for (t, sel) in [("Open History Folder", #selector(openFolder)), ("Open Export Location", #selector(openSaveFolder)),
+                         ("Clear History…", #selector(clearHistory))] {
             let i = NSMenuItem(title: t, action: sel, keyEquivalent: ""); i.target = self; menu.addItem(i)
         }
+        menu.delegate = self
         more.menu = menu
 
         let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close") ?? NSImage(),
                              target: self, action: #selector(closeIt))
         close.isBordered = false
         close.toolTip = "Close (Esc)"
+
+        buildFilterRow()
+        filterHeight = filterRow.heightAnchor.constraint(equalToConstant: 0)
 
         strip.orientation = .horizontal
         strip.alignment = .top
@@ -185,15 +271,23 @@ final class CaptureHistoryPanel: NSObject {
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
 
-        [title, more, close, scroll, emptyLabel].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; bg.addSubview($0) }
+        [modeControl, captures, more, close, filterRow, scroll, emptyLabel].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false; bg.addSubview($0)
+        }
         NSLayoutConstraint.activate([
-            title.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 20),
-            title.topAnchor.constraint(equalTo: bg.topAnchor, constant: 12),
+            modeControl.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 18),
+            modeControl.topAnchor.constraint(equalTo: bg.topAnchor, constant: 10),
+            captures.centerXAnchor.constraint(equalTo: bg.centerXAnchor),
+            captures.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
             close.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -16),
-            close.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+            close.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
             more.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -8),
-            more.centerYAnchor.constraint(equalTo: title.centerYAnchor),
-            scroll.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 10),
+            more.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
+            filterRow.topAnchor.constraint(equalTo: modeControl.bottomAnchor, constant: 10),
+            filterRow.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 18),
+            filterRow.trailingAnchor.constraint(lessThanOrEqualTo: bg.trailingAnchor, constant: -18),
+            filterHeight!,
+            scroll.topAnchor.constraint(equalTo: filterRow.bottomAnchor, constant: 10),
             scroll.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -8),
@@ -209,35 +303,159 @@ final class CaptureHistoryPanel: NSObject {
         ])
         p.contentView = bg
 
-        NotificationCenter.default.addObserver(forName: .skreenerHistoryChanged, object: nil, queue: .main) { [weak self] _ in
-            if self?.isVisible == true { self?.reload() }
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: .skreenerHistoryChanged, object: nil, queue: .main) { [weak self] _ in
+            if self?.isVisible == true, self?.mode == .history { self?.reload() }
+        }
+        nc.addObserver(forName: .skreenerLibraryChanged, object: nil, queue: .main) { [weak self] _ in
+            if self?.isVisible == true, self?.mode == .library { self?.refreshFilters(); self?.reload() }
         }
         return p
     }
 
+    private func buildFilterRow() {
+        searchField.placeholderString = "Search names, apps and text in screenshots"
+        searchField.delegate = self
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        for popup in [monthPopup, appPopup, kindPopup] {
+            popup.controlSize = .small
+            popup.target = self; popup.action = #selector(filterChanged)
+        }
+        editedBox.controlSize = .small
+        editedBox.toolTip = "Only files edited in Skreener"
+        editedBox.target = self; editedBox.action = #selector(filterChanged)
+        countLabel.font = .systemFont(ofSize: 11)
+        countLabel.textColor = .secondaryLabelColor
+        [searchField, monthPopup, appPopup, kindPopup, editedBox, countLabel].forEach(filterRow.addArrangedSubview)
+        filterRow.spacing = 8
+    }
+
+    /// Shows the view picked (History or Saved Files) at the current tile size.
+    private func applyMode() {
+        modeControl.selectedSegment = mode.rawValue
+        filterRow.isHidden = mode != .library
+        filterHeight?.constant = mode == .library ? 26 : 0
+        if mode == .library {
+            SavedLibrary.shared.refresh()
+            refreshFilters()
+        }
+        if let p = panel, p.isVisible || shownFrame.height != height, let screen = p.screen ?? NSScreen.main {
+            shownFrame = frame(on: screen)
+            if p.isVisible { p.setFrame(shownFrame, display: true, animate: true) }
+        }
+        reload()
+    }
+
+    /// Fills the Month, App and Type filters from the files there, with how many each has; keeps what was picked.
+    private func refreshFilters() {
+        let entries = SavedLibrary.shared.entries
+        func fill(_ popup: NSPopUpButton, all: String, _ values: [(value: String, count: Int)], title: (String) -> String) {
+            let picked = popup.selectedItem?.representedObject as? String
+            popup.removeAllItems()
+            popup.addItem(withTitle: all)
+            for v in values {
+                popup.addItem(withTitle: "\(title(v.value)) (\(v.count))")
+                popup.lastItem?.representedObject = v.value
+            }
+            if let picked, let i = popup.itemArray.firstIndex(where: { $0.representedObject as? String == picked }) {
+                popup.selectItem(at: i)
+            }
+        }
+        let monthName = DateFormatter()
+        monthName.dateFormat = "MMMM yyyy"
+        let months = SavedLibrary.counts(entries) { $0.month }.sorted { $0.value > $1.value }
+        fill(monthPopup, all: "Any Month", months) { key in
+            SavedLibrary.Entry.monthKey.date(from: key).map(monthName.string(from:)) ?? key
+        }
+        fill(appPopup, all: "Any App", SavedLibrary.counts(entries) { $0.meta.app }) { $0 }
+        fill(kindPopup, all: "Any Type", SavedLibrary.counts(entries) { $0.kind.rawValue }) {
+            SavedLibrary.Kind(rawValue: $0)?.title ?? $0
+        }
+    }
+
+    private var query: SavedLibrary.Query {
+        SavedLibrary.Query(text: searchField.stringValue,
+                           month: monthPopup.selectedItem?.representedObject as? String,
+                           app: appPopup.selectedItem?.representedObject as? String,
+                           kind: (kindPopup.selectedItem?.representedObject as? String).flatMap(SavedLibrary.Kind.init(rawValue:)),
+                           editedOnly: editedBox.state == .on)
+    }
+
     private func reload() {
         strip.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let entries = CaptureHistory.entries()
-        emptyLabel.isHidden = !entries.isEmpty
-        for e in entries {
-            let cell = HistoryCell(entry: e)
-            cell.onAction = { [weak self] action in self?.run(action, on: e) }
-            strip.addArrangedSubview(cell)
+        let items: [Item]
+        switch mode {
+        case .history:
+            items = CaptureHistory.entries().map { Item(url: $0.url, date: $0.date, kind: .image, inLibrary: false) }
+            emptyLabel.stringValue = "No captures yet. Screenshots you take show up here."
+        case .library:
+            let lib = SavedLibrary.shared
+            let found = SavedLibrary.filter(lib.entries, query)
+            items = found.prefix(Self.maxShown).map { Item(url: $0.url, date: $0.date, kind: $0.kind, inLibrary: true) }
+            let total = lib.entries.count
+            countLabel.stringValue = found.count > Self.maxShown ? "Showing \(Self.maxShown) of \(found.count): search to narrow it down"
+                : found.count == total ? "\(total) files" : "\(found.count) of \(total) files"
+            emptyLabel.stringValue = lib.isIndexing && total == 0 ? "Looking through the export location…"
+                : total == 0 ? "No screenshots in the export location yet." : "Nothing matches."
         }
+        selection = selection.filter { url in items.contains { $0.url == url } }
+        emptyLabel.isHidden = !items.isEmpty
+        cells = items.map { item in
+            let cell = HistoryCell(item: item, size: tileSize)
+            cell.onAction = { [weak self] action in self?.run(action, on: item) }
+            cell.onClick = { [weak self] extend in self?.click(item, extend: extend) }
+            cell.menuProvider = { [weak self] in self?.contextMenu(for: item) }
+            cell.isSelected = selection.contains(item.url)
+            strip.addArrangedSubview(cell)
+            return cell
+        }
+    }
+
+    // MARK: Selection
+
+    /// A click selects just that capture; ⌘-click adds it to the selection or takes it out.
+    private func click(_ item: Item, extend: Bool) {
+        if extend {
+            if selection.contains(item.url) { selection.remove(item.url) } else { selection.insert(item.url) }
+        } else {
+            selection = [item.url]
+        }
+        for c in cells { c.isSelected = selection.contains(c.item.url) }
+    }
+
+    /// What a right-click acts on: the selection when the item is part of it, else the item alone.
+    private func targets(for item: Item) -> [Item] {
+        guard selection.contains(item.url), selection.count > 1 else { return [item] }
+        return cells.map(\.item).filter { selection.contains($0.url) }
     }
 
     // MARK: Actions
 
-    private func run(_ action: HistoryCell.Action, on e: CaptureHistory.Entry) {
-        if action == .delete { CaptureHistory.delete(e); return }
-        guard let image = NSImage(contentsOf: e.url) else { NSSound.beep(); return }
+    private func run(_ action: HistoryCell.Action, on item: Item) {
+        switch action {
+        case .delete:
+            delete([item])
+            return
+        case .reveal:
+            reveal([item])
+            return
+        case .edit where item.kind != .image, .copy where item.kind != .image:
+            // Recordings and GIFs open in their own app; copying them copies the file.
+            if action == .edit { hide(); NSWorkspace.shared.open(item.url) } else { copyFiles([item]) }
+            return
+        default:
+            break
+        }
+        guard let image = NSImage(contentsOf: item.url) else { NSSound.beep(); return }
         switch action {
         case .copy:
             Output.copy(image)
             Sound.play("Pop")
         case .edit:
             hide()
-            EditorWindowController(image: image).present()
+            // A saved file is saved again over itself (#118); a history capture is a copy, so it isn't.
+            EditorWindowController(image: image, file: item.inLibrary ? item.url : nil).present()
         case .pin:
             hide()
             PinnedScreenshotController.pin(image)
@@ -245,8 +463,81 @@ final class CaptureHistoryPanel: NSObject {
             hide()
             NSApp.activate(ignoringOtherApps: true)
             Output.saveAs(image)
-        case .delete: break
+        case .delete, .reveal: break
         }
+    }
+
+    private func reveal(_ items: [Item]) {
+        hide()
+        NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
+    }
+
+    private func copyFiles(_ items: [Item]) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(items.map { $0.url as NSURL })
+        Sound.play("Pop")
+    }
+
+    /// History captures are deleted; files in the export location go to the Trash.
+    private func delete(_ items: [Item]) {
+        for item in items {
+            if item.inLibrary {
+                NSWorkspace.shared.recycle([item.url])
+            } else {
+                CaptureHistory.delete(CaptureHistory.Entry(url: item.url, date: item.date))
+            }
+        }
+    }
+
+    private func contextMenu(for item: Item) -> NSMenu {
+        let items = targets(for: item)
+        let m = NSMenu()
+        let n = items.count
+        func add(_ title: String, _ run: @escaping () -> Void) {
+            let i = NSMenuItem(title: title, action: #selector(MenuAction.fire), keyEquivalent: "")
+            let action = MenuAction(run)
+            i.target = action; i.representedObject = action
+            m.addItem(i)
+        }
+        if n == 1 {
+            add(item.kind == .image ? "Open in Editor" : "Open") { [weak self] in self?.run(.edit, on: item) }
+        }
+        add(n == 1 ? "Open in Default App" : "Open \(n) Files in Default App") { [weak self] in
+            self?.hide()
+            items.forEach { NSWorkspace.shared.open($0.url) }
+        }
+        add("Show in Finder") { [weak self] in self?.reveal(items) }
+        add(n == 1 ? "Copy File" : "Copy \(n) Files") { [weak self] in self?.copyFiles(items) }
+        m.addItem(.separator())
+        let trash = item.inLibrary
+        add(trash ? (n == 1 ? "Move to Trash" : "Move \(n) Files to Trash") : (n == 1 ? "Delete" : "Delete \(n) Captures")) {
+            [weak self] in self?.delete(items)
+        }
+        return m
+    }
+
+    @objc private func modeChanged() {
+        mode = Mode(rawValue: modeControl.selectedSegment) ?? .history
+        selection = []
+        applyMode()
+    }
+
+    @objc private func filterChanged() { reload() }
+
+    func controlTextDidChange(_ obj: Notification) { reload() }
+
+    @objc private func tileSizePicked(_ item: NSMenuItem) {
+        Preferences.libraryTileSize = item.tag
+        applyMode()
+    }
+
+    @objc private func captureClicked(_ sender: NSButton) {
+        guard Self.captureActions.indices.contains(sender.tag) else { return }
+        let run = Self.captureActions[sender.tag].run
+        hide()
+        // Once the panel is off the screen, so it isn't in the capture.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { run() }
     }
 
     @objc private func closeIt() { hide() }
@@ -254,6 +545,11 @@ final class CaptureHistoryPanel: NSObject {
     @objc private func openFolder() {
         hide()
         NSWorkspace.shared.open(CaptureHistory.directory)
+    }
+
+    @objc private func openSaveFolder() {
+        hide()
+        NSWorkspace.shared.open(Preferences.saveDirectory)
     }
 
     @objc private func clearHistory() {
@@ -295,26 +591,52 @@ final class CaptureHistoryPanel: NSObject {
     }
 }
 
+extension CaptureHistoryPanel: NSMenuDelegate {
+    /// Ticks the current thumbnail size in the ⋯ menu.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        for item in menu.items where item.action == #selector(tileSizePicked(_:)) {
+            item.state = item.tag == Preferences.libraryTileSize ? .on : .off
+        }
+    }
+}
+
+/// A menu item's action as a closure (the item keeps it alive through `representedObject`).
+private final class MenuAction: NSObject {
+    private let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func fire() { run() }
+}
+
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// One capture in the history strip: thumbnail, relative time, and hover actions.
+/// One capture or saved file in the panel: thumbnail, relative time, and hover actions.
 private final class HistoryCell: NSView, NSDraggingSource {
-    enum Action { case edit, copy, save, pin, delete }
+    enum Action { case edit, copy, save, pin, delete, reveal }
+    /// Thumbnail sizes: small, medium, large.
+    static let sizes = [NSSize(width: 150, height: 96), NSSize(width: 220, height: 140), NSSize(width: 300, height: 190)]
 
-    let entry: CaptureHistory.Entry
+    let item: CaptureHistoryPanel.Item
     var onAction: ((Action) -> Void)?
+    /// A plain click (false) or a ⌘-click (true).
+    var onClick: ((Bool) -> Void)?
+    var menuProvider: (() -> NSMenu?)?
+    var isSelected = false {
+        didSet {
+            thumb.layer?.borderWidth = isSelected ? 3 : 0
+            thumb.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        }
+    }
     private let thumb = NSImageView()
     private let overlay = NSView()
-    private static let thumbSize = NSSize(width: 220, height: 140)
     private static let relative: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter(); f.unitsStyle = .full; return f
     }()
     private var downEvent: NSEvent?
 
-    init(entry: CaptureHistory.Entry) {
-        self.entry = entry
+    init(item: CaptureHistoryPanel.Item, size: NSSize) {
+        self.item = item
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -324,16 +646,15 @@ private final class HistoryCell: NSView, NSDraggingSource {
         thumb.layer?.masksToBounds = true
         thumb.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.25).cgColor
         thumb.translatesAutoresizingMaskIntoConstraints = false
-        let url = entry.url
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let img = CaptureHistory.thumbnail(url, maxPixels: 480)
-            DispatchQueue.main.async { self?.thumb.image = img }
-        }
+        CaptureHistory.thumbnail(item.url, maxPixels: Int(size.width * 2)) { [weak self] img in self?.thumb.image = img }
 
-        let time = NSTextField(labelWithString: Self.relative.localizedString(for: entry.date, relativeTo: Date()))
+        let caption = item.inLibrary ? item.url.deletingPathExtension().lastPathComponent
+                                     : Self.relative.localizedString(for: item.date, relativeTo: Date())
+        let time = NSTextField(labelWithString: caption)
         time.font = .systemFont(ofSize: 11)
         time.textColor = .secondaryLabelColor
         time.alignment = .center
+        time.lineBreakMode = .byTruncatingMiddle
         time.translatesAutoresizingMaskIntoConstraints = false
 
         overlay.wantsLayer = true
@@ -341,23 +662,30 @@ private final class HistoryCell: NSView, NSDraggingSource {
         overlay.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
         overlay.isHidden = true
         overlay.translatesAutoresizingMaskIntoConstraints = false
-        let buttons: [(String, String, Action)] = [("pencil", "Edit", .edit), ("doc.on.doc", "Copy", .copy),
-                                                   ("square.and.arrow.down", "Save…", .save), ("pin", "Pin", .pin),
-                                                   ("trash", "Delete", .delete)]
+        let still = item.kind == .image
+        var buttons: [(String, String, Action)] = [(still ? "pencil" : "play", still ? "Edit" : "Open", .edit),
+                                                   ("doc.on.doc", "Copy", .copy)]
+        if item.inLibrary {
+            buttons.append(("folder", "Show in Finder", .reveal))
+        } else {
+            buttons.append(("square.and.arrow.down", "Save…", .save))
+        }
+        if still { buttons.append(("pin", "Pin", .pin)) }
+        buttons.append(("trash", item.inLibrary ? "Move to Trash" : "Delete", .delete))
         var views: [NSView] = buttons.map { sym, tip, action in
             let b = HoverButton(symbol: sym, tip: tip)
             b.onClick = { [weak self] in self?.onAction?(action) }
             return b
         }
-        // Shares the PNG file itself, so it keeps its name in Mail, AirDrop…
+        // Shares the file itself, so it keeps its name in Mail, AirDrop…
         let share = HoverButton(symbol: "square.and.arrow.up", tip: "Share…")
         share.onClick = { [weak self, weak share] in
             guard let self, let share else { return }
-            Output.share(self.entry.url, from: share)
+            Output.share(self.item.url, from: share)
         }
         views.insert(share, at: 3)
         let row = NSStackView(views: views)
-        row.spacing = 6
+        row.spacing = size.width < 200 ? 2 : 6
         row.translatesAutoresizingMaskIntoConstraints = false
         overlay.addSubview(row)
 
@@ -366,8 +694,8 @@ private final class HistoryCell: NSView, NSDraggingSource {
             thumb.topAnchor.constraint(equalTo: topAnchor),
             thumb.leadingAnchor.constraint(equalTo: leadingAnchor),
             thumb.trailingAnchor.constraint(equalTo: trailingAnchor),
-            thumb.widthAnchor.constraint(equalToConstant: Self.thumbSize.width),
-            thumb.heightAnchor.constraint(equalToConstant: Self.thumbSize.height),
+            thumb.widthAnchor.constraint(equalToConstant: size.width),
+            thumb.heightAnchor.constraint(equalToConstant: size.height),
             overlay.topAnchor.constraint(equalTo: thumb.topAnchor),
             overlay.bottomAnchor.constraint(equalTo: thumb.bottomAnchor),
             overlay.leadingAnchor.constraint(equalTo: thumb.leadingAnchor),
@@ -376,9 +704,10 @@ private final class HistoryCell: NSView, NSDraggingSource {
             row.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
             time.topAnchor.constraint(equalTo: thumb.bottomAnchor, constant: 8),
             time.centerXAnchor.constraint(equalTo: centerXAnchor),
+            time.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor),
             time.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        toolTip = entry.url.deletingPathExtension().lastPathComponent
+        toolTip = item.url.deletingPathExtension().lastPathComponent
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -394,16 +723,19 @@ private final class HistoryCell: NSView, NSDraggingSource {
 
     override func mouseDown(with event: NSEvent) {
         downEvent = event
-        if event.clickCount == 2 { onAction?(.edit) }
+        if event.clickCount == 2 { onAction?(.edit); return }
+        onClick?(event.modifierFlags.contains(.command))
     }
 
-    /// Dragging a capture out drops its PNG file (into Finder, Mail, Slack…).
+    override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
+
+    /// Dragging a capture out drops its file (into Finder, Mail, Slack…).
     override func mouseDragged(with event: NSEvent) {
         guard let down = downEvent else { return }
         downEvent = nil
-        let item = NSDraggingItem(pasteboardWriter: entry.url as NSURL)
-        item.setDraggingFrame(thumb.frame, contents: thumb.image)
-        beginDraggingSession(with: [item], event: down, source: self)
+        let drag = NSDraggingItem(pasteboardWriter: item.url as NSURL)
+        drag.setDraggingFrame(thumb.frame, contents: thumb.image)
+        beginDraggingSession(with: [drag], event: down, source: self)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }

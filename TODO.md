@@ -78,6 +78,11 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Esc with nothing selected (Settings → Annotate → Editor Window): Nothing / Copy and Close / Save and Close — S (#115)
 - [~] Color picker: Tab copies the pixel under the pointer, ⇧Tab the darkest color within 10 px, ⇧C the average color of a dragged area; formats HEX, HEX without #, CSS rgba, RGB 0–1, Android, UIColor, C#, OKLCH (picked from the footer's live color readout, remembered); Tab while typing a label inserts the color — M (#108)
 - [~] Check Contrast (⇧K, footer color menu or Image menu): drag over text and its background; WCAG 2 ratio with AA/AAA, or APCA Lc (button or ⌥-click switches); each drag measures again, Esc ends — M (#109)
+- [~] Save (⌘S, File menu, footer) writes over the file the screenshot was auto-saved to, opened from or last saved as, in that file's format; without one it saves to the export location and later saves update it; Save As… (⇧⌘S); Settings → Annotate toggle, on by default — S (#118)
+- [~] Hand-drawn style (seeded wobble) for arrows, lines, rectangles, ellipses; arrows and lines bend with a middle handle (quadratic curve, heads follow it); tapered arrow style; pen/highlighter strokes simplified and smoothed, Shift keeps them straight, Shapes turns a stroke into a line, ellipse or rectangle (`StrokeShapes`, unit-tested) — M (#119)
+- [~] Fill for rectangles and ellipses (none / translucent / solid); text box (none / solid with black-or-white text / outlined), speech-bubble tail with a draggable tip, wrap width by dragging the right-hand handle — M (#120)
+- [~] Cut Out (Image menu: drag a horizontal strip, ⌥ vertical; annotations past it move, those inside go; undoable) and Remove Background (Vision foreground mask) — M (#121)
+- [~] Resize Image (⇧⌘R / Image menu): W × H in px or pt, keep proportions, 25/50/75/200%, 8–16,384 px; annotations, sizes and crop scale too; undoable (`ImageOps`, unit-tested) — M (#122)
 
 ## Batch 5 — capture modes
 - [~] Scrolling capture (Capture Scrolling ⌃⇧8): pick an area, scroll it yourself; frames are grabbed ~8×/s (display filter set up once) and stitched off the main thread by matching rows, leaving out blank rows and the scroll-bar strip at the right edge; sticky header/footer worked out per frame and kept once, including a footer that appears mid-capture; mostly blank stretches are bridged (blank space may come out shorter); scrolling back up a little is followed, not lost; max 30,000 px; Done / ⌃⇧8 finishes, Esc / Cancel throws it away — L (#82)
@@ -86,6 +91,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [ ] All-in-one capture mode picker — M (#29)
 - [~] Capture history: panel slides down from the top (menu / ⌃⇧H); edit, copy, save, pin, delete, drag out; last 100 kept; Settings toggle — M (#84)
 - [ ] Capture history: restore editable annotations (save the editor document, not just the flattened capture) — M (#30)
+- [~] Library: the history panel's Saved Files view indexes the export location (also older files; a folder watcher keeps it current; app / edited / OCR text kept in Application Support/Skreener/Library.json); search, Month / App / Type / Edited filters with counts, up to 300 shown; right-click Show in Finder, Open in Default App, Copy File(s), Move to Trash on one or several (⌘-click); small/medium/large thumbnails; capture buttons in the panel; history keeps 25/100/500/all (`SavedLibrary`, unit-tested) — L (#117)
 
 ## Batch 6 — sharing & output
 - [~] Settings window: existing options moved out of the menu, shortcut list, version + build commit — S (#85)

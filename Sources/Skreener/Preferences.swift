@@ -11,6 +11,15 @@ enum ImageFormat: String {
     case png, jpeg
     var fileExtension: String { self == .png ? "png" : "jpg" }
     var contentType: UTType { self == .png ? .png : .jpeg }
+
+    /// The format a file with this extension is in; nil for anything but PNG and JPEG.
+    init?(fileExtension ext: String) {
+        switch ext.lowercased() {
+        case "png": self = .png
+        case "jpg", "jpeg": self = .jpeg
+        default: return nil
+        }
+    }
 }
 
 /// What Esc does in the editor when nothing is selected (#115).
@@ -124,6 +133,12 @@ enum Preferences {
         get { d.string(forKey: "editorEscAction").flatMap(EditorEscAction.init(rawValue:)) ?? .nothing }
         set { d.set(newValue.rawValue, forKey: "editorEscAction") }
     }
+    /// Saving an edited screenshot that was already saved (or opened from a file) writes over that file instead of
+    /// making a new one (#118).
+    static var saveOverExisting: Bool {
+        get { d.object(forKey: "saveOverExisting") as? Bool ?? true }
+        set { d.set(newValue, forKey: "saveOverExisting") }
+    }
     /// Show a Quick Access preview of each screenshot in the bottom-left corner (as well as the editor, if that opens).
     static var showQuickAccess: Bool {
         get { d.object(forKey: "showQuickAccess") as? Bool ?? true }
@@ -138,6 +153,16 @@ enum Preferences {
     static var selfTimerSeconds: Int {
         get { [3, 5, 10].contains(d.integer(forKey: "selfTimerSeconds")) ? d.integer(forKey: "selfTimerSeconds") : 5 }
         set { d.set(newValue, forKey: "selfTimerSeconds") }
+    }
+    /// How many captures the history keeps: 25, 100, 500, or 0 for all of them.
+    static var historyLimit: Int {
+        get { d.object(forKey: "historyLimit") as? Int ?? 100 }
+        set { d.set(newValue, forKey: "historyLimit") }
+    }
+    /// Thumbnail size in the history panel: 0 small, 1 medium, 2 large.
+    static var libraryTileSize: Int {
+        get { d.object(forKey: "libraryTileSize") as? Int ?? 1 }
+        set { d.set(newValue, forKey: "libraryTileSize") }
     }
     /// Keep every capture in the Capture History panel.
     static var keepHistory: Bool {
