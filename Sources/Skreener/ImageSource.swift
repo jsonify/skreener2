@@ -8,13 +8,13 @@ enum ImageSource {
     }
 
     @MainActor
-    static func pickFile() -> NSImage? {
+    static func pickFile() -> (image: NSImage, url: URL)? {
         let p = NSOpenPanel()
         p.allowedContentTypes = [.image]
         p.canChooseDirectories = false
         p.allowsMultipleSelection = false
-        guard p.runModal() == .OK, let url = p.url else { return nil }
-        return NSImage(contentsOf: url)
+        guard p.runModal() == .OK, let url = p.url, let image = NSImage(contentsOf: url) else { return nil }
+        return (image, url)
     }
 }
 

@@ -301,9 +301,20 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let toastLabel = NSTextField(labelWithString: "")
     private var toastTask: Task<Void, Never>?
 
-    /// `title` names the editor's tab; it defaults to the time the editor opened.
-    init(image: NSImage, title: String? = nil) {
+    /// The file this screenshot was saved to or opened from: Save writes the edited image over it (#118).
+    private(set) var fileURL: URL? {
+        didSet {
+            guard let url = fileURL, url != oldValue else { return }
+            window?.title = url.deletingPathExtension().lastPathComponent
+            tabGroup.refresh()
+        }
+    }
+
+    /// `title` names the editor's tab; it defaults to the time the editor opened, or the name of `file`, the file the
+    /// screenshot was saved to or opened from.
+    init(image: NSImage, title: String? = nil, file: URL? = nil) {
         self.image = image
+        fileURL = file
         canvas = CanvasView(image: image)
 
         let floor = EditorWindowController.minimumSize
@@ -312,7 +323,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
         let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        w.title = title ?? "Screenshot \(time)"
+        w.title = title ?? file?.deletingPathExtension().lastPathComponent ?? "Screenshot \(time)"
         // Editors open as tabs of one window (Settings → Editor can turn that off), drawn by `EditorTabGroup`
         // rather than AppKit.
         w.tabbingMode = .disallowed
@@ -617,7 +628,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         let actions = [("square.and.arrow.up", "Share", #selector(shareIt(_:))),
                        ("pin", "Pin to Screen", #selector(pinIt)),
                        ("doc.on.doc", "Copy", #selector(copyIt)),
-                       ("square.and.arrow.down", "Save", #selector(saveIt))].map { sym, tip, sel in
+                       ("square.and.arrow.down", "Save (⌘S)", #selector(saveIt))].map { sym, tip, sel in
             iconButton(sym, tip, self, sel, height: 28)
         }
         let right = pillRow(actions, spacing: 8)
@@ -785,8 +796,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .settingsItem:
             return groupItem(id, "Settings", [iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings))])
         case .saveAsItem:
-            let b = textButton("Save as…", self, #selector(saveIt), filled: true)
-            b.keyEquivalent = "s"; b.keyEquivalentModifierMask = [.command, .shift]
+            // ⇧⌘S is in the File menu.
+            let b = textButton("Save as…", self, #selector(saveAsIt), filled: true)
             b.toolTip = "Save as… (⇧⌘S)"
             return groupItem(id, "Save as…", [b])
         default: return nil
@@ -1067,16 +1078,46 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             Sound.play("Pop")
             Notifier.confirm("Screenshot copied")
         case .saveAndClose:
-            guard let url = Output.save(canvas.flattened()) else {
-                showToast("Couldn't save: check the export location in Settings")
-                NSSound.beep()
-                return
-            }
+            guard let url = save() else { return }
             Notifier.confirm("Screenshot saved", detail: url.lastPathComponent, file: url)
         }
         window?.close()
     }
-    @objc private func saveIt() { Output.saveAs(canvas.flattened()) }
+
+    /// Save (⌘S): over the file the screenshot was saved to or opened from, when there is one and Settings allows it,
+    /// else a new file in the export location, which later saves then update (#118).
+    func saveScreenshot() {
+        guard let url = save() else { return }
+        showToast("Saved \(url.lastPathComponent)")
+    }
+
+    /// Save As… (⇧⌘S): the save panel; later saves go to the file picked there.
+    func saveScreenshotAs() {
+        let name = fileURL?.deletingPathExtension().lastPathComponent
+        if let url = Output.saveAs(canvas.flattened(), name: name) { fileURL = url }
+    }
+
+    /// Writes the image (see `saveScreenshot`) and returns where; nil after saying why it failed.
+    private func save() -> URL? {
+        let image = canvas.flattened()
+        if Preferences.saveOverExisting, let url = fileURL, ImageFormat(fileExtension: url.pathExtension) != nil,
+           FileManager.default.fileExists(atPath: url.path) {
+            if Output.overwrite(image, at: url) { return url }
+            showToast("Couldn't save over \(url.lastPathComponent)")
+            NSSound.beep()
+            return nil
+        }
+        guard let url = Output.save(image) else {
+            showToast("Couldn't save: check the export location in Settings")
+            NSSound.beep()
+            return nil
+        }
+        fileURL = url
+        return url
+    }
+
+    @objc private func saveIt() { saveScreenshot() }
+    @objc private func saveAsIt() { saveScreenshotAs() }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
     @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }

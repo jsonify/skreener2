@@ -402,6 +402,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            Preferences.editorTabs) { Preferences.editorTabs = $0 },
                     row("Esc with nothing selected", "Esc first deselects; pressed again, it can copy or save the "
                         + "screenshot and close it.", escPopup()),
+                    toggle("Save over the saved file", "Save (⌘S) on a screenshot that was already saved, or opened from a "
+                        + "file, updates that file instead of making a new one. Save As… (⇧⌘S) always asks.",
+                           Preferences.saveOverExisting) { Preferences.saveOverExisting = $0 },
                 ]),
             ]
 

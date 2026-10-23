@@ -88,6 +88,9 @@ final class EditorWindow: NSWindow {
         if let e = windowController as? EditorWindowController { group?.moveToNewWindow(e) }
     }
     override func mergeAllWindows(_ sender: Any?) { group?.mergeAll() }
+    // File → Save / Save As… (#118)
+    @objc func saveScreenshot(_ sender: Any?) { (windowController as? EditorWindowController)?.saveScreenshot() }
+    @objc func saveScreenshotAs(_ sender: Any?) { (windowController as? EditorWindowController)?.saveScreenshotAs() }
 
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {

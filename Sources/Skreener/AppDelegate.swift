@@ -257,6 +257,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .separator(),
             item("Quit Skreener", #selector(NSApplication.terminate(_:)), "q"),
         ])
+        _ = submenu("File", [
+            item("Save", #selector(EditorWindow.saveScreenshot(_:)), "s"),
+            item("Save As…", #selector(EditorWindow.saveScreenshotAs(_:)), "s", [.command, .shift]),
+        ])
         _ = submenu("Edit", [
             item("Undo", #selector(CanvasView.undo(_:)), "z"),
             item("Redo", #selector(CanvasView.redo(_:)), "z", [.command, .shift]),
@@ -305,7 +309,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @MainActor @objc private func openFile() {
         NSApp.activate(ignoringOtherApps: true)
-        if let img = ImageSource.pickFile() { EditorWindowController(image: img).present() }
+        // Saving the edited image writes over the file opened (#118).
+        if let picked = ImageSource.pickFile() { EditorWindowController(image: picked.image, file: picked.url).present() }
     }
 
     @objc private func openClipboard() {
@@ -315,7 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @MainActor @objc private func pinFile() {
         NSApp.activate(ignoringOtherApps: true)
-        if let img = ImageSource.pickFile() { PinnedScreenshotController.pin(img) }
+        if let picked = ImageSource.pickFile() { PinnedScreenshotController.pin(picked.image) }
     }
 
     @objc private func pinClipboard() {
@@ -705,7 +710,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
         var editor: EditorWindowController?
         if actions.contains(.edit) {
-            editor = EditorWindowController(image: image)
+            // An auto-saved capture is saved again over the same file (#118).
+            editor = EditorWindowController(image: image, file: saved)
             editor?.present(on: screen)
         }
         if actions.contains(.pin) { PinnedScreenshotController.pin(image) }

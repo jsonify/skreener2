@@ -91,4 +91,26 @@ final class OutputTests: XCTestCase {
         XCTAssertEqual(rep.pixelsWide, 4)
         XCTAssertEqual(rep.pixelsHigh, 4)
     }
+
+    // MARK: Saving over a file (#118)
+
+    func testFormatFromExtension() {
+        XCTAssertEqual(ImageFormat(fileExtension: "PNG"), .png)
+        XCTAssertEqual(ImageFormat(fileExtension: "jpg"), .jpeg)
+        XCTAssertEqual(ImageFormat(fileExtension: "jpeg"), .jpeg)
+        XCTAssertNil(ImageFormat(fileExtension: "heic"))
+    }
+
+    func testOverwriteKeepsTheFilesFormat() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SkreenerTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("Shot.jpg")
+        try Data([1, 2, 3]).write(to: url)
+        // Settings say PNG, but the file is a JPEG: it stays one, with the same name and no copy beside it.
+        XCTAssertTrue(Output.overwrite(TestImages.clear(width: 4, height: 4), at: url))
+        XCTAssertTrue(try Data(contentsOf: url).starts(with: [0xFF, 0xD8]), "not a JPEG")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["Shot.jpg"])
+        XCTAssertFalse(Output.overwrite(TestImages.clear(width: 4, height: 4), at: dir.appendingPathComponent("Shot.heic")))
+    }
 }

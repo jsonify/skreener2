@@ -11,6 +11,15 @@ enum ImageFormat: String {
     case png, jpeg
     var fileExtension: String { self == .png ? "png" : "jpg" }
     var contentType: UTType { self == .png ? .png : .jpeg }
+
+    /// The format a file with this extension is in; nil for anything but PNG and JPEG.
+    init?(fileExtension ext: String) {
+        switch ext.lowercased() {
+        case "png": self = .png
+        case "jpg", "jpeg": self = .jpeg
+        default: return nil
+        }
+    }
 }
 
 /// What Esc does in the editor when nothing is selected (#115).
@@ -123,6 +132,12 @@ enum Preferences {
     static var editorEscAction: EditorEscAction {
         get { d.string(forKey: "editorEscAction").flatMap(EditorEscAction.init(rawValue:)) ?? .nothing }
         set { d.set(newValue.rawValue, forKey: "editorEscAction") }
+    }
+    /// Saving an edited screenshot that was already saved (or opened from a file) writes over that file instead of
+    /// making a new one (#118).
+    static var saveOverExisting: Bool {
+        get { d.object(forKey: "saveOverExisting") as? Bool ?? true }
+        set { d.set(newValue, forKey: "saveOverExisting") }
     }
     /// Show a Quick Access preview of each screenshot in the bottom-left corner (as well as the editor, if that opens).
     static var showQuickAccess: Bool {
