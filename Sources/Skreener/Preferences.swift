@@ -133,6 +133,12 @@ enum Preferences {
         get { d.string(forKey: "confirmationStyle").flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud }
         set { d.set(newValue.rawValue, forKey: "confirmationStyle") }
     }
+    /// Capture Text opens the recognized text in a scratch pad to edit before copying, instead of copying it straight
+    /// away (#134).
+    static var textScratchPad: Bool {
+        get { d.object(forKey: "textScratchPad") as? Bool ?? true }
+        set { d.set(newValue, forKey: "textScratchPad") }
+    }
     /// Skreener's own sounds (copied, recording saved, cancelled).
     static var playSounds: Bool {
         get { d.object(forKey: "playSounds") as? Bool ?? true }

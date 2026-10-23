@@ -481,7 +481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lastArea = (screen, rect)
             run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
         case .text(let screen, let rect)?:
-            run(screen: screen, { try await CaptureService.captureScreen(screen, globalRect: rect) }, then: copyText)
+            run(screen: screen, { try await CaptureService.captureScreen(screen, globalRect: rect) }) { self.copyText($0, screen: screen) }
         case .timer(let screen, let rect)?:
             lastArea = (screen, rect)
             selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
@@ -561,17 +561,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
-                run(screen: screen, areaCapture(screen, rect, frozen), then: copyText)
+                run(screen: screen, areaCapture(screen, rect, frozen)) { self.copyText($0, screen: screen) }
             }
         }
     }
 
-    /// Capture Text: OCR the image and copy what it says.
-    private func copyText(_ image: NSImage) {
+    /// Capture Text: OCR the image and copy what it says, or open it in the scratch pad to edit first (#134).
+    private func copyText(_ image: NSImage, screen: NSScreen?) {
         Task { @MainActor in
             let text = await TextRecognizer.recognize(image)
             guard !text.isEmpty else {
                 Notifier.problem("No text found", detail: "Skreener couldn't find any text in the area.")
+                return
+            }
+            if Preferences.textScratchPad {
+                TextScratchPad.show(text, on: screen)
                 return
             }
             TextRecognizer.copyText(text)

@@ -323,6 +323,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            "A thumbnail in the bottom-left corner that stays until you copy, save, edit, pin, share or close it.",
                            Preferences.showQuickAccess) { Preferences.showQuickAccess = $0 },
                 ], note: "Capture Text and Capture Area & Pin skip these."),
+                group("Capture Text", [
+                    toggle("Edit the text before copying",
+                           "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away.",
+                           Preferences.textScratchPad) { Preferences.textScratchPad = $0 },
+                ]),
                 group("Confirmation", [
                     row("Confirmation style", "When a capture opens no editor, Quick Access preview or pin (for example "
                         + "with only Copy or Save on, or Capture Text).", confirmationPopup()),
