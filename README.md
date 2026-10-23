@@ -42,7 +42,7 @@ Nothing to edit by hand. Commit messages use [Conventional Commits](https://www.
 [release-please](https://github.com/googleapis/release-please) keeps a release PR open with the next version
 and the changelog: `fix` → patch, `feat` → minor, `feat!:` or a `BREAKING CHANGE:` footer → major (minor while
 below 1.0; a `Release-As: 1.0.0` footer forces a version). Merge that PR to release: it tags `vX.Y.Z`, updates
-`CHANGELOG.md` and `version.txt`, and the signed, notarised app is built and attached to the GitHub release.
+`CHANGELOG.md` and `version.txt`, and the signed app (notarised with Developer ID, or self-signed) is built and attached to the GitHub release.
 
 `build_app.sh` takes the version from the newest `vX.Y.Z` tag behind the commit you build (else `version.txt`),
 the build number from the commit count, and adds the short commit hash (with a `+` when there are uncommitted
@@ -68,9 +68,28 @@ Scripts/release.sh --help               # all options, API-key / Apple ID creden
 ```
 With several Developer ID identities, pick one with `SKREENER_DEVELOPER_ID="Developer ID Application: Name (TEAMID)"`.
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which does the same on CI and attaches the
-DMG and zip to a draft GitHub release. It needs the secrets listed at the top of that file
-(the certificate as a base64 `.p12` and an App Store Connect API key); normal pushes and PRs never run it.
+Merging a release-please PR (see Versions) or pushing a `v*` tag runs `.github/workflows/release.yml`, which
+does the same on CI and attaches the DMG and zip to the GitHub release. It needs the secrets listed at the top of
+that file (the certificate as a base64 `.p12` and an App Store Connect API key); normal pushes and PRs never run it.
+
+## Releasing without an Apple Developer account
+Developer ID and notarisation need the paid Apple Developer Program. Without it, releases are signed with your
+free self-signed "Skreener Dev" certificate instead (`Scripts/release.sh --self-signed` locally; CI picks this
+automatically when the Developer ID secrets aren't set). The same certificate on every release keeps the Screen
+Recording permission across updates; the catch is that macOS asks people to allow the first launch.
+
+One-time setup for CI:
+1. On your Mac, create the certificate if you haven't: `Scripts/make_dev_cert.sh`.
+2. Keychain Access → login keychain → **My Certificates** → right-click **Skreener Dev** → **Export "Skreener Dev"…**
+   → format Personal Information Exchange (.p12) → save as `SkreenerDev.p12` and choose a password.
+3. `base64 -i SkreenerDev.p12 | pbcopy`, then on GitHub: Settings → Secrets and variables → Actions → New
+   repository secret `SELF_SIGNED_P12_BASE64`, paste. Add `SELF_SIGNED_P12_PASSWORD` with the password.
+4. Delete `SkreenerDev.p12`. Keep the certificate in your keychain: a new one would make every user grant Screen
+   Recording again.
+
+Installing a self-signed release (the release notes say this too): open the DMG, drag Skreener to Applications
+and open it; macOS refuses the first time. Go to System Settings → Privacy & Security, click **Open Anyway** next
+to the Skreener message and confirm. Or run `xattr -dr com.apple.quarantine /Applications/Skreener.app` once.
 
 ## Not yet implemented (vs. CleanShot X)
 See [TODO.md](TODO.md) for the full roadmap.

@@ -23,6 +23,12 @@ Options:
   --format F          dmg, zip or both (default: both).
   --skip-notarize     Sign and package only; no Apple credentials needed. Outputs are named
                       *-unnotarized and Gatekeeper will still block them on other Macs.
+  --self-signed       Release without a paid Apple Developer account: sign with a self-signed
+                      certificate (SKREENER_SIGN_IDENTITY, default "Skreener Dev" from
+                      Scripts/make_dev_cert.sh) and don't notarise. The same certificate on every
+                      release keeps the Screen Recording permission across updates, but people
+                      have to allow the first launch: System Settings -> Privacy & Security ->
+                      Open Anyway.
   -h, --help          Show this help.
 
 Signing identity (from your keychain, never the repo):
@@ -55,6 +61,7 @@ step() { echo; echo "==> $*"; }
 VERSION="${SKREENER_VERSION:-}"
 FORMAT=both
 NOTARIZE=1
+SELF_SIGNED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) [ $# -ge 2 ] || die "--version needs a value, e.g. --version 0.2.0"; VERSION="$2"; shift 2 ;;
@@ -62,6 +69,7 @@ while [ $# -gt 0 ]; do
     --format) [ $# -ge 2 ] || die "--format needs dmg, zip or both"; FORMAT="$2"; shift 2 ;;
     --format=*) FORMAT="${1#*=}"; shift ;;
     --skip-notarize|--skip-notarise) NOTARIZE=0; shift ;;
+    --self-signed) SELF_SIGNED=1; NOTARIZE=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; echo >&2; die "unknown option: $1" ;;
   esac
@@ -90,27 +98,36 @@ if [ -n "$KEYCHAIN" ]; then
 fi
 # find-identity takes the keychain as a trailing argument; codesign takes --keychain.
 IDENTITIES=$(security find-identity -v -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} || true)
-IDENTITY="${SKREENER_DEVELOPER_ID:-}"
-if [ -z "$IDENTITY" ]; then
-  DEV_IDS=$(printf '%s\n' "$IDENTITIES" | grep -o '"Developer ID Application: [^"]*"' | tr -d '"' | sort -u || true)
-  COUNT=$(printf '%s' "$DEV_IDS" | grep -c . || true)
-  if [ "$COUNT" -eq 0 ]; then
-    die "no \"Developer ID Application\" certificate in the keychain.
+if [ "$SELF_SIGNED" = 1 ]; then
+  # Self-signed certificates may not be trusted on this Mac, so look among all identities, not just valid ones.
+  IDENTITY="${SKREENER_SIGN_IDENTITY:-Skreener Dev}"
+  ALL_IDENTITIES=$(security find-identity -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} || true)
+  printf '%s\n' "$ALL_IDENTITIES" | grep -qF "$IDENTITY" \
+    || die "signing identity \"$IDENTITY\" not found. Create it once with Scripts/make_dev_cert.sh, or name yours
+       with SKREENER_SIGN_IDENTITY."
+else
+  IDENTITY="${SKREENER_DEVELOPER_ID:-}"
+  if [ -z "$IDENTITY" ]; then
+    DEV_IDS=$(printf '%s\n' "$IDENTITIES" | grep -o '"Developer ID Application: [^"]*"' | tr -d '"' | sort -u || true)
+    COUNT=$(printf '%s' "$DEV_IDS" | grep -c . || true)
+    if [ "$COUNT" -eq 0 ]; then
+      die "no \"Developer ID Application\" certificate in the keychain.
        Create one at developer.apple.com -> Certificates (type: Developer ID Application) or in
        Xcode -> Settings -> Accounts -> Manage Certificates, then run this again.
        (\"Skreener Dev\" from make_dev_cert.sh is for local builds only; Apple won't notarise it.)"
-  elif [ "$COUNT" -gt 1 ]; then
-    die "several Developer ID Application identities found; pick one with SKREENER_DEVELOPER_ID:
+    elif [ "$COUNT" -gt 1 ]; then
+      die "several Developer ID Application identities found; pick one with SKREENER_DEVELOPER_ID:
 $(printf '%s\n' "$DEV_IDS" | sed 's/^/         /')"
-  fi
-  IDENTITY="$DEV_IDS"
-elif ! printf '%s\n' "$IDENTITIES" | grep -qF "$IDENTITY"; then
-  die "signing identity \"$IDENTITY\" (SKREENER_DEVELOPER_ID) is not a valid code-signing identity in the keychain.
+    fi
+    IDENTITY="$DEV_IDS"
+  elif ! printf '%s\n' "$IDENTITIES" | grep -qF "$IDENTITY"; then
+    die "signing identity \"$IDENTITY\" (SKREENER_DEVELOPER_ID) is not a valid code-signing identity in the keychain.
        Valid identities:
 $(printf '%s\n' "$IDENTITIES" | sed 's/^/         /')"
-fi
-if ! [[ "$IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]] && [[ "$IDENTITY" != "Developer ID Application:"* ]]; then
-  die "\"$IDENTITY\" is not a Developer ID Application identity; notarisation would reject it."
+  fi
+  if ! [[ "$IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]] && [[ "$IDENTITY" != "Developer ID Application:"* ]]; then
+    die "\"$IDENTITY\" is not a Developer ID Application identity; notarisation would reject it."
+  fi
 fi
 
 NOTARY_ARGS=()
@@ -178,12 +195,14 @@ SKREENER_SIGN_IDENTITY="-" SKREENER_VERSION="$VERSION" Scripts/build_app.sh
 [ -d "$APP" ] || die "build_app.sh did not produce $APP."
 VERSION=$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")
 BUILD=$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")
-if [ "$NOTARIZE" = 1 ]; then NAME="Skreener-$VERSION"; else NAME="Skreener-$VERSION-unnotarized"; fi
+if [ "$NOTARIZE" = 1 ] || [ "$SELF_SIGNED" = 1 ]; then NAME="Skreener-$VERSION"; else NAME="Skreener-$VERSION-unnotarized"; fi
+# Apple's timestamp service only signs for Apple-issued certificates.
+if [ "$SELF_SIGNED" = 1 ]; then TIMESTAMP=--timestamp=none; else TIMESTAMP=--timestamp; fi
 
 # ---- Sign ----
 step "Signing with \"$IDENTITY\" (hardened runtime)"
 # Nested code is signed inside-out; today the bundle has only the main executable.
-codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" \
+codesign --force "$TIMESTAMP" --options runtime --entitlements "$ENTITLEMENTS" \
   --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 codesign --display --verbose=2 "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|flags|Identifier)=' || true
@@ -212,7 +231,7 @@ if [ "$FORMAT" != zip ]; then
   ditto "$APP" "$STAGE/Skreener.app"
   ln -s /Applications "$STAGE/Applications"
   hdiutil create -volname "Skreener $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT/$NAME.dmg" >/dev/null
-  codesign --force --timestamp --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
+  codesign --force "$TIMESTAMP" --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
   if [ "$NOTARIZE" = 1 ]; then
     step "Notarising the DMG"
     notarize "$OUT/$NAME.dmg"
@@ -236,6 +255,8 @@ echo
 echo "Release $VERSION (build $BUILD) in $OUT/:"
 for a in "${ARTIFACTS[@]}"; do echo "  $a"; done
 echo "  SHA256SUMS"
-if [ "$NOTARIZE" = 0 ]; then
+if [ "$SELF_SIGNED" = 1 ]; then
+  echo "note: self-signed, not notarised: on other Macs the first launch needs System Settings -> Privacy & Security -> Open Anyway." >&2
+elif [ "$NOTARIZE" = 0 ]; then
   echo "note: not notarised (--skip-notarize); other Macs will refuse to open these." >&2
 fi
