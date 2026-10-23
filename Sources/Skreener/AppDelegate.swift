@@ -308,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Show Next Tab", #selector(NSWindow.selectNextTab(_:)), "]", [.command, .shift]),
             item("Move Tab to New Window", #selector(NSWindow.moveTabToNewWindow(_:))),
             item("Merge All Windows", #selector(NSWindow.mergeAllWindows(_:))),
+            item("Show Screenshots", #selector(EditorWindow.toggleScreenshotDock(_:)), "s", [.command, .control]),
             .separator(),
             item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
         ])

@@ -12,6 +12,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 
 ## Batch 1 — in this branch (needs a build + manual test on macOS)
 - [~] Capture Text / OCR (⌃⇧2, Vision) — S (#39)
+- [~] Capture Text scratch pad: the text opens in a floating window to edit (Join Lines mends hyphenated words), Copy to Clipboard / ⌘Return copies and closes, Esc closes; closing forgets it; Settings → After Capture → Capture Text toggle, on by default — S (#134)
 - [~] Self-timer fullscreen capture (3/5/10 s) — S (#40)
 - [~] Pinned screenshots (floating, opacity, zoom) — S (#41)
 
@@ -85,6 +86,9 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Resize Image (⇧⌘R / Image menu): W × H in px or pt, keep proportions, 25/50/75/200%, 8–16,384 px; annotations, sizes and crop scale too; undoable (`ImageOps`, unit-tested) — M (#122)
 - [~] Snap to objects: rectangles, filled rectangles, pixelate, blur, erase, spotlight and magnifier areas snap to edges in the screenshot within 8 pt while drawn or resized, with guides; ⌘ draws freely; Settings → Annotate and Image menu toggle, on by default. Repeat on Similar Objects (Image menu) adds copies of the selected box over every place that looks like its inside (`ObjectSnap`, unit-tested) — M (#123)
 - [~] Background: aspect presets (1:1, 4:3, 3:2, 16:9, 9:16, 4:5, Twitter, Facebook, LinkedIn, YouTube, Instagram, Pinterest), gradient direction (diagonal / vertical / horizontal / radial), more multi-stop presets, a custom two-color gradient, a picture of your own as the background, blur for pictures and the wallpaper, inset frame, outer corners, shadow slider; the last background is remembered (`Background`, unit-tested) — M (#124)
+- [~] ⌥-drag an annotation drags out a copy (made on the first move; the original stays; one undo step) — S (#137)
+- [~] The editor remembers the last tool and the style for new annotations (color, stroke, font, size, arrow style, fill…), also after a relaunch (`Style.plist`, unit-tested) — S (#139)
+- [~] Side dock instead of the tab row: thumbnails of the window's screenshots beside the canvas (from 2 screenshots; updated shortly after edits); click switches, × on hover or middle-click closes, right-click: close others, move to new window; its header button, the footer's dock button or ⌃⌘S (Window menu) hides/shows it with a slide, remembered; Settings → Annotate: left or right — M (#140)
 - [~] Copy (⌘C), cut (⌘X), paste (⌘V) and duplicate (⌘D) annotations, also into another tab or editor; they stay editable; ⌘C with nothing selected copies the image; pasting an image still works (`AnnotationClipboard`, unit-tested) — S (#125)
 
 ## Batch 5 — capture modes
@@ -101,6 +105,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Settings: format PNG/JPEG (JPEG flattens transparency onto white), filename template (%Y %y %m %d %H %M %S; " 2" etc. when the name is taken), save Retina captures at 1× — S (#86)
 - [~] Settings: hotkey rebinding, CleanShot-style Shortcuts pane: groups (Screenshots, Screen Recording, Other) with a shortcut recorder per action (click and type; Esc cancels, Delete / × clears; reset arrow per row; Restore Defaults); refuses combinations used by another action or without ⌘/⌃/⌥ (F-keys alone are fine), warns about macOS ones (⇧⌘3/4/5, ⌘Space…), plain ⌘ + key, and ones macOS won't register; saved in UserDefaults, re-registered live, shown in the menu; self-timer, desktop icons, open / pin can have shortcuts too — M (#31, #97)
 - [~] Settings window redesign (CleanShot-style): sidebar with colored icons (General, After Capture, Shortcuts, Screenshots, Screen Recording, Annotate, About), options in rounded groups with switches; 810 pt wide (fixed), 660 pt tall by default, height resizable — M (#87)
+- [~] Settings: About sits on its own at the bottom of the sidebar, below a divider — S (#136)
 - [~] Quick Access (CleanShot-style, #21): shown alongside the editor (own Settings toggle); stays until an action; hover shows corner buttons (close, edit, pin, share) and Copy / Save pills; previews stack upwards, newest at the bottom; they fade out while a new capture is taken and come back after its editor opens; Edit brings back the capture's editor tab if it is still open — M (#88)
 - [ ] Quick Access: drag-and-drop out, swipe to dismiss, position setting — M (#32)
 - [~] Double-click a Quick Access preview to open its editor (a recording opens in its player) — S (#127)

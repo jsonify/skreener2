@@ -1,8 +1,8 @@
 import AppKit
 
 /// Editors shown as tabs of one window. Each editor keeps its own window; the group shows one at a time, in the same
-/// frame, and every window draws the group's tab row (pill tabs on a dark capsule, like the scrolling-capture bar).
-/// Used instead of AppKit's window tabs, whose tab bar can't be restyled.
+/// frame, and every window draws the group's side dock of thumbnails (#140). Used instead of AppKit's window tabs,
+/// whose tab bar can't be restyled.
 @MainActor final class EditorTabGroup {
     private(set) var editors: [EditorWindowController]
     private(set) weak var selected: EditorWindowController?
@@ -70,11 +70,22 @@ import AppKit
         if let s = selected { select(s) }
     }
 
-    /// Redraws every window's tab row.
+    /// Redraws the dock of every editor window, e.g. after it was hidden or moved to the other side.
+    static func refreshAll() {
+        var done: [EditorTabGroup] = []
+        for e in EditorWindowController.live where !done.contains(where: { $0 === e.tabGroup }) {
+            done.append(e.tabGroup)
+            e.tabGroup.refresh()
+        }
+    }
+
+    /// Redraws every window's dock.
     func refresh() {
-        let titles = editors.map { $0.window?.title ?? "" }
+        // A window holding one screenshot shows no dock, so it needs no thumbnail.
+        let several = editors.count > 1
+        let items = editors.map { EditorDock.Item(title: $0.window?.title ?? "", thumbnail: several ? $0.dockThumbnail : NSImage()) }
         let index = editors.firstIndex { $0 === selected } ?? 0
-        for e in editors { e.showTabs(titles, selected: index) }
+        for e in editors { e.showTabs(items, selected: index) }
     }
 }
 
@@ -88,6 +99,8 @@ final class EditorWindow: NSWindow {
         if let e = windowController as? EditorWindowController { group?.moveToNewWindow(e) }
     }
     override func mergeAllWindows(_ sender: Any?) { group?.mergeAll() }
+    // Window → Show / Hide Screenshots (⌃⌘S, #140)
+    @objc func toggleScreenshotDock(_ sender: Any?) { (windowController as? EditorWindowController)?.toggleDock() }
     // File → Save / Save As… (#118)
     @objc func saveScreenshot(_ sender: Any?) { (windowController as? EditorWindowController)?.saveScreenshot() }
     @objc func saveScreenshotAs(_ sender: Any?) { (windowController as? EditorWindowController)?.saveScreenshotAs() }
@@ -98,113 +111,240 @@ final class EditorWindow: NSWindow {
             return (group?.editors.count ?? 0) > 1
         case #selector(mergeAllWindows(_:)):
             return EditorWindowController.live.contains { $0.tabGroup !== group }
+        case #selector(toggleScreenshotDock(_:)):
+            let open = (windowController as? EditorWindowController)?.isDockOpen == true
+            item.title = open ? "Hide Screenshots" : "Show Screenshots"
+            return (group?.editors.count ?? 0) > 1
         default:
             return super.validateMenuItem(item)
         }
     }
 }
 
-/// The row of editor tabs: a faint grey capsule holding a pill per tab, the one showing raised (white, soft shadow).
-/// Click a tab to show it; its × or a middle click closes it; right-click for more.
-final class EditorTabStrip: NSView {
+/// The side dock of open screenshots (#140): a thumbnail per editor in the group, the one showing outlined in the
+/// accent color. Click one to show it; the × on hover or a middle click closes it; right-click for more. The button
+/// in its header collapses it (the footer's dock button brings it back).
+final class EditorDock: NSView {
+    struct Item {
+        var title: String
+        var thumbnail: NSImage
+    }
+
+    static let width: CGFloat = 148
+
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
-    var menuForTab: ((Int) -> NSMenu?)?
+    var onCollapse: (() -> Void)?
+    var menuForItem: ((Int) -> NSMenu?)?
 
-    private let capsule = PillBar([], spacing: 4, inset: 4)
-    private var row: NSStackView { capsule.row }
+    private let header = NSTextField(labelWithString: "")
+    private let collapseButton = NSButton()
+    private let scroll = NSScrollView()
+    private let list = NSStackView()
+    private let edge = NSBox()
+    private var edgeLeading: NSLayoutConstraint?
+    private var edgeTrailing: NSLayoutConstraint?
+    private var pinLeading: NSLayoutConstraint?
+    private var pinTrailing: NSLayoutConstraint?
+    private var views: [DockItemView] = []
+    private var selected = -1
+
+    /// Which side of the window the dock is on: the separator goes on the side facing the canvas.
+    var onRight = false {
+        didSet {
+            edgeLeading?.isActive = onRight
+            edgeTrailing?.isActive = !onRight
+            pinLeading?.isActive = !onRight
+            pinTrailing?.isActive = onRight
+            collapseButton.image = Self.symbol(onRight ? "sidebar.right" : "sidebar.left")
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        row.distribution = .fillEqually
-        addSubview(capsule)
+        let background = NSVisualEffectView()
+        background.material = .sidebar
+        background.blendingMode = .withinWindow
+        background.state = .followsWindowActiveState
+
+        header.font = .systemFont(ofSize: 11, weight: .semibold)
+        header.textColor = .secondaryLabelColor
+        header.lineBreakMode = .byTruncatingTail
+        collapseButton.image = Self.symbol("sidebar.left")
+        collapseButton.isBordered = false
+        collapseButton.contentTintColor = .secondaryLabelColor
+        collapseButton.toolTip = "Hide Screenshots (⌃⌘S)"
+        collapseButton.setAccessibilityLabel("Hide Screenshots")
+        collapseButton.target = self
+        collapseButton.action = #selector(collapse)
+
+        list.orientation = .vertical
+        list.alignment = .centerX
+        list.spacing = 10
+        list.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 12, right: 0)
+        let doc = FlippedView()
+        doc.addSubview(list)
+        list.translatesAutoresizingMaskIntoConstraints = false
+        doc.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = doc
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+
+        edge.boxType = .separator
+        // Clips while the dock's width animates to and from zero.
+        wantsLayer = true
+        layer?.masksToBounds = true
+
+        [background, header, collapseButton, scroll, edge].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+        edgeLeading = edge.leadingAnchor.constraint(equalTo: leadingAnchor)
+        edgeTrailing = edge.trailingAnchor.constraint(equalTo: trailingAnchor)
+        edgeTrailing?.isActive = true
+        // Laid out at full width and pinned to the side facing away from the canvas, so collapsing slides it away
+        // instead of squeezing it.
+        let content = NSLayoutGuide()
+        addLayoutGuide(content)
+        pinLeading = content.leadingAnchor.constraint(equalTo: leadingAnchor)
+        pinTrailing = content.trailingAnchor.constraint(equalTo: trailingAnchor)
+        pinLeading?.isActive = true
         NSLayoutConstraint.activate([
-            capsule.centerXAnchor.constraint(equalTo: centerXAnchor),
-            capsule.centerYAnchor.constraint(equalTo: centerYAnchor),
-            capsule.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
-            capsule.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            background.topAnchor.constraint(equalTo: topAnchor), background.bottomAnchor.constraint(equalTo: bottomAnchor),
+            background.leadingAnchor.constraint(equalTo: leadingAnchor), background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.topAnchor.constraint(equalTo: topAnchor), content.bottomAnchor.constraint(equalTo: bottomAnchor),
+            content.widthAnchor.constraint(equalToConstant: Self.width),
+            edge.topAnchor.constraint(equalTo: topAnchor), edge.bottomAnchor.constraint(equalTo: bottomAnchor),
+            edge.widthAnchor.constraint(equalToConstant: 1),
+            header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
+            header.centerYAnchor.constraint(equalTo: collapseButton.centerYAnchor),
+            header.trailingAnchor.constraint(lessThanOrEqualTo: collapseButton.leadingAnchor, constant: -6),
+            collapseButton.topAnchor.constraint(equalTo: content.topAnchor, constant: 8),
+            collapseButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+            collapseButton.widthAnchor.constraint(equalToConstant: 22), collapseButton.heightAnchor.constraint(equalToConstant: 22),
+            scroll.topAnchor.constraint(equalTo: collapseButton.bottomAnchor, constant: 6),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            doc.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            doc.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            doc.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            list.topAnchor.constraint(equalTo: doc.topAnchor),
+            list.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
+            list.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
+            list.bottomAnchor.constraint(equalTo: doc.bottomAnchor),
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func show(_ titles: [String], selected: Int) {
-        row.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for (i, title) in titles.enumerated() {
-            let tab = TabPill(title: title, selected: i == selected)
-            tab.onClick = { [weak self] in self?.onSelect?(i) }
-            tab.onClose = { [weak self] in self?.onClose?(i) }
-            tab.menuProvider = { [weak self] in self?.menuForTab?(i) }
-            row.addArrangedSubview(tab)
+    /// Shows `items`, `selected` outlined. The item views are kept when the count stays the same, so an updated
+    /// thumbnail doesn't reset the scroll position or the hover.
+    func show(_ items: [Item], selected: Int) {
+        header.stringValue = items.count == 1 ? "1 Screenshot" : "\(items.count) Screenshots"
+        if views.count != items.count {
+            views.forEach { $0.removeFromSuperview() }
+            views = items.indices.map { i in
+                let v = DockItemView(frame: .zero)
+                v.onClick = { [weak self] in self?.onSelect?(i) }
+                v.onClose = { [weak self] in self?.onClose?(i) }
+                v.menuProvider = { [weak self] in self?.menuForItem?(i) }
+                list.addArrangedSubview(v)
+                return v
+            }
         }
+        for (v, item) in zip(views, items) { v.update(item) }
+        for (i, v) in views.enumerated() { v.isSelected = i == selected }
+        if selected != self.selected, views.indices.contains(selected) {
+            layoutSubtreeIfNeeded()
+            views[selected].scrollToVisible(views[selected].bounds.insetBy(dx: 0, dy: -10))
+        }
+        self.selected = selected
+    }
+
+    @objc private func collapse() { onCollapse?() }
+
+    private static func symbol(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
     }
 }
 
-/// One tab: a pill with the editor's title and a close button (shown on the current tab, and on the others while the
-/// pointer is over them).
-private final class TabPill: NSView {
+/// One screenshot in the dock: its thumbnail (outlined in the accent color while it is the one showing) with its title
+/// under it, and a close button in the corner while the pointer is over it.
+private final class DockItemView: NSView {
     var onClick: (() -> Void)?
     var onClose: (() -> Void)?
     var menuProvider: (() -> NSMenu?)?
+    var isSelected = false { didSet { applyState() } }
 
-    private let selected: Bool
+    private static let thumbSize = NSSize(width: 120, height: 80)
+    private let frameView = NSView()
+    private let imageView = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
     private var hovering = false { didSet { applyState() } }
 
-    init(title: String, selected: Bool) {
-        self.selected = selected
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerCurve = .continuous
+    override init(frame: NSRect) {
+        super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
-        toolTip = title
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityLabel(title)
-        setAccessibilitySelected(selected)
 
-        label.stringValue = title
-        label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.lineBreakMode = .byTruncatingTail
+        frameView.wantsLayer = true
+        frameView.layer?.cornerRadius = 7
+        frameView.layer?.cornerCurve = .continuous
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.wantsLayer = true
+        imageView.layer?.cornerRadius = 4
+        imageView.layer?.masksToBounds = true
+
+        label.font = .systemFont(ofSize: 11)
+        label.lineBreakMode = .byTruncatingMiddle
         label.alignment = .center
         label.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        label.translatesAutoresizingMaskIntoConstraints = false
 
-        let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?.withSymbolConfiguration(config)
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.white, NSColor(white: 0.15, alpha: 0.85)]))
+        closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close")?
+            .withSymbolConfiguration(config)
         closeButton.isBordered = false
-        closeButton.contentTintColor = .secondaryLabelColor
-        closeButton.toolTip = "Close Tab"
+        closeButton.toolTip = "Close"
         closeButton.target = self
-        closeButton.action = #selector(closeTab)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.action = #selector(closeItem)
 
-        addSubview(label)
-        addSubview(closeButton)
-        let preferred = widthAnchor.constraint(equalToConstant: 200)
-        preferred.priority = .defaultHigh
-        let minimum = widthAnchor.constraint(greaterThanOrEqualToConstant: 64)
-        minimum.priority = .init(700)
+        [frameView, label, closeButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; addSubview($0) }
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        frameView.addSubview(imageView)
+        let t = Self.thumbSize
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 28),
-            preferred, minimum,
-            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 16),
-            closeButton.heightAnchor.constraint(equalToConstant: 16),
-            // Centered, with as much room on the right as the close button takes on the left.
-            label.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            widthAnchor.constraint(equalToConstant: t.width + 8),
+            frameView.topAnchor.constraint(equalTo: topAnchor),
+            frameView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            frameView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            frameView.heightAnchor.constraint(equalToConstant: t.height + 8),
+            imageView.topAnchor.constraint(equalTo: frameView.topAnchor, constant: 4),
+            imageView.bottomAnchor.constraint(equalTo: frameView.bottomAnchor, constant: -4),
+            imageView.leadingAnchor.constraint(equalTo: frameView.leadingAnchor, constant: 4),
+            imageView.trailingAnchor.constraint(equalTo: frameView.trailingAnchor, constant: -4),
+            label.topAnchor.constraint(equalTo: frameView.bottomAnchor, constant: 3),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor),
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: -2),
+            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -2),
+            closeButton.widthAnchor.constraint(equalToConstant: 20), closeButton.heightAnchor.constraint(equalToConstant: 20),
         ])
         applyState()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func layout() {
-        super.layout()
-        layer?.cornerRadius = bounds.height / 2
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: bounds.height / 2, cornerHeight: bounds.height / 2, transform: nil)
+    func update(_ item: EditorDock.Item) {
+        imageView.image = item.thumbnail
+        label.stringValue = item.title
+        toolTip = item.title
+        setAccessibilityLabel(item.title)
     }
 
     override func updateTrackingAreas() {
@@ -233,20 +373,23 @@ private final class TabPill: NSView {
         applyState()
     }
 
-    /// The tab showing is raised like the editor's buttons; the others are bare, with a faint grey under the pointer.
     private func applyState() {
-        closeButton.isHidden = !selected && !hovering
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        closeButton.isHidden = !hovering
+        setAccessibilitySelected(isSelected)
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            let fill = selected ? PillButton.raisedColor(dark: dark) : hovering ? NSColor.labelColor.withAlphaComponent(0.06) : .clear
-            layer?.backgroundColor = fill.cgColor
-            layer?.shadowColor = NSColor.black.cgColor
-            layer?.shadowOpacity = selected ? (dark ? 0.35 : 0.16) : 0
-            layer?.shadowRadius = 1.5
-            layer?.shadowOffset = CGSize(width: 0, height: -0.5)
+            frameView.layer?.backgroundColor = (hovering && !isSelected ? NSColor.labelColor.withAlphaComponent(0.06) : .clear).cgColor
+            frameView.layer?.borderWidth = isSelected ? 2.5 : 0
+            frameView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            imageView.layer?.borderWidth = 0.5
+            imageView.layer?.borderColor = NSColor.separatorColor.cgColor
         }
-        label.textColor = selected ? .labelColor : .secondaryLabelColor
+        label.textColor = isSelected ? .labelColor : .secondaryLabelColor
+        label.font = .systemFont(ofSize: 11, weight: isSelected ? .semibold : .regular)
     }
 
-    @objc private func closeTab() { onClose?() }
+    @objc private func closeItem() { onClose?() }
+}
+
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

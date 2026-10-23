@@ -354,6 +354,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private var drag: Drag?
     private lazy var beforeDrag = snapshot
     private var undoStack: [Snapshot] = []
+    /// Goes up with every edit, undo and redo, so the dock knows when its thumbnail is out of date (#140).
+    private(set) var revision = 0
+    /// Called after every edit, undo and redo.
+    var onEdit: (() -> Void)?
     private var redoStack: [Snapshot] = []
     private var exporting = false
     private var selectedID: UUID? {
@@ -781,6 +785,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         guard let previous = undoStack.popLast() else { NSSound.beep(); return }
         redoStack.append(snapshot)
         snapshot = previous
+        edited()
         if selectedIndex == nil { selectedID = nil } else { notifyContext() }
         needsDisplay = true
     }
@@ -791,6 +796,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         guard let next = redoStack.popLast() else { NSSound.beep(); return }
         undoStack.append(snapshot)
         snapshot = next
+        edited()
         if selectedIndex == nil { selectedID = nil } else { notifyContext() }
         needsDisplay = true
     }
@@ -1553,6 +1559,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         guard snapshot != before else { return }
         undoStack.append(before)
         redoStack.removeAll()
+        edited()
+    }
+
+    private func edited() {
+        revision += 1
+        onEdit?()
     }
 
     // MARK: Inline text
@@ -2372,6 +2384,23 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let out = ci.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: ci.extent)
         let img = Self.ciContext.createCGImage(out, from: ci.extent)
         blurCache[key] = img
+        return img
+    }
+
+    /// A small picture of the screenshot with its annotations, at most `maxSide` points across, for the editor's dock
+    /// (#140). Unlike `flattened()` it leaves typing and cropping as they are.
+    func thumbnail(maxSide: CGFloat) -> NSImage {
+        let k = min(1, maxSide / max(extent.width, extent.height, 1))
+        let img = NSImage(size: NSSize(width: max(1, (extent.width * k).rounded()), height: max(1, (extent.height * k).rounded())))
+        exporting = true
+        img.lockFocus()
+        if let cg = NSGraphicsContext.current?.cgContext {
+            cg.scaleBy(x: k, y: k)
+            cg.translateBy(x: -extent.minX, y: -extent.minY)
+        }
+        draw(extent)
+        img.unlockFocus()
+        exporting = false
         return img
     }
 

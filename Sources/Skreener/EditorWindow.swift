@@ -310,8 +310,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private var fitMode = true
     /// The editors shown as tabs with this one (just this one when it has a window to itself).
     lazy var tabGroup = EditorTabGroup(self)
-    private let tabStrip = EditorTabStrip()
-    private var tabStripHeight: NSLayoutConstraint?
+    private let dock = EditorDock()
+    private var dockWidth: NSLayoutConstraint?
+    /// The dock on the left (`[0]`) or on the right (`[1]`) of the canvas (Settings → Annotate).
+    private var dockSides: [[NSLayoutConstraint]] = [[], []]
+    /// The footer's button that shows or hides the dock; only there while the window holds several screenshots.
+    private lazy var dockButton = iconButton("sidebar.left", "Show Screenshots (⌃⌘S)", self, #selector(toggleDockPressed), height: 28)
+    private var thumbnailCache: (revision: Int, image: NSImage)?
+    private var dockRefreshTask: Task<Void, Never>?
     private let toastBox = NSView()
     private let toastLabel = NSTextField(labelWithString: "")
     private var toastTask: Task<Void, Never>?
@@ -398,9 +404,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             self?.contrastLabel.stringValue = line ?? ""
             self?.refreshStrip()
         }
-        tabStrip.onSelect = { [weak self] i in self?.selectTab(i) }
-        tabStrip.onClose = { [weak self] i in self?.closeTab(i) }
-        tabStrip.menuForTab = { [weak self] i in self?.tabMenu(i) }
+        canvas.onEdit = { [weak self] in self?.scheduleDockRefresh() }
+        dock.onSelect = { [weak self] i in self?.selectTab(i) }
+        dock.onClose = { [weak self] i in self?.closeTab(i) }
+        dock.onCollapse = { [weak self] in self?.toggleDock() }
+        dock.menuForItem = { [weak self] i in self?.tabMenu(i) }
         buildAttributesBar()
         buildCropBar()
         buildAreaBar()
@@ -450,13 +458,72 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         return NSApp.orderedWindows.first { win in editors.contains { $0 === win } }
     }
 
-    // MARK: Tabs
+    // MARK: Tabs (shown in the side dock, #140)
 
-    func showTabs(_ titles: [String], selected: Int) {
-        tabStrip.show(titles, selected: selected)
-        let visible = titles.count > 1
-        tabStrip.isHidden = !visible
-        tabStripHeight?.constant = visible ? 48 : 0
+    func showTabs(_ items: [EditorDock.Item], selected: Int) {
+        dock.show(items, selected: selected)
+        let several = items.count > 1
+        dockButton.isHidden = !several
+        let onRight = Preferences.editorDockOnRight
+        if dock.onRight != onRight || dockSides[onRight ? 1 : 0].first?.isActive != true {
+            dock.onRight = onRight
+            NSLayoutConstraint.deactivate(dockSides[onRight ? 0 : 1])
+            NSLayoutConstraint.activate(dockSides[onRight ? 1 : 0])
+        }
+        let open = several && !Preferences.editorDockCollapsed
+        dockButton.toolTip = open ? "Hide Screenshots (⌃⌘S)" : "Show Screenshots (⌃⌘S)"
+        dockButton.setContent(title: nil, symbol: onRight ? "sidebar.right" : "sidebar.left")
+        let width = open ? EditorDock.width : 0
+        if dockWidth?.constant != width {
+            dockWidth?.constant = width
+            dock.isHidden = !open
+            if fitMode { window?.layoutIfNeeded(); applyFit() }
+        }
+    }
+
+    /// Whether the dock is showing (Window menu title).
+    var isDockOpen: Bool { tabGroup.editors.count > 1 && !Preferences.editorDockCollapsed }
+
+    /// Shows or hides the dock in every editor window, sliding it in or out of this one.
+    func toggleDock() {
+        guard tabGroup.editors.count > 1 else { return }
+        Preferences.editorDockCollapsed.toggle()
+        let open = !Preferences.editorDockCollapsed
+        dock.isHidden = false
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.2
+            ctx.allowsImplicitAnimation = true
+            // The constant changes at once (so `showTabs` below finds it set); the layout pass animates the frames.
+            dockWidth?.constant = open ? EditorDock.width : 0
+            window?.contentView?.layoutSubtreeIfNeeded()
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.dock.isHidden = Preferences.editorDockCollapsed
+                if self.fitMode { self.applyFit() }
+            }
+        })
+        EditorTabGroup.refreshAll()
+    }
+    @objc private func toggleDockPressed() { toggleDock() }
+
+    /// A small picture of the screenshot with its annotations for the dock, made again only after an edit.
+    var dockThumbnail: NSImage {
+        if let c = thumbnailCache, c.revision == canvas.revision { return c.image }
+        let img = canvas.thumbnail(maxSide: 240)
+        thumbnailCache = (canvas.revision, img)
+        return img
+    }
+
+    /// Updates the dock's thumbnail of this screenshot shortly after edits stop.
+    private func scheduleDockRefresh() {
+        guard tabGroup.editors.count > 1 else { return }
+        dockRefreshTask?.cancel()
+        dockRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(0.5))
+            guard !Task.isCancelled, let self else { return }
+            self.tabGroup.refresh()
+        }
     }
 
     private func selectTab(_ i: Int) {
@@ -472,9 +539,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private func tabMenu(_ i: Int) -> NSMenu {
         let m = NSMenu()
         let many = tabGroup.editors.count > 1
-        for (title, sel, enabled) in [("Close Tab", #selector(closeTabItem(_:)), true),
-                                      ("Close Other Tabs", #selector(closeOtherTabsItem(_:)), many),
-                                      ("Move Tab to New Window", #selector(moveTabItem(_:)), many)] {
+        for (title, sel, enabled) in [("Close", #selector(closeTabItem(_:)), true),
+                                      ("Close Others", #selector(closeOtherTabsItem(_:)), many),
+                                      ("Move to New Window", #selector(moveTabItem(_:)), many)] {
             let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
             item.target = self; item.tag = i; item.isEnabled = enabled
             m.addItem(item)
@@ -521,27 +588,33 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         footer.translatesAutoresizingMaskIntoConstraints = false
         let strip = buildAttributesStrip()
         strip.translatesAutoresizingMaskIntoConstraints = false
-        tabStrip.translatesAutoresizingMaskIntoConstraints = false
-        tabStrip.isHidden = true
+        dock.translatesAutoresizingMaskIntoConstraints = false
+        dock.isHidden = true
         let toast = buildToast()
-        content.addSubview(scroll); content.addSubview(footer); content.addSubview(strip); content.addSubview(tabStrip)
+        content.addSubview(scroll); content.addSubview(footer); content.addSubview(strip); content.addSubview(dock)
         content.addSubview(toast)
 
         let top = (w.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
-        let tabHeight = tabStrip.heightAnchor.constraint(equalToConstant: 0)
-        tabStripHeight = tabHeight
-        NSLayoutConstraint.activate([
-            tabStrip.topAnchor.constraint(equalTo: top),
-            tabStrip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            tabStrip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            tabHeight,
-            strip.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
+        let width = dock.widthAnchor.constraint(equalToConstant: 0)
+        dockWidth = width
+        // The dock runs from the attributes strip (which keeps the full width) to the footer, beside the canvas.
+        dockSides = [
+            [dock.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+             scroll.leadingAnchor.constraint(equalTo: dock.trailingAnchor),
+             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor)],
+            [dock.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+             scroll.trailingAnchor.constraint(equalTo: dock.leadingAnchor)],
+        ]
+        NSLayoutConstraint.activate(dockSides[0] + [
+            dock.topAnchor.constraint(equalTo: strip.bottomAnchor),
+            dock.bottomAnchor.constraint(equalTo: footer.topAnchor),
+            width,
+            strip.topAnchor.constraint(equalTo: top),
             strip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             strip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             strip.heightAnchor.constraint(equalToConstant: 42),
             scroll.topAnchor.constraint(equalTo: strip.bottomAnchor),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: footer.topAnchor),
             footer.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -635,7 +708,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
         zoomButton.toolTip = "Zoom"
         buildColorReadout()
-        let zoomBar = pillRow([zoomButton, colorReadout])
+        dockButton.isHidden = true
+        let zoomBar = pillRow([dockButton, zoomButton, colorReadout])
         zoomBar.translatesAutoresizingMaskIntoConstraints = false
 
         let pill = DragPill()

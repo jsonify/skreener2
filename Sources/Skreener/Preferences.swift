@@ -154,6 +154,15 @@ enum Preferences {
         get { d.object(forKey: "textScratchPad") as? Bool ?? true }
         set { d.set(newValue, forKey: "textScratchPad") }
     }
+    /// The editor's dock of open screenshots (#140): hidden with its button or ⌃⌘S, and on the left or right.
+    static var editorDockCollapsed: Bool {
+        get { d.bool(forKey: "editorDockCollapsed") }
+        set { d.set(newValue, forKey: "editorDockCollapsed") }
+    }
+    static var editorDockOnRight: Bool {
+        get { d.bool(forKey: "editorDockOnRight") }
+        set { d.set(newValue, forKey: "editorDockOnRight") }
+    }
     /// Skreener's own sounds (copied, recording saved, cancelled).
     static var playSounds: Bool {
         get { d.object(forKey: "playSounds") as? Bool ?? true }

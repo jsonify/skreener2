@@ -448,6 +448,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Editor Window", [
                     toggle("Open screenshots as tabs", "New screenshots join the open editor window instead of opening their own.",
                            Preferences.editorTabs) { Preferences.editorTabs = $0 },
+                    row("Screenshots dock", "With several screenshots open, their thumbnails line this side of the "
+                        + "window. Hide it with its button or ⌃⌘S.", dockSidePopup()),
                     row("Esc with nothing selected", "Esc first deselects; pressed again, it can copy or save the "
                         + "screenshot and close it.", escPopup()),
                     toggle("Save over the saved file", "Save (⌘S) on a screenshot that was already saved, or opened from a "
@@ -498,6 +500,17 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             Preferences.historyLimit = ($0 as? NSPopUpButton)?.selectedTag() ?? 100
             CaptureHistory.prune()
             NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
+        }
+        return popup
+    }
+
+    private func dockSidePopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.addItems(withTitles: ["Left", "Right"])
+        popup.selectItem(at: Preferences.editorDockOnRight ? 1 : 0)
+        bind(popup) {
+            Preferences.editorDockOnRight = ($0 as? NSPopUpButton)?.indexOfSelectedItem == 1
+            EditorTabGroup.refreshAll()
         }
         return popup
     }
