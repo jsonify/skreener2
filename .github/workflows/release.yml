@@ -127,6 +127,9 @@ jobs:
             security find-certificate -a -p "$KC" > "$RUNNER_TEMP/self-signed.pem"
             sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$RUNNER_TEMP/self-signed.pem" \
               || echo "::warning::add-trusted-cert failed (exit $?)"
+            # trustd caches trust decisions; restart it so codesign sees the new setting.
+            sudo killall trustd 2>/dev/null || true
+            sleep 2
             # Sign a throwaway copy of a small binary first, so a signing problem shows up in seconds, with details.
             cp /usr/bin/true "$RUNNER_TEMP/sign-test"
             if ! codesign --force --sign "$HASH" --keychain "$KC" "$RUNNER_TEMP/sign-test"; then
