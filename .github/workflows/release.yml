@@ -125,10 +125,8 @@ jobs:
           P12_PASSWORD: ${{ secrets.SELF_SIGNED_P12_PASSWORD }}
         run: |
           DIR="$RUNNER_TEMP/rcodesign"; mkdir -p "$DIR"
-          RELEASE=$(gh release list --repo indygreg/apple-platform-rs --limit 100 --json tagName \
-            -q '[.[] | select(.tagName | startswith("apple-codesign/"))][0].tagName')
-          [ -n "$RELEASE" ] || { echo "::error::No apple-codesign release found."; exit 1; }
-          echo "Using $RELEASE"
+          # Pinned: a signing tool shouldn't change under a release without a review. Bump it here on purpose.
+          RELEASE=apple-codesign/0.29.0
           gh release download "$RELEASE" --repo indygreg/apple-platform-rs --pattern '*macos-universal.tar.gz' --dir "$DIR"
           tar -xzf "$DIR"/*.tar.gz -C "$DIR"
           BIN=$(find "$DIR" -type f -name rcodesign | head -1)
