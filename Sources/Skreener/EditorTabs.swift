@@ -99,6 +99,12 @@ final class EditorWindow: NSWindow {
         if let e = windowController as? EditorWindowController { group?.moveToNewWindow(e) }
     }
     override func mergeAllWindows(_ sender: Any?) { group?.mergeAll() }
+    /// Each tab is its own window, so switching tabs orders one in; without this macOS plays its "window opens" zoom
+    /// every time. Settings → Annotate can bring the zoom back.
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        animationBehavior = Preferences.editorWindowZoom ? .default : .none
+        super.makeKeyAndOrderFront(sender)
+    }
     // Window → Show / Hide Screenshots (⌃⌘S, #140)
     @objc func toggleScreenshotDock(_ sender: Any?) { (windowController as? EditorWindowController)?.toggleDock() }
     // File → Save / Save As… (#118)
