@@ -276,6 +276,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private enum Drag {
         case draw
         case move(last: NSPoint)
+        /// ⌥-drag on an annotation: a copy is made on the first move and follows the pointer, the original stays (#137).
+        case duplicate(last: NSPoint, copied: Bool)
         /// A magnifier's lens, which moves on its own.
         case moveLens(last: NSPoint)
         case resizeCorner(anchor: NSPoint)
@@ -369,7 +371,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             selectedID = items[i].id
             if event.clickCount == 2, items[i].tool == .text { beginTextEditing(at: i); return }
             let onLens = items[i].tool == .magnifier && lensPath(items[i]).contains(p)
-            drag = onLens ? .moveLens(last: p) : .move(last: p); needsDisplay = true
+            if event.modifierFlags.contains(.option) {
+                drag = .duplicate(last: p, copied: false)
+            } else {
+                drag = onLens ? .moveLens(last: p) : .move(last: p)
+            }
+            needsDisplay = true
             return
         }
         selectedID = nil
@@ -421,6 +428,17 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             items[i].translate(dx: p.x - last.x, dy: p.y - last.y)
             if items[i].tool == .magnifier { items[i].lens = lens }
             drag = .move(last: p)
+        case .duplicate(let last, let copied)?:
+            guard let i = selectedIndex else { return }
+            var at = i
+            if !copied {
+                // On top, like ⌘D; the drag started in mouseDown, so making and moving it are one undo step.
+                items.append(items[i].duplicate())
+                at = items.count - 1
+                selectedID = items[at].id
+            }
+            items[at].translate(dx: p.x - last.x, dy: p.y - last.y)
+            drag = .duplicate(last: p, copied: true)
         case .moveLens(let last)?:
             guard let i = selectedIndex else { return }
             let c = items[i].lens ?? defaultLensCenter(items[i])
