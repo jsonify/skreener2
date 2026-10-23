@@ -99,9 +99,10 @@ fi
 # find-identity takes the keychain as a trailing argument; codesign takes --keychain.
 IDENTITIES=$(security find-identity -v -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} || true)
 if [ "$SELF_SIGNED" = 1 ]; then
-  # Self-signed certificates may not be trusted on this Mac, so look among all identities, not just valid ones.
+  # A self-signed certificate may not be trusted on this Mac, and then find-identity's code-signing policy leaves
+  # it out: look among all identities and certificates (by name or SHA-1 hash) and let codesign be the judge.
   IDENTITY="${SKREENER_SIGN_IDENTITY:-Skreener Dev}"
-  ALL_IDENTITIES=$(security find-identity -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} || true)
+  ALL_IDENTITIES=$( (security find-identity ${KEYCHAIN:+"$KEYCHAIN"}; security find-certificate -a -Z ${KEYCHAIN:+"$KEYCHAIN"}) 2>/dev/null || true)
   printf '%s\n' "$ALL_IDENTITIES" | grep -qF "$IDENTITY" \
     || die "signing identity \"$IDENTITY\" not found. Create it once with Scripts/make_dev_cert.sh, or name yours
        with SKREENER_SIGN_IDENTITY."
