@@ -97,6 +97,21 @@ enum Preferences {
         get { (d.dictionary(forKey: "lastBackground")).map(Background.init(plist:)) ?? Background() }
         set { d.set(newValue.plist, forKey: "lastBackground") }
     }
+    /// The editor's last tool and the style for new annotations, so the next editor (also after a relaunch) starts
+    /// with them (#139).
+    static var editorTool: Tool {
+        get {
+            // Only toolbar tools (pictures and rulers aren't picked from the toolbar).
+            guard let raw = d.object(forKey: "editorTool") as? Int, let t = Tool(rawValue: raw),
+                  Tool.shortcuts.values.contains(t) else { return .arrow }
+            return t
+        }
+        set { d.set(newValue.rawValue, forKey: "editorTool") }
+    }
+    static var editorStyle: Style {
+        get { (d.dictionary(forKey: "editorStyle")).map(Style.init(plist:)) ?? Style() }
+        set { d.set(newValue.plist, forKey: "editorStyle") }
+    }
     /// Boxes being drawn or resized in the editor snap to the edges of what's in the screenshot (#123).
     static var snapToObjects: Bool {
         get { d.object(forKey: "snapToObjects") as? Bool ?? true }

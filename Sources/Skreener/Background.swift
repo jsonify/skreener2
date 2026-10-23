@@ -232,12 +232,12 @@ struct Background: Equatable {
         if fill == Self.imageFill, imageURL.map({ !FileManager.default.fileExists(atPath: $0.path) }) ?? true { fill = 0 }
     }
 
-    private static func components(_ c: NSColor) -> [Double] {
+    static func components(_ c: NSColor) -> [Double] {
         let s = c.usingColorSpace(.sRGB) ?? .black
         return [s.redComponent, s.greenComponent, s.blueComponent, s.alphaComponent].map(Double.init)
     }
 
-    private static func color(from v: [Double]) -> NSColor? {
+    static func color(from v: [Double]) -> NSColor? {
         guard v.count == 4 else { return nil }
         return NSColor(srgbRed: CGFloat(v[0]), green: CGFloat(v[1]), blue: CGFloat(v[2]), alpha: CGFloat(v[3]))
     }

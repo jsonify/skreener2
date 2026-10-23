@@ -3,6 +3,28 @@ import XCTest
 @testable import Skreener
 
 final class AnnotationStyleTests: XCTestCase {
+    // MARK: Remembered style (#139)
+
+    func testStyleSurvivesAPropertyListRoundTrip() throws {
+        var s = Style()
+        s.color = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
+        s.lineWidth = 7; s.fontSize = 31; s.fontName = "Menlo"; s.bold = false; s.pixelSize = 18; s.cornerRadius = 0
+        s.arrowStyle = .tapered; s.textOnly = true; s.magnification = 3; s.lensShape = .rectangle; s.fill = .solid
+        s.textBox = .outline; s.tail = true; s.handDrawn = true; s.shapeCorrection = true
+        // Through a property list, as user defaults store it.
+        let data = try PropertyListSerialization.data(fromPropertyList: s.plist, format: .binary, options: 0)
+        let back = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        XCTAssertEqual(Style(plist: back), s)
+    }
+
+    func testMissingOrBadStyleValuesKeepDefaults() {
+        let s = Style(plist: ["lineWidth": -2, "arrowStyle": 99, "fontSize": "big", "bold": false])
+        XCTAssertEqual(s.lineWidth, Style().lineWidth)
+        XCTAssertEqual(s.arrowStyle, Style().arrowStyle)
+        XCTAssertEqual(s.fontSize, Style().fontSize)
+        XCTAssertFalse(s.bold)
+    }
+
     // MARK: Text boxes (#120)
 
     func testTextOnASolidBoxContrasts() {

@@ -127,6 +127,43 @@ struct Style: Equatable {
     var counterRadius: CGFloat { max(10, fontSize * 0.75) }
 }
 
+// Saving (the editor starts with the last style used)
+extension Style {
+    /// The style as property-list values, for user defaults (#139).
+    var plist: [String: Any] {
+        [
+            "color": Background.components(color), "lineWidth": Double(lineWidth), "fontSize": Double(fontSize),
+            "fontName": fontName, "bold": bold, "pixelSize": Double(pixelSize), "cornerRadius": Double(cornerRadius),
+            "arrowStyle": arrowStyle.rawValue, "textOnly": textOnly, "magnification": Double(magnification),
+            "lensShape": lensShape.rawValue, "fill": fill.rawValue, "textBox": textBox.rawValue, "tail": tail,
+            "handDrawn": handDrawn, "shapeCorrection": shapeCorrection,
+        ]
+    }
+
+    /// A style read back from `plist`; missing or unknown values keep their defaults.
+    init(plist d: [String: Any]) {
+        self.init()
+        func number(_ key: String) -> CGFloat? { (d[key] as? NSNumber).map { CGFloat($0.doubleValue) } }
+        func positive(_ key: String) -> CGFloat? { number(key).flatMap { $0 > 0 ? $0 : nil } }
+        if let c = (d["color"] as? [Double]).flatMap(Background.color(from:)) { color = c }
+        lineWidth = positive("lineWidth") ?? lineWidth
+        fontSize = positive("fontSize") ?? fontSize
+        fontName = d["fontName"] as? String ?? fontName
+        bold = d["bold"] as? Bool ?? bold
+        pixelSize = positive("pixelSize") ?? pixelSize
+        cornerRadius = number("cornerRadius").map { max($0, 0) } ?? cornerRadius
+        arrowStyle = (d["arrowStyle"] as? Int).flatMap(ArrowStyle.init(rawValue:)) ?? arrowStyle
+        textOnly = d["textOnly"] as? Bool ?? textOnly
+        magnification = positive("magnification") ?? magnification
+        lensShape = (d["lensShape"] as? Int).flatMap(LensShape.init(rawValue:)) ?? lensShape
+        fill = (d["fill"] as? Int).flatMap(ShapeFill.init(rawValue:)) ?? fill
+        textBox = (d["textBox"] as? Int).flatMap(TextBox.init(rawValue:)) ?? textBox
+        tail = d["tail"] as? Bool ?? tail
+        handDrawn = d["handDrawn"] as? Bool ?? handDrawn
+        shapeCorrection = d["shapeCorrection"] as? Bool ?? shapeCorrection
+    }
+}
+
 /// One annotation, kept as an editable object (never baked into the image until export).
 /// For text, `start` is the top-left corner of the text.
 struct Annotation: Equatable {
@@ -261,11 +298,16 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         return c
     }
     private var cachedBackdrop: NSColor?
-    var tool: Tool = .arrow {
-        didSet { if tool != oldValue { finishTextEditing(); endAreaPick(); notifyContext() } }
+    /// Starts as the last tool used in any editor, and is remembered for the next one (#139).
+    var tool: Tool = Preferences.editorTool {
+        didSet {
+            guard tool != oldValue else { return }
+            finishTextEditing(); endAreaPick(); notifyContext()
+            Preferences.editorTool = tool
+        }
     }
-    /// Style given to new annotations.
-    private(set) var style = Style()
+    /// Style given to new annotations; like the tool, remembered for the next editor (#139).
+    private(set) var style = Preferences.editorStyle
     /// Called when a single-key shortcut switches the tool.
     var onToolShortcut: ((Tool) -> Void)?
     /// Esc with nothing selected and no mode active (the editor may then copy or save and close, #115).
@@ -756,6 +798,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Changes the style for new annotations and, if one is selected (or being typed), restyles it too.
     func updateStyle(_ change: (inout Style) -> Void) {
         change(&style)
+        Preferences.editorStyle = style
         if let i = selectedIndex {
             var s = items[i].style
             change(&s)
