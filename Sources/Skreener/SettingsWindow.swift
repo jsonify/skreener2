@@ -291,9 +291,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            Preferences.playSounds) { Preferences.playSounds = $0 },
                 ]),
                 group("History", [
-                    toggle("Keep capture history", "The last \(CaptureHistory.limit) captures, in the History panel (⌃⇧H).",
+                    toggle("Keep capture history", "Recent captures, in the History panel (⌃⇧H).",
                            Preferences.keepHistory) { Preferences.keepHistory = $0 },
-                ]),
+                    row("Captures kept", "Lowering it deletes the oldest captures now.", historyLimitPopup()),
+                ], note: "The panel's Saved Files view shows everything in the export location, with search."),
             ]
 
         case .shortcuts:
@@ -438,6 +439,18 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         bind(popup) {
             let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
             Preferences.confirmationStyle = raw.flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud
+        }
+        return popup
+    }
+
+    private func historyLimitPopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for n in [25, 100, 500, 0] { popup.addItem(withTitle: n == 0 ? "All" : "\(n)"); popup.lastItem?.tag = n }
+        popup.selectItem(withTag: Preferences.historyLimit)
+        bind(popup) {
+            Preferences.historyLimit = ($0 as? NSPopUpButton)?.selectedTag() ?? 100
+            CaptureHistory.prune()
+            NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
         }
         return popup
     }

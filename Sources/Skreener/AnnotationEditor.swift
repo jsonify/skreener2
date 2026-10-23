@@ -738,6 +738,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     // MARK: Arrange (the screenshot itself is not an annotation, so it always stays at the bottom)
 
     var hasSelection: Bool { selectedIndex != nil }
+    /// Something was changed since the editor opened (for the library's Edited filter, #117).
+    var isEdited: Bool { !undoStack.isEmpty }
 
     @objc func bringToFront(_ sender: Any?) { moveSelection { _, n in n - 1 } }
     @objc func bringForward(_ sender: Any?) { moveSelection { i, _ in i + 1 } }

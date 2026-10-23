@@ -73,6 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.statusItem.button?.title = Preferences.recordTimeInMenuBar ? " " + time : ""
         }
 
+        // The history panel's capture buttons (#117).
+        CaptureHistoryPanel.captureActions = [
+            ("viewfinder", "Capture Area", { [weak self] in self?.captureArea() }),
+            ("arrow.counterclockwise", "Capture Previous Area", { [weak self] in self?.capturePreviousArea() }),
+            ("macwindow", "Capture Window", { [weak self] in self?.captureWindow() }),
+            ("display", "Capture Fullscreen", { [weak self] in self?.captureFullscreen() }),
+            ("arrow.up.and.down.text.horizontal", "Capture Scrolling", { [weak self] in self?.captureScrolling() }),
+            ("doc.on.clipboard", "Open from Clipboard", { [weak self] in self?.openClipboard() }),
+        ]
         EditorWindowController.captureArea = { [weak self] done in
             if let self { self.captureAreaImage(done) } else { done(nil) }
         }
@@ -707,6 +716,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var saved: URL?
         if actions.contains(.save) {
             saved = Output.save(image)
+            // For the library's App filter and search (#117).
+            if let saved { SavedLibrary.shared.note(saved, app: lastOtherApp.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName) }
             if saved == nil {
                 Notifier.problem("Couldn't save the screenshot",
                                  detail: "Check the export location in Settings → General.")

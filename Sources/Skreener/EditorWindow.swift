@@ -1161,7 +1161,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         let image = canvas.flattened()
         if Preferences.saveOverExisting, let url = fileURL, ImageFormat(fileExtension: url.pathExtension) != nil,
            FileManager.default.fileExists(atPath: url.path) {
-            if Output.overwrite(image, at: url) { return url }
+            if Output.overwrite(image, at: url) {
+                SavedLibrary.shared.note(url, edited: canvas.isEdited)
+                return url
+            }
             showToast("Couldn't save over \(url.lastPathComponent)")
             NSSound.beep()
             return nil
@@ -1172,6 +1175,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             return nil
         }
         fileURL = url
+        SavedLibrary.shared.note(url, edited: canvas.isEdited)
         return url
     }
 

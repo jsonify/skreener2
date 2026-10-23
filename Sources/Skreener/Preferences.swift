@@ -154,6 +154,16 @@ enum Preferences {
         get { [3, 5, 10].contains(d.integer(forKey: "selfTimerSeconds")) ? d.integer(forKey: "selfTimerSeconds") : 5 }
         set { d.set(newValue, forKey: "selfTimerSeconds") }
     }
+    /// How many captures the history keeps: 25, 100, 500, or 0 for all of them.
+    static var historyLimit: Int {
+        get { d.object(forKey: "historyLimit") as? Int ?? 100 }
+        set { d.set(newValue, forKey: "historyLimit") }
+    }
+    /// Thumbnail size in the history panel: 0 small, 1 medium, 2 large.
+    static var libraryTileSize: Int {
+        get { d.object(forKey: "libraryTileSize") as? Int ?? 1 }
+        set { d.set(newValue, forKey: "libraryTileSize") }
+    }
     /// Keep every capture in the Capture History panel.
     static var keepHistory: Bool {
         get { d.object(forKey: "keepHistory") as? Bool ?? true }
