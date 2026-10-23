@@ -122,14 +122,20 @@ jobs:
               security find-identity "$KC" || true
               exit 1
             fi
-            # Trust it for code signing on this runner, as make_dev_cert.sh does on your Mac. A self-signed
-            # certificate is its own root, so codesign can sign without this; it only keeps the identity "valid".
+            # codesign only signs with a trusted identity ("no identity found" otherwise), so trust the certificate
+            # on this runner, as make_dev_cert.sh does on your Mac. Changing admin trust settings normally asks
+            # for a password in a dialog; the authorizationdb rule lets it through on this throwaway machine.
             security find-certificate -a -p "$KC" > "$RUNNER_TEMP/self-signed.pem"
-            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain \
-              "$RUNNER_TEMP/self-signed.pem" || echo "::warning::Couldn't mark the certificate trusted; signing anyway."
+            sudo security authorizationdb write com.apple.trust-settings.admin allow
+            sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$RUNNER_TEMP/self-signed.pem"
+            echo "Code-signing identities:"
+            security find-identity -v -p codesigning | tee "$RUNNER_TEMP/identities.txt"
+            if ! grep -q "$HASH" "$RUNNER_TEMP/identities.txt"; then
+              echo "::error::The self-signed certificate is still not trusted for code signing on the runner."
+              security dump-trust-settings -d || true
+              exit 1
+            fi
             echo "SKREENER_SIGN_IDENTITY=$HASH" >> "$GITHUB_ENV"
-            echo "Identities in the release keychain:"
-            security find-identity "$KC" || true
           fi
           rm "$RUNNER_TEMP/developer-id.p12"
           echo "SKREENER_KEYCHAIN=$KC" >> "$GITHUB_ENV"
