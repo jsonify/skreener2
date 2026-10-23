@@ -268,6 +268,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let textOnlyButton = PillButton(title: "Text Only", symbol: "text.viewfinder", style: .raised, height: pillHeight)
     private let magnificationPopup = PillPopUp(pullsDown: false)
     private let lensShapePopup = PillPopUp(pullsDown: false)
+    private let shapeFillPopup = PillPopUp(pullsDown: false)
+    private let textBoxPopup = PillPopUp(pullsDown: false)
+    private let tailButton = PillButton(title: "Tail", symbol: "bubble.left", style: .raised, height: pillHeight)
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
@@ -836,6 +839,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
               #selector(magnificationPicked(_:)))
         setUp(lensShapePopup, "Lens shape", [("Circle", LensShape.circle.rawValue), ("Rectangle", LensShape.rectangle.rawValue)],
               #selector(lensShapePicked(_:)))
+        setUp(shapeFillPopup, "Fill", [("No Fill", ShapeFill.outline.rawValue), ("Translucent Fill", ShapeFill.translucent.rawValue),
+                                        ("Solid Fill", ShapeFill.solid.rawValue)], #selector(shapeFillPicked(_:)))
+        setUp(textBoxPopup, "Text background", [("No Box", TextBox.plain.rawValue), ("Solid Box", TextBox.solid.rawValue),
+                                                ("Outlined Box", TextBox.outline.rawValue)], #selector(textBoxPicked(_:)))
         setUp(fontPopup, "Font", [], #selector(fontPicked(_:)))
         for (title, name) in Self.fontChoices {
             fontPopup.addItem(withTitle: title)
@@ -850,6 +857,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         boldButton.target = self; boldButton.action = #selector(boldToggled(_:))
         textOnlyButton.toolTip = "Hide only the text found in the box (OCR), not all of it"
         textOnlyButton.target = self; textOnlyButton.action = #selector(textOnlyToggled(_:))
+        tailButton.toolTip = "Speech-bubble tail: drag its tip to point it. Drag the label's right-hand handle to wrap it."
+        tailButton.target = self; tailButton.action = #selector(tailToggled(_:))
 
         arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
         arrangeButton.addItem(withTitle: "Arrange")
@@ -862,8 +871,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             arrangeButton.lastItem?.target = canvas
         }
 
-        [colorWell, strokePopup, arrowStylePopup, cornerStylePopup, fontPopup, sizePopup, boldButton, pixelPopup,
-         textOnlyButton, magnificationPopup, lensShapePopup, arrangeButton].forEach(attributesBar.addArrangedSubview)
+        [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, cornerStylePopup, fontPopup, sizePopup, boldButton,
+         textBoxPopup, tailButton, pixelPopup, textOnlyButton, magnificationPopup, lensShapePopup,
+         arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
     }
 
@@ -1011,7 +1021,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesHint.isHidden = tool != .select
         colorWell.isHidden = [.select, .pixelate, .blur, .erase, .spotlight, .image].contains(tool)
         strokePopup.isHidden = !tool.usesStroke
-        [fontPopup, boldButton].forEach { $0.isHidden = tool != .text }
+        [fontPopup, boldButton, textBoxPopup, tailButton].forEach { $0.isHidden = tool != .text }
+        shapeFillPopup.isHidden = tool != .rect && tool != .ellipse
         sizePopup.isHidden = tool != .text && tool != .counter
         pixelPopup.isHidden = !tool.hasStrength
         textOnlyButton.isHidden = !tool.obscures
@@ -1033,6 +1044,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             fontPopup.selectItem(at: i)
         }
         boldButton.isOn = style.bold
+        shapeFillPopup.selectItem(withTag: style.fill.rawValue)
+        textBoxPopup.selectItem(withTag: style.textBox.rawValue)
+        tailButton.isOn = style.tail && style.textBox != .plain
     }
 
     @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
@@ -1054,6 +1068,23 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func textOnlyToggled(_ b: PillButton) {
         b.isOn.toggle()
         canvas.updateStyle { $0.textOnly = b.isOn }
+    }
+    @objc private func shapeFillPicked(_ p: PillPopUp) {
+        canvas.updateStyle { $0.fill = ShapeFill(rawValue: p.selectedTag()) ?? .outline }
+    }
+    @objc private func textBoxPicked(_ p: PillPopUp) {
+        let box = TextBox(rawValue: p.selectedTag()) ?? .plain
+        canvas.updateStyle { $0.textBox = box; if box == .plain { $0.tail = false } }
+        refreshStrip()
+    }
+    /// A tail needs a box: turning it on gives a label without one a solid box.
+    @objc private func tailToggled(_ b: PillButton) {
+        let on = !b.isOn
+        canvas.updateStyle { s in
+            s.tail = on
+            if on, s.textBox == .plain { s.textBox = .solid }
+        }
+        refreshStrip()
     }
     @objc private func magnificationPicked(_ p: PillPopUp) {
         canvas.updateStyle { $0.magnification = CGFloat(p.selectedTag()) / 10 }

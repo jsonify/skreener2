@@ -53,6 +53,17 @@ enum LensShape: Int {
     case circle, rectangle
 }
 
+/// How rectangles and ellipses are filled (#120).
+enum ShapeFill: Int {
+    case outline, translucent, solid
+}
+
+/// The box behind a text label (#120): no box, filled in the style's color (the text then black or white, whichever
+/// reads better), or outlined in it.
+enum TextBox: Int {
+    case plain, solid, outline
+}
+
 /// Per-annotation look. New annotations copy the canvas's current style; editing the style of a
 /// selected annotation changes only that annotation.
 struct Style: Equatable {
@@ -72,6 +83,11 @@ struct Style: Equatable {
     /// How much a magnifier enlarges, and the shape of its lens.
     var magnification: CGFloat = 2
     var lensShape = LensShape.circle
+    /// Rectangles and ellipses: outline only, or filled translucent or solid.
+    var fill = ShapeFill.outline
+    /// Text: the box behind it, and a speech-bubble tail on the box.
+    var textBox = TextBox.plain
+    var tail = false
 
     /// Every size scaled by `k`, for an image resized by that factor (#122).
     mutating func scale(by k: CGFloat) {
@@ -84,7 +100,17 @@ struct Style: Equatable {
         return bold ? NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask) : f
     }
 
-    var textAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: color] }
+    var textAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: textColor] }
+
+    /// Text on a solid box is black or white, whichever reads better on the box's color; otherwise the style's color.
+    var textColor: NSColor {
+        guard textBox == .solid, let c = color.usingColorSpace(.sRGB) else { return color }
+        let luminance = 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent
+        return luminance > 0.6 ? .black : .white
+    }
+
+    /// Room between the text and the edge of its box.
+    var textBoxPadding: CGFloat { textBox == .plain ? 0 : (fontSize * 0.4).rounded() }
 
     /// Highlighter strokes are much wider than the chosen stroke width.
     var highlighterWidth: CGFloat { max(12, lineWidth * 5) }
@@ -164,6 +190,10 @@ struct Annotation: Equatable {
     /// A magnifier's lens center; `start`/`end` are the area it shows. Nil while it is being drawn (it then sits
     /// beside that area).
     var lens: NSPoint? = nil
+    /// Text: where its speech-bubble tail points (with `Style.tail`); nil puts it below the box's left side.
+    var tail: NSPoint? = nil
+    /// Text: the width it wraps at; nil keeps each line on one line.
+    var wrapWidth: CGFloat? = nil
     var style: Style
 
     private static var lastSeq = 0
@@ -178,6 +208,7 @@ struct Annotation: Equatable {
         start = f(start); end = f(end)
         points = points.map(f)
         lens = lens.map(f)
+        tail = tail.map(f)
     }
 }
 
@@ -284,6 +315,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case moveLens(last: NSPoint)
         case resizeCorner(anchor: NSPoint)
         case resizeEnd(isStart: Bool)
+        /// A text label's wrap width (its right-hand handle) or its tail's tip (#120).
+        case textWidth
+        case textTail
         case cropCorner(anchor: NSPoint)
         case cropEdges(CropEdges)
         case cropMove(last: NSPoint)
@@ -421,6 +455,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .resizeEnd(let isStart)?:
             guard let i = selectedIndex else { return }
             if isStart { items[i].start = p } else { items[i].end = p }
+        case .textWidth?:
+            guard let i = selectedIndex else { return }
+            let a = items[i]
+            items[i].wrapWidth = max(a.style.fontSize * 1.5, p.x - a.style.textBoxPadding - a.start.x).rounded()
+        case .textTail?:
+            guard let i = selectedIndex else { return }
+            items[i].tail = p
         case .cropCorner(let anchor)?:
             let full = fullContentRect()
             let q = NSPoint(x: min(max(p.x, full.minX), full.maxX), y: min(max(p.y, full.minY), full.maxY))
@@ -824,6 +865,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 var a = a
                 a.mapPoints(scale)
                 a.style.scale(by: (sx + sy) / 2)
+                a.wrapWidth = a.wrapWidth.map { $0 * sx }
                 return a
             }
             crop = crop.map { NSRect(x: $0.minX * sx, y: $0.minY * sy, width: $0.width * sx, height: $0.height * sy) }
@@ -1347,8 +1389,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         tv.textContainerInset = .zero
         tv.textContainer?.lineFragmentPadding = 0
         tv.textContainer?.widthTracksTextView = false
-        tv.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        tv.isHorizontallyResizable = true
+        // A wrapped label wraps at the same width while it is typed (#120).
+        tv.textContainer?.containerSize = NSSize(width: a.wrapWidth ?? CGFloat.greatestFiniteMagnitude,
+                                                 height: CGFloat.greatestFiniteMagnitude)
+        tv.isHorizontallyResizable = a.wrapWidth == nil
         tv.isVerticallyResizable = true
         tv.wantsLayer = true
         tv.layer?.masksToBounds = false
@@ -1365,8 +1409,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private func styleEditor(_ tv: NSTextView, _ s: Style) {
         tv.font = s.font
-        tv.textColor = s.color
-        tv.insertionPointColor = s.color
+        tv.textColor = s.textColor
+        tv.insertionPointColor = s.textColor
         tv.typingAttributes = s.textAttributes
         tv.textStorage?.setAttributes(s.textAttributes, range: NSRange(location: 0, length: (tv.string as NSString).length))
     }
@@ -1378,7 +1422,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         lm.ensureLayout(for: tc)
         let used = lm.usedRect(for: tc).size
         let font = items[i].style.font
-        let size = NSSize(width: max(used.width, font.pointSize * 0.6) + 2,
+        let size = NSSize(width: items[i].wrapWidth ?? max(used.width, font.pointSize * 0.6) + 2,
                           height: max(used.height, lm.defaultLineHeight(for: font)))
         tv.minSize = size
         tv.frame = NSRect(x: items[i].start.x, y: items[i].start.y - size.height, width: size.width, height: size.height)
@@ -1460,14 +1504,42 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     private func textSize(_ a: Annotation) -> NSSize {
-        (a.text as NSString).size(withAttributes: a.style.textAttributes)
+        let attrs = a.style.textAttributes
+        guard let w = a.wrapWidth else { return (a.text as NSString).size(withAttributes: attrs) }
+        let r = (a.text as NSString).boundingRect(with: NSSize(width: w, height: .greatestFiniteMagnitude),
+                                                  options: [.usesLineFragmentOrigin], attributes: attrs)
+        return NSSize(width: w, height: ceil(r.height))
+    }
+
+    /// Where a text label's glyphs go (`start` is its top-left corner); at least one line high, so an empty label
+    /// being typed still has a box.
+    private func textRect(_ a: Annotation) -> NSRect {
+        let s = textSize(a), f = a.style.font
+        let h = max(s.height, ceil(f.ascender - f.descender + f.leading))
+        let w = a.text.isEmpty ? max(s.width, f.pointSize * 0.6) : s.width
+        return NSRect(x: a.start.x, y: a.start.y - h, width: w, height: h)
+    }
+
+    /// A text label's box (#120): its glyphs plus the padding.
+    private func textBoxRect(_ a: Annotation) -> NSRect {
+        let pad = a.style.textBoxPadding
+        return textRect(a).insetBy(dx: -pad, dy: -pad)
+    }
+
+    /// Where a text label's tail points, when it has one.
+    private func tailTip(_ a: Annotation) -> NSPoint? {
+        guard a.tool == .text, a.style.tail, a.style.textBox != .plain else { return nil }
+        if let t = a.tail { return t }
+        let box = textBoxRect(a)
+        return NSPoint(x: box.minX + min(box.width * 0.25, a.style.fontSize * 1.5), y: box.minY - a.style.fontSize * 1.2)
     }
 
     private func bounds(of a: Annotation) -> NSRect {
         switch a.tool {
         case .text:
-            let s = textSize(a)
-            return NSRect(x: a.start.x, y: a.start.y - s.height, width: s.width, height: s.height)
+            let box = textBoxRect(a)
+            guard let tip = tailTip(a) else { return box }
+            return box.union(NSRect(origin: tip, size: .zero))
         case .counter:
             let r = a.style.counterRadius
             return NSRect(x: a.start.x - r, y: a.start.y - r, width: r * 2, height: r * 2)
@@ -1505,6 +1577,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if a.tool == .magnifier {
             return rect(a).insetBy(dx: -slop, dy: -slop).contains(p) || lensPath(a).contains(p)
         }
+        // A filled shape is hit anywhere inside, an outline only on its line.
+        if a.tool == .rect || a.tool == .ellipse, a.style.fill != .outline, outline(a)?.contains(p) == true { return true }
         guard let path = outline(a) else { return false }
         let width = a.tool == .highlighter ? a.style.highlighterWidth : a.style.lineWidth
         return path.cgPath.copy(strokingWithWidth: width + slop * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
@@ -1519,7 +1593,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
                     NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)]
         case .line, .arrow, .ruler: return [a.start, a.end]
-        case .pen, .highlighter, .text, .counter, .select: return []
+        case .text:
+            // The wrap width on the right-hand side, then the tail's tip.
+            let box = textBoxRect(a)
+            return [NSPoint(x: box.maxX, y: box.midY)] + (tailTip(a).map { [$0] } ?? [])
+        case .pen, .highlighter, .counter, .select: return []
         }
     }
 
@@ -1527,6 +1605,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let hs = handles(a), radius = 8 / zoom
         guard let h = hs.indices.first(where: { hypot(hs[$0].x - p.x, hs[$0].y - p.y) <= radius }) else { return nil }
         if a.tool == .line || a.tool == .arrow || a.tool == .ruler { return .resizeEnd(isStart: h == 0) }
+        if a.tool == .text { return h == 0 ? .textWidth : .textTail }
         return .resizeCorner(anchor: hs[3 - h])   // the diagonally opposite corner stays put
     }
 
@@ -1551,7 +1630,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if contentRect != imageRect { backdrop.setFill(); contentRect.fill() }
         base.draw(in: imageRect)
         let all = items + (draft.map { [$0] } ?? [])
-        for a in all where a.id != editingID { render(a) }
+        for a in all {
+            // While a label is typed its text is in the text view; its box is still drawn under it.
+            if a.id == editingID { drawTextBox(a) } else { render(a) }
+        }
         drawSpotlights(all.filter { $0.tool == .spotlight })
         ctx?.restoreGState()
         if let r = cropDraft { drawCropOverlay(r) }
@@ -1617,7 +1699,17 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         a.style.color.setStroke(); a.style.color.setFill()
         let lw = a.style.lineWidth
         switch a.tool {
-        case .rect, .ellipse, .line, .pen:
+        case .rect, .ellipse:
+            guard let p = outline(a) else { return }
+            switch a.style.fill {
+            case .outline: break
+            case .translucent:
+                a.style.color.withAlphaComponent(0.3).setFill(); p.fill()
+                a.style.color.setFill()
+            case .solid: p.fill()
+            }
+            p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
+        case .line, .pen:
             guard let p = outline(a) else { return }
             p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
         case .filledRect:
@@ -1648,7 +1740,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             drawArrowHead(tip: a.end, angle: ang, size: head, open: style == .open, lineWidth: lw)
             if style == .double { drawArrowHead(tip: a.start, angle: ang + .pi, size: head, open: false, lineWidth: lw) }
         case .text:
-            (a.text as NSString).draw(at: bounds(of: a).origin, withAttributes: a.style.textAttributes)
+            drawTextBox(a)
+            let r = textRect(a)
+            if a.wrapWidth != nil {
+                (a.text as NSString).draw(with: r, options: [.usesLineFragmentOrigin], attributes: a.style.textAttributes)
+            } else {
+                (a.text as NSString).draw(at: r.origin, withAttributes: a.style.textAttributes)
+            }
         case .pixelate:
             for r in concealRects(a) { drawPixelated(r, block: a.style.pixelSize) }
         case .blur:
@@ -1671,6 +1769,58 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .spotlight, .select:
             break   // spotlights are drawn together by drawSpotlights
         }
+    }
+
+    /// A text label's box, with its tail, when it has one (#120).
+    private func drawTextBox(_ a: Annotation) {
+        guard a.tool == .text, a.style.textBox != .plain else { return }
+        let box = textBoxRect(a), radius = min(a.style.fontSize * 0.3, box.width / 2, box.height / 2)
+        let path = Self.bubblePath(box, radius: radius, tail: tailTip(a), tailWidth: a.style.fontSize * 0.8)
+        a.style.color.set()
+        if a.style.textBox == .solid {
+            path.fill()
+        } else {
+            path.lineWidth = max(1.5, a.style.fontSize / 12)
+            path.lineJoinStyle = .round
+            path.stroke()
+        }
+    }
+
+    /// A rounded rectangle, with a triangular tail out to `tail` (when it lies outside) as part of the same outline,
+    /// so an outlined bubble has no line across the tail's base.
+    static func bubblePath(_ r: NSRect, radius: CGFloat, tail: NSPoint?, tailWidth: CGFloat) -> NSBezierPath {
+        enum Side { case bottom, right, top, left }
+        var side: Side?
+        var base: CGFloat = 0
+        if let t = tail, !r.contains(t), r.width > 0, r.height > 0 {
+            let dx = (t.x - r.midX) / (r.width / 2), dy = (t.y - r.midY) / (r.height / 2)
+            if abs(dx) > abs(dy) { side = dx > 0 ? .right : .left } else { side = dy > 0 ? .top : .bottom }
+            let along = side == .bottom || side == .top
+            let lo = (along ? r.minX : r.minY) + radius + tailWidth / 2, hi = (along ? r.maxX : r.maxY) - radius - tailWidth / 2
+            let v = along ? t.x : t.y
+            base = lo <= hi ? min(max(v, lo), hi) : (along ? r.midX : r.midY)
+        }
+        let w = tailWidth / 2, p = NSBezierPath()
+        func tailOut(_ a: NSPoint, _ b: NSPoint) {
+            guard let t = tail else { return }
+            p.line(to: a); p.line(to: t); p.line(to: b)
+        }
+        // Counterclockwise from the bottom-left corner.
+        p.move(to: NSPoint(x: r.minX + radius, y: r.minY))
+        if side == .bottom { tailOut(NSPoint(x: base - w, y: r.minY), NSPoint(x: base + w, y: r.minY)) }
+        p.line(to: NSPoint(x: r.maxX - radius, y: r.minY))
+        p.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.minY + radius), radius: radius, startAngle: 270, endAngle: 360)
+        if side == .right { tailOut(NSPoint(x: r.maxX, y: base - w), NSPoint(x: r.maxX, y: base + w)) }
+        p.line(to: NSPoint(x: r.maxX, y: r.maxY - radius))
+        p.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.maxY - radius), radius: radius, startAngle: 0, endAngle: 90)
+        if side == .top { tailOut(NSPoint(x: base + w, y: r.maxY), NSPoint(x: base - w, y: r.maxY)) }
+        p.line(to: NSPoint(x: r.minX + radius, y: r.maxY))
+        p.appendArc(withCenter: NSPoint(x: r.minX + radius, y: r.maxY - radius), radius: radius, startAngle: 90, endAngle: 180)
+        if side == .left { tailOut(NSPoint(x: r.minX, y: base + w), NSPoint(x: r.minX, y: base - w)) }
+        p.line(to: NSPoint(x: r.minX, y: r.minY + radius))
+        p.appendArc(withCenter: NSPoint(x: r.minX + radius, y: r.minY + radius), radius: radius, startAngle: 180, endAngle: 270)
+        p.close()
+        return p
     }
 
     private func drawArrowHead(tip: NSPoint, angle: CGFloat, size: CGFloat, open: Bool, lineWidth: CGFloat) {
