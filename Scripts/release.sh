@@ -226,7 +226,14 @@ else
   codesign --force "${SIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
 fi
-codesign --verify --deep --strict --verbose=2 "$APP"
+if [ -n "$P12" ]; then
+  # codesign --verify also checks the certificate against macOS's code-signing policy, which a self-signed
+  # certificate only passes where it's trusted (your Mac), not here ("Invalid Extended Key Usage for policy").
+  # Check the signature itself instead.
+  rcodesign verify "$APP/Contents/MacOS/Skreener"
+else
+  codesign --verify --deep --strict --verbose=2 "$APP"
+fi
 codesign --display --verbose=2 "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|flags|Identifier)=' || true
 # What macOS keys the Screen Recording permission to: the same certificate in every release keeps it.
 codesign --display --requirements - "$APP" 2>&1 | grep designated || true
