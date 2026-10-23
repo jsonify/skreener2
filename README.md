@@ -1,95 +1,245 @@
 # Skreener
 
-A clean-room, CleanShot X–style screenshot tool for macOS 14+ (menu bar app, Swift/AppKit/ScreenCaptureKit).
-Built from publicly documented behavior only; no code from CleanShot X was decompiled or copied.
+A screenshot and screen recording tool for macOS that lives in the menu bar. Skreener captures areas, windows,
+full screens and long scrolling pages. It records video and GIFs, reads text from the screen, and opens every
+capture in a full annotation editor.
 
-## Features
-- Capture area / fullscreen / window (global hotkeys ⌃⇧4 / ⌃⇧3 / ⌃⇧5 by default; every hotkey can be changed in Settings → Shortcuts), previous area (⌃⇧1), area & pin (⌃⇧6)
-- Area selection: crosshair + pixel magnifier, arrow keys nudge the pointer (Shift = 10 pt), hold Space to move the selection, Shift while dragging = square, ⌥ = from the center, optional frozen screen. After the drag the selection stays adjustable (Settings → General, on by default): drag its handles or move it, arrows move it, ⌘ + arrows resize it (right/bottom edge) (Shift = 10 pt), the scroll wheel grows (up) or shrinks (down) every side; Return or a double-click inside captures, Esc cancels
-- Capture Active Window (menu or a shortcut you set): the front window of the app in front, without picking; when that app has no window on screen, the window picker opens
-- The editor opens on the display the capture came from
-- When something can't be done (no area to repeat, no windows, nothing on the clipboard, no Screen Recording permission…) a short message near the pointer says why, with an Open System Settings button for a missing permission
-- Window capture: hover a window to tint the part of it you can see blue with a camera pointer, click to capture it; options: shadow, transparent or white background, padding
-- After a capture the screenshot opens in the editor, and a Quick Access preview appears in the bottom-left corner (each can be turned off in Settings → After Capture). The preview stays until you do something with it: hover it for round close / edit / pin / share buttons in the corners and Copy / Save pills in the middle; double-click it to open the editor (a recording opens in its player). Previews of later captures stack upwards, and fade away while a new capture is taken. Previews stay semi-transparent until the pointer is over them (#98). Capture Text and Capture Area & Pin skip both
-- Screen recording to MP4 or GIF (Record Screen, ⌃⇧7: drag an area, or press Space and click a window). The area then stays adjustable, with a mode bar (screenshot, fullscreen, window, timer, OCR or Recording, plus width × height); Recording shows a panel with options, audio/click/keystroke toggles and Record GIF (⌥↩) / Record Video (↩). Options: countdown, dim the rest of the screen, remember the last area, time in the menu bar, click highlighting and keystroke display drawn into the video. Also: optional system audio and microphone (macOS 15+; with both on they are mixed into one audio track), cursor, 30/60 fps; a dark control bar (the same style as the scrolling-capture bar) shows the elapsed time with pause/resume and Stop, and the menu bar icon turns into a stop button (⌃⇧7 stops too). Recordings go to the save folder and get the same Quick Access preview as screenshots, showing the first frame (a GIF plays): Close, Open, Show in Finder and Share in the corners, Copy (the file) and Trim in the middle. Trim opens the recording in a player with a trim bar: drag the yellow handles and click Trim to cut off the start and end (saved over the file, without re-encoding; a GIF is made again from the trimmed video)
-- Annotation editor (CleanShot-style unified toolbar with compact bordered buttons, 990×750 minimum window; each new screenshot opens as a tab of the editor window, shown as thumbnails in a dock beside the canvas: click one to switch, its × or a middle click closes it, right-click to close the others or move it to a new window; the dock's button (or the footer's, or ⌃⌘S) hides it, and Settings → Annotate puts it on the left or right (Settings can also switch back to separate windows), zoom-to-fit canvas, Drag Me export: Skreener hides while you drag a small preview to the drop target): arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter, text (typed in place on the image), numbered counter, pixelate, blur, erase (fills the box with the background color around it), spotlight, magnifier (a lens showing an area enlarged 1.5–4×, circle or rectangle, with a line to the area; drag the lens and the area separately). Pixelate, blur and erase have a Text Only option that hides just the lines of text OCR finds in the box (found again when the box moves or resizes). Rectangles can have rounded corners; rectangles and ellipses can be outlined or filled (translucent or solid); arrows can be filled, open, double-headed or tapered, and arrows and lines bend by dragging their middle handle; arrows, lines, rectangles and ellipses can look hand-drawn. Pen strokes are smoothed, Shift keeps one straight, and Shapes turns a stroke drawn as a line, circle or box into that shape. Text can sit on a solid or outlined box, with a speech-bubble tail you point by dragging its tip, and wraps at a width set by dragging its right-hand handle. Every tool has its own toolbar button; a style bar under the toolbar shows the options for the current tool or selection: color, stroke width, font, size, bold, pixel size. Annotations stay editable: select, move, resize by handles, delete (⌫), double-click text to edit, recolor; copy (⌘C), cut (⌘X) and paste (⌘V) them into the same or another screenshot, or duplicate (⌘D, or ⌥-drag one to drag out a copy); the last tool and style are remembered for the next screenshot, also after a relaunch; boxes, blur, pixelate, erase, spotlight and magnifier areas snap to the edges of buttons and other shapes in the screenshot while drawn or resized (⌘ draws freely; Settings → Annotate), and Repeat on Similar Objects (Image menu) adds the selected box over everything that looks like what's inside it; undo/redo (⌘Z / ⇧⌘Z); tool keys V A R F O L P H T N X B E S M; the mouse wheel scrolls (Shift + wheel sideways), ⌘ + wheel or pinch zooms around the pointer, and dragging with the wheel held down moves around; optional subtle drop shadow on annotations; Save (⌘S) writes over the file the screenshot was saved to or opened from (Settings → Annotate), Save As… (⇧⌘S) picks a new one; dragging an annotation past the image edge grows the canvas (filled with white, or with the image's top-left pixel color if Settings says so), and exports include the grown area. Crop (C; eight handles plus the frame's sides, move, or draw a new area; Return applies, Esc cancels), Background (gradient presets in four directions, a custom two-color gradient, solid, your desktop wallpaper or a picture of your own, optionally blurred; aspect ratio of the whole image: 1:1, 4:3, 3:2, 16:9, 9:16, 4:5 or the Twitter, Facebook, LinkedIn, YouTube, Instagram and Pinterest sizes; padding, an inset frame, corner radius, outer corners, a shadow slider; the last background is remembered), Add Image from a new area capture, the capture history, a file or the clipboard (⌘V) as a movable layer that resizes in proportion. Rotate left/right and flip the whole screenshot with its annotations; Resize Image (⇧⌘R) to exact pixel or point sizes or a percentage; Cut Out removes a strip (drag across it; ⌥ for a vertical one) and joins the rest; Remove Background keeps just the subject; Redact finds text with OCR (all text, emails, phone numbers or links) and pixelates it. Copy Text (toolbar or Image menu) copies the screenshot's text with OCR: all of it, or drag over an area (⇧⌘T). Measure and pick colors: hold 1 (or ← →) or 2 (or ↑ ↓ when nothing is selected) to measure the run of color under the pointer, Shift to include its border, click to keep the measurement; Tab copies the color under the pointer, ⇧Tab the darkest color near it, ⇧C an area's average color, in a format chosen from the footer's live color readout (HEX, CSS rgba, RGB 0–1, Android, UIColor, C#, OKLCH…); Tab while typing a label inserts the color; Check Contrast (⇧K) shows the WCAG 2 ratio or APCA Lc of the text and background in an area. Arrange annotations (right-click, the style bar's Arrange button, or the Arrange menu: ⌥⌘] front, ⌘] forward, ⌘[ backward, ⌥⌘[ back); the screenshot always stays underneath. While an editor or Settings is open, Skreener shows in the Dock, ⌘-Tab and the menu bar
-- skreener:// links for Raycast, Alfred, Shortcuts and scripts, e.g. `open "skreener://grab/area?then=copy,save"`: grab/area, grab/previous, grab/fullscreen, grab/window, grab/window/active, grab/scrolling, grab/delayed[/area|/window|/fullscreen]?delay=N, ocr, record, load/clipboard, load/file, pin/clipboard, pin/file, history, settings (capture/… works too); `then=` (copy, save, edit, pin, quickaccess) replaces Settings → After Capture for that capture. Off until allowed in Settings → General or from the prompt the first link shows
-- Capture History (menu or ⌃⇧H): recent captures slide down from the top of the screen; hover for edit / copy / save / share / pin / delete, double-click to edit, drag one out as a file, right-click for Show in Finder, Open in Default App, Copy File; ⌘-click selects several; keeps the last 25, 100, 500 or all (Settings → After Capture). Its Saved Files view shows everything in the export location, also files from before Skreener, kept up to date as files come and go: search file names, apps and the text in screenshots (OCR, read in the background), filter by month, app, type or edited; small, medium or large thumbnails; capture buttons along the top
-- Capture Text (OCR, ⌃⇧2): on-device Vision text recognition; the text opens in a small scratch pad to fix up (Join Lines makes one line of it), and Copy to Clipboard (⌘Return) copies it. Settings → After Capture can copy it straight away instead
-- Capture Scrolling (⌃⇧8): pick an area, then scroll its content, or click Auto-Scroll to have Skreener scroll it to the end (needs Accessibility access); it stitches everything into one tall image (sticky headers and footers kept once). the pointer stays yours while it scrolls; Stop Scrolling or Esc hands back to you; Done or ⌃⇧8 again finishes, Esc (when not auto-scrolling) cancels
-- Self-timer for area, window or fullscreen: pick the area/window first, then a 3/5/10 s countdown (Esc or a click cancels)
-- Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close). Hover a pin for close, drag out (drops the image as a file), edit, copy and its zoom; right-click for 50/100/200%, Copy, Edit, Save…, Share…, Semi-transparent and Close. Capture Area & Pin opens the pin at 100% right over the area
-- Open… / Open from Clipboard into the editor, Pin to the Screen… from a file or the clipboard
-- Show/Hide Desktop Icons toggle (or hide them only while capturing), About panel
-- Settings window (⌘, the menu bar icon, or the editor's gear button), CleanShot-style with a sidebar: General (launch at login, freeze screen, cursor, desktop icons, permissions status, export location), After Capture (copy / save / open editor, confirmation style for captures nothing else shows: none, system notification or a Skreener message; play sounds; capture history), Shortcuts (a guide to giving ⇧⌘3 / ⇧⌘4 to Skreener that shows whether macOS still uses them; click a shortcut and type a new one, for any capture, recording, self-timer, history, desktop icons or open / pin command; × clears, the arrow resets one, Restore Defaults resets all; warns about combinations macOS or another action already uses; changes apply at once and show in the menu), Screenshots (PNG/JPEG, save Retina captures at 1×, file name template, window capture style and highlight color), Screen Recording (audio, frame rate, cursor), Annotate (drop shadow, editor tabs, what Esc does with nothing selected: nothing, copy and close, or save and close), About (version, build number and commit)
+Skreener is a clean-room tool in the style of CleanShot X. It was built only from publicly documented behavior.
+No code from CleanShot X was decompiled or copied.
 
-## Build
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Permissions](#permissions)
+- [Major features](#major-features)
+- [Default shortcuts](#default-shortcuts)
+- [Building from source](#building-from-source)
+- [Development](#development)
+- [Roadmap](#roadmap)
+
+## Requirements
+
+| | |
+|---|---|
+| macOS | 14 Sonoma or later |
+| Recording with the microphone | macOS 15 Sequoia or later |
+| Building from source | Xcode 16 or later (Swift 5.9+, macOS 15 SDK) |
+
+## Installation
+
+### From a release
+
+1. Download the latest `Skreener-<version>.dmg` from the [Releases](https://github.com/jsonify/skreener2/releases) page.
+2. Open the DMG and drag **Skreener** into **Applications**.
+3. Open Skreener from Applications. Its icon shows up in the menu bar, not in the Dock.
+
+Releases are currently signed with a self-signed certificate, not an Apple Developer ID, so macOS blocks the first
+launch. To allow it:
+
+1. Try to open Skreener once and dismiss the warning.
+2. Open **System Settings > Privacy & Security**.
+3. Next to the message about Skreener, click **Open Anyway** and confirm.
+
+Or, from Terminal, run this once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Skreener.app
 ```
-Scripts/build_app.sh   # produces build/Skreener.app
-swift test             # unit tests
+
+Every release is signed with the same certificate, so permissions you grant carry over when you update.
+
+### From source
+
+See [Building from source](#building-from-source).
+
+## Permissions
+
+The first time you capture, macOS asks for **Screen Recording**. Grant it in **System Settings > Privacy & Security >
+Screen Recording**, then restart Skreener. **Settings > General** shows the status of every permission and links to
+the right pane.
+
+| Permission | Needed for |
+|---|---|
+| Screen Recording | All screenshots and recordings |
+| Accessibility | Auto-Scroll in scrolling capture |
+| Microphone | Recordings with the microphone turned on (macOS asks the first time) |
+
+## Major features
+
+### Screenshots
+
+- **Area, window and full screen**, plus **Previous Area** to repeat the last selection, and **Capture Active
+  Window** to grab the front window without picking.
+- **Area selection** comes with a pixel magnifier and a live size readout. Arrow keys nudge the pointer (Shift
+  moves 10 pt). Hold Space to move the selection, Shift for a square, and Option to drag from the center.
+- **Adjust before capturing.** After the drag the selection stays on screen. You can drag its handles or move it.
+  Arrow keys move it, and Command + arrows resize it. The scroll wheel grows or shrinks every side. Return or a
+  double-click takes the capture, and Esc cancels.
+- **Window capture.** The visible part of the window under the pointer gets a tint, and a click captures the whole
+  window, even if something covers it. You can add a shadow, a transparent or white background, and padding.
+- **Freeze screen.** This optionally freezes the screen while you pick, so menus and hover states stay put.
+- **Self-timer.** Pick an area, window or the full screen, then wait a 3, 5 or 10 second countdown.
+- **Capture Area & Pin.** This captures an area and pins it in place at 100%.
+- **Desktop icons.** You can hide them with a toggle, or only while capturing.
+
+### Scrolling capture
+
+- Pick an area, then scroll its content yourself. Or click **Auto-Scroll** and Skreener scrolls to the end for you.
+- The frames are stitched into one tall image. Sticky headers and footers appear only once.
+
+### Text recognition (OCR)
+
+- **Capture Text** recognizes the text in an area on your Mac, using Apple's Vision framework. The text opens in a
+  small scratch pad where you can fix it up or join the lines, then you copy it.
+- In the editor, **Copy Text** copies the text from the whole screenshot or from a dragged area. **Redact** finds
+  text, emails, phone numbers or links and pixelates them.
+
+### Screen recording
+
+- Record an area or a window to **MP4** or **GIF** at 30 or 60 fps.
+- You can include system audio and the microphone (macOS 15+); with both on, they are mixed into one track.
+- Other options: a countdown, dimming the rest of the screen, showing the cursor, click highlighting, keystroke
+  display, and the elapsed time in the menu bar.
+- A control bar shows the elapsed time, with pause, resume and stop.
+- **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
+
+### Annotation editor
+
+- **Tabs.** Each capture opens as a tab, shown as thumbnails in a dock beside the canvas.
+- **Tools.** Arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter, text, numbered counter, pixelate,
+  blur, erase, spotlight and magnifier. Every tool has a single-key shortcut (V A R F O L P H T N X B E S M).
+- **Styles.** Arrows come filled, open, double-headed or tapered, and they bend. Shapes can look hand-drawn. Text can
+  sit on a solid box, an outlined box, or a speech bubble. Pen strokes are smoothed and can turn into clean shapes.
+- **Stays editable.** You can select, move, resize, recolor, duplicate and reorder annotations, and copy and paste
+  them between screenshots, with full undo and redo.
+- **Snap to objects.** Boxes snap to the edges of buttons and shapes in the screenshot. **Repeat on Similar
+  Objects** places the same box over every matching element.
+- **Image operations.** Crop, rotate, flip, resize to exact sizes, **Cut Out** a strip and join the rest, and
+  **Remove Background**.
+- **Backgrounds.** Gradients, solid colors, your wallpaper or a picture of your own. There are presets for
+  common aspect ratios and social media sizes, plus padding, corner radius and shadow.
+- **Measure and pick colors.** Measure runs of color under the pointer, and copy colors in HEX, CSS, RGB,
+  UIColor, Android, OKLCH and more. **Check Contrast** shows the WCAG 2 ratio or APCA value.
+- **Export.** Save, Save As, copy, or drag a small preview straight into another app.
+
+### After capture
+
+- **Quick Access preview.** A thumbnail appears in the corner with buttons to copy, save, edit, pin, share or close.
+  Later captures stack above it.
+- **Pins.** Float any screenshot above other windows. You can scroll to change opacity and pinch to zoom.
+- **Capture History.** Recent captures slide down from the top of the screen. The **Saved Files** view searches
+  everything in your export folder by file name, app, or the text inside the screenshots.
+- You choose what happens to each capture: copy, save, open the editor, or show the preview. You can also play a
+  sound or show a notification.
+
+### Automation
+
+Skreener answers `skreener://` links, so Raycast, Alfred, Shortcuts or a shell script can drive it:
+
+```sh
+open "skreener://grab/area?then=copy,save"
+open "skreener://grab/delayed/window?delay=5"
+open "skreener://ocr"
 ```
-Grant Screen Recording permission on first launch.
 
-To keep that permission across rebuilds, sign with a stable certificate (once):
+| Group | Commands |
+|---|---|
+| Capture | `grab/area`, `grab/previous`, `grab/fullscreen`, `grab/window`, `grab/window/active`, `grab/scrolling`, `grab/delayed[/area\|/window\|/fullscreen]?delay=N` |
+| Other actions | `ocr`, `record`, `history`, `settings` |
+| Open and pin | `load/clipboard`, `load/file`, `pin/clipboard`, `pin/file` |
+
+`then=` (`copy`, `save`, `edit`, `pin`, `quickaccess`) overrides the After Capture settings for that one capture.
+Links are off until you allow them in **Settings > General**, or from the prompt the first link shows.
+
+## Default shortcuts
+
+You can change every shortcut in **Settings > Shortcuts**. Skreener warns you when a combination is already taken
+by macOS or by another action. The same pane walks you through handing the system's Shift-Command-3 and
+Shift-Command-4 over to Skreener.
+
+| Action | Shortcut |
+|---|---|
+| Capture Area | Control-Shift-4 |
+| Capture Fullscreen | Control-Shift-3 |
+| Capture Window | Control-Shift-5 |
+| Capture Previous Area | Control-Shift-1 |
+| Capture Text (OCR) | Control-Shift-2 |
+| Capture Area & Pin | Control-Shift-6 |
+| Record Screen (press again to stop) | Control-Shift-7 |
+| Capture Scrolling | Control-Shift-8 |
+| Capture History | Control-Shift-H |
+
+## Building from source
+
+You need a Mac with Xcode 16 or later.
+
+```sh
+git clone https://github.com/jsonify/skreener2.git
+cd skreener2
+Scripts/build_app.sh          # builds build/Skreener.app
+open build/Skreener.app
 ```
-Scripts/make_dev_cert.sh          # creates "Skreener Dev"; build_app.sh then uses it automatically
-Scripts/build_app.sh --run        # quits the running copy, rebuilds, relaunches
+
+macOS ties the Screen Recording permission to the app's signature. To keep the permission across rebuilds, create a
+stable local signing certificate once:
+
+```sh
+Scripts/make_dev_cert.sh      # creates "Skreener Dev"; build_app.sh then signs with it automatically
+Scripts/build_app.sh --run    # quits the running copy, rebuilds and relaunches
 ```
 
-## Versions
-Nothing to edit by hand. Commit messages use [Conventional Commits](https://www.conventionalcommits.org)
-(`fix(editor): …`, `feat: …`; the *Commit messages* check enforces it on PRs), and on every push to main
-[release-please](https://github.com/googleapis/release-please) keeps a release PR open with the next version
-and the changelog: `fix` → patch, `feat` → minor, `feat!:` or a `BREAKING CHANGE:` footer → major (minor while
-below 1.0; a `Release-As: 1.0.0` footer forces a version). Merge that PR to release: it tags `vX.Y.Z`, updates
-`CHANGELOG.md` and `version.txt`, and the signed app (notarised with Developer ID, or self-signed) is built and attached to the GitHub release.
+## Development
 
-`build_app.sh` takes the version from the newest `vX.Y.Z` tag behind the commit you build (else `version.txt`),
-the build number from the commit count, and adds the short commit hash (with a `+` when there are uncommitted
-changes). About shows all three, e.g. `0.2.0 (412, 48db438)`.
+### Tests
 
-## Release (Developer ID + notarisation)
-`Scripts/release.sh` builds the app, signs it with your Developer ID Application certificate (hardened
-runtime, `Resources/Skreener.entitlements`), notarises and staples it, and writes
-`build/release/Skreener-<version>.dmg`, `.zip` and `SHA256SUMS`. Credentials come from your keychain
-or environment, never the repo. One-time setup:
-1. A **Developer ID Application** certificate in your login keychain (Xcode → Settings → Accounts →
-   Manage Certificates → + → Developer ID Application).
-2. A notarytool keychain profile (asks for an app-specific password from appleid.apple.com):
-   ```
-   xcrun notarytool store-credentials skreener-notary --apple-id you@example.com --team-id TEAMID
-   ```
-
-Then:
+```sh
+swift test
 ```
-SKREENER_NOTARY_PROFILE=skreener-notary Scripts/release.sh --version 0.2.0
-Scripts/release.sh --skip-notarize      # sign + package only, to check signing without Apple
-Scripts/release.sh --help               # all options, API-key / Apple ID credentials
-```
-With several Developer ID identities, pick one with `SKREENER_DEVELOPER_ID="Developer ID Application: Name (TEAMID)"`.
 
-Merging a release-please PR (see Versions) or pushing a `v*` tag runs `.github/workflows/release.yml`, which
-does the same on CI and attaches the DMG and zip to the GitHub release. It needs the secrets listed at the top of
-that file (the certificate as a base64 `.p12` and an App Store Connect API key); normal pushes and PRs never run it.
+The unit tests in `Tests/SkreenerTests` cover the logic that runs without a screen or permissions. CI builds and
+tests with warnings treated as errors, so builds must be warning-free.
 
-## Releasing without an Apple Developer account
-Developer ID and notarisation need the paid Apple Developer Program. Without it, releases are signed with your
-free self-signed "Skreener Dev" certificate instead (`Scripts/release.sh --self-signed` locally; CI picks this
-automatically when the Developer ID secrets aren't set). The same certificate on every release keeps the Screen
-Recording permission across updates; the catch is that macOS asks people to allow the first launch.
+### Versions and commit messages
 
-One-time setup for CI:
-1. On your Mac, create the certificate if you haven't: `Scripts/make_dev_cert.sh`.
-2. Keychain Access → login keychain → **My Certificates** → right-click **Skreener Dev** → **Export "Skreener Dev"…**
-   → format Personal Information Exchange (.p12) → save as `SkreenerDev.p12` and choose a password.
-3. `base64 -i SkreenerDev.p12 | pbcopy`, then on GitHub: Settings → Secrets and variables → Actions → New
-   repository secret `SELF_SIGNED_P12_BASE64`, paste. Add `SELF_SIGNED_P12_PASSWORD` with the password.
-4. Delete `SkreenerDev.p12`. Keep the certificate in your keychain: a new one would make every user grant Screen
-   Recording again.
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org), such as `fix(editor): ...`,
+`feat(capture): ...` or `docs: ...`, and a CI check enforces this on pull requests.
+[release-please](https://github.com/googleapis/release-please) uses them to keep a release PR open with the next
+version and the changelog:
 
-Installing a self-signed release (the release notes say this too): open the DMG, drag Skreener to Applications
-and open it; macOS refuses the first time. Go to System Settings → Privacy & Security, click **Open Anyway** next
-to the Skreener message and confirm. Or run `xattr -dr com.apple.quarantine /Applications/Skreener.app` once.
+- `fix` bumps the patch version.
+- `feat` bumps the minor version.
+- `feat!:` or a `BREAKING CHANGE:` footer bumps the major version. It bumps the minor version while below 1.0.
 
-## Not yet implemented (vs. CleanShot X)
-See [TODO.md](TODO.md) for the full roadmap.
+Merging the release PR tags `vX.Y.Z` and updates `CHANGELOG.md` and `version.txt`. CI then attaches a signed DMG and
+zip to the GitHub release.
+
+`build_app.sh` takes the version from the newest `vX.Y.Z` tag, the build number from the commit count, and adds the
+short commit hash. The About panel shows all three, for example `0.2.0 (412, 48db438)`.
+
+### Releases
+
+`Scripts/release.sh` builds, signs, packages and (optionally) notarizes the app. It writes a DMG, a zip and
+`SHA256SUMS` to `build/release/`. Run `Scripts/release.sh --help` for all options.
+
+- **With an Apple Developer ID.** Signing uses your Developer ID Application certificate with the hardened runtime,
+  then notarizes and staples the app. Credentials come from your keychain or environment, never from the repo:
+
+  ```sh
+  xcrun notarytool store-credentials skreener-notary --apple-id you@example.com --team-id TEAMID   # once
+  SKREENER_NOTARY_PROFILE=skreener-notary Scripts/release.sh --version 0.2.0
+  ```
+
+  If you have several Developer ID identities, pick one with `SKREENER_DEVELOPER_ID`.
+
+- **Without a developer account.** Run `Scripts/release.sh --self-signed` to sign with the "Skreener Dev"
+  certificate instead. CI does this automatically when the Developer ID secrets are not set. To set it up for CI,
+  export **Skreener Dev** from Keychain Access as a `.p12`. Add it as the repository secret `SELF_SIGNED_P12_BASE64`
+  (base64-encoded) and its password as `SELF_SIGNED_P12_PASSWORD`, then delete the `.p12` file. Keep the certificate
+  itself: a new one would make every user grant Screen Recording again.
+
+Merging a release PR or pushing a `v*` tag runs `.github/workflows/release.yml`. The secrets it needs are listed
+at the top of that file.
+
+## Roadmap
+
+See [TODO.md](TODO.md) for what is done, in progress and planned, and [CHANGELOG.md](CHANGELOG.md) for released
+changes.
