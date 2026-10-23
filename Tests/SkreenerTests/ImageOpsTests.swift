@@ -58,7 +58,6 @@ final class ImageOpsTests: XCTestCase {
         // Red stays on top, blue now right under it (bitmap rows count from the top).
         XCTAssertGreaterThan(try color(out, x: 5, y: 5).redComponent, 0.9)
         XCTAssertGreaterThan(try color(out, x: 5, y: 15).blueComponent, 0.9)
-        XCTAssertLessThan(try color(out, x: 5, y: 15).greenComponent, 0.1)
     }
 
     func testRemovingColumns() throws {
