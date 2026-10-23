@@ -64,3 +64,17 @@ final class TextRecognizerTests: XCTestCase {
         XCTAssertTrue(boxes.isEmpty, "\(boxes)")
     }
 }
+
+/// Join Lines in Capture Text's scratch pad (#134).
+final class ScratchPadJoinTests: XCTestCase {
+    func testJoinsLinesWithSingleSpaces() {
+        XCTAssertEqual(TextScratchPad.joined("one  \n  two\n\nthree"), "one two three")
+    }
+
+    func testMendsWordsHyphenatedAcrossLines() {
+        XCTAssertEqual(TextScratchPad.joined("screen-\nshot tool"), "screenshot tool")
+        // Not a broken word: a capital after the hyphen, or a dash on its own.
+        XCTAssertEqual(TextScratchPad.joined("Jean-\nPaul"), "Jean- Paul")
+        XCTAssertEqual(TextScratchPad.joined("wait -\nthen"), "wait - then")
+    }
+}

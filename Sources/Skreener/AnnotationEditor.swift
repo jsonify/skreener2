@@ -127,6 +127,43 @@ struct Style: Equatable {
     var counterRadius: CGFloat { max(10, fontSize * 0.75) }
 }
 
+// Saving (the editor starts with the last style used)
+extension Style {
+    /// The style as property-list values, for user defaults (#139).
+    var plist: [String: Any] {
+        [
+            "color": Background.components(color), "lineWidth": Double(lineWidth), "fontSize": Double(fontSize),
+            "fontName": fontName, "bold": bold, "pixelSize": Double(pixelSize), "cornerRadius": Double(cornerRadius),
+            "arrowStyle": arrowStyle.rawValue, "textOnly": textOnly, "magnification": Double(magnification),
+            "lensShape": lensShape.rawValue, "fill": fill.rawValue, "textBox": textBox.rawValue, "tail": tail,
+            "handDrawn": handDrawn, "shapeCorrection": shapeCorrection,
+        ]
+    }
+
+    /// A style read back from `plist`; missing or unknown values keep their defaults.
+    init(plist d: [String: Any]) {
+        self.init()
+        func number(_ key: String) -> CGFloat? { (d[key] as? NSNumber).map { CGFloat($0.doubleValue) } }
+        func positive(_ key: String) -> CGFloat? { number(key).flatMap { $0 > 0 ? $0 : nil } }
+        if let c = (d["color"] as? [Double]).flatMap(Background.color(from:)) { color = c }
+        lineWidth = positive("lineWidth") ?? lineWidth
+        fontSize = positive("fontSize") ?? fontSize
+        fontName = d["fontName"] as? String ?? fontName
+        bold = d["bold"] as? Bool ?? bold
+        pixelSize = positive("pixelSize") ?? pixelSize
+        cornerRadius = number("cornerRadius").map { max($0, 0) } ?? cornerRadius
+        arrowStyle = (d["arrowStyle"] as? Int).flatMap(ArrowStyle.init(rawValue:)) ?? arrowStyle
+        textOnly = d["textOnly"] as? Bool ?? textOnly
+        magnification = positive("magnification") ?? magnification
+        lensShape = (d["lensShape"] as? Int).flatMap(LensShape.init(rawValue:)) ?? lensShape
+        fill = (d["fill"] as? Int).flatMap(ShapeFill.init(rawValue:)) ?? fill
+        textBox = (d["textBox"] as? Int).flatMap(TextBox.init(rawValue:)) ?? textBox
+        tail = d["tail"] as? Bool ?? tail
+        handDrawn = d["handDrawn"] as? Bool ?? handDrawn
+        shapeCorrection = d["shapeCorrection"] as? Bool ?? shapeCorrection
+    }
+}
+
 /// One annotation, kept as an editable object (never baked into the image until export).
 /// For text, `start` is the top-left corner of the text.
 struct Annotation: Equatable {
@@ -261,11 +298,16 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         return c
     }
     private var cachedBackdrop: NSColor?
-    var tool: Tool = .arrow {
-        didSet { if tool != oldValue { finishTextEditing(); endAreaPick(); notifyContext() } }
+    /// Starts as the last tool used in any editor, and is remembered for the next one (#139).
+    var tool: Tool = Preferences.editorTool {
+        didSet {
+            guard tool != oldValue else { return }
+            finishTextEditing(); endAreaPick(); notifyContext()
+            Preferences.editorTool = tool
+        }
     }
-    /// Style given to new annotations.
-    private(set) var style = Style()
+    /// Style given to new annotations; like the tool, remembered for the next editor (#139).
+    private(set) var style = Preferences.editorStyle
     /// Called when a single-key shortcut switches the tool.
     var onToolShortcut: ((Tool) -> Void)?
     /// Esc with nothing selected and no mode active (the editor may then copy or save and close, #115).
@@ -276,6 +318,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private enum Drag {
         case draw
         case move(last: NSPoint)
+        /// ⌥-drag on an annotation: a copy is made on the first move and follows the pointer, the original stays (#137).
+        case duplicate(last: NSPoint, copied: Bool)
         /// A magnifier's lens, which moves on its own.
         case moveLens(last: NSPoint)
         case resizeCorner(anchor: NSPoint)
@@ -310,6 +354,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private var drag: Drag?
     private lazy var beforeDrag = snapshot
     private var undoStack: [Snapshot] = []
+    /// Goes up with every edit, undo and redo, so the dock knows when its thumbnail is out of date (#140).
+    private(set) var revision = 0
+    /// Called after every edit, undo and redo.
+    var onEdit: (() -> Void)?
     private var redoStack: [Snapshot] = []
     private var exporting = false
     private var selectedID: UUID? {
@@ -369,7 +417,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             selectedID = items[i].id
             if event.clickCount == 2, items[i].tool == .text { beginTextEditing(at: i); return }
             let onLens = items[i].tool == .magnifier && lensPath(items[i]).contains(p)
-            drag = onLens ? .moveLens(last: p) : .move(last: p); needsDisplay = true
+            if event.modifierFlags.contains(.option) {
+                drag = .duplicate(last: p, copied: false)
+            } else {
+                drag = onLens ? .moveLens(last: p) : .move(last: p)
+            }
+            needsDisplay = true
             return
         }
         selectedID = nil
@@ -421,6 +474,17 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             items[i].translate(dx: p.x - last.x, dy: p.y - last.y)
             if items[i].tool == .magnifier { items[i].lens = lens }
             drag = .move(last: p)
+        case .duplicate(let last, let copied)?:
+            guard let i = selectedIndex else { return }
+            var at = i
+            if !copied {
+                // On top, like ⌘D; the drag started in mouseDown, so making and moving it are one undo step.
+                items.append(items[i].duplicate())
+                at = items.count - 1
+                selectedID = items[at].id
+            }
+            items[at].translate(dx: p.x - last.x, dy: p.y - last.y)
+            drag = .duplicate(last: p, copied: true)
         case .moveLens(let last)?:
             guard let i = selectedIndex else { return }
             let c = items[i].lens ?? defaultLensCenter(items[i])
@@ -721,6 +785,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         guard let previous = undoStack.popLast() else { NSSound.beep(); return }
         redoStack.append(snapshot)
         snapshot = previous
+        edited()
         if selectedIndex == nil { selectedID = nil } else { notifyContext() }
         needsDisplay = true
     }
@@ -731,6 +796,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         guard let next = redoStack.popLast() else { NSSound.beep(); return }
         undoStack.append(snapshot)
         snapshot = next
+        edited()
         if selectedIndex == nil { selectedID = nil } else { notifyContext() }
         needsDisplay = true
     }
@@ -738,6 +804,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Changes the style for new annotations and, if one is selected (or being typed), restyles it too.
     func updateStyle(_ change: (inout Style) -> Void) {
         change(&style)
+        Preferences.editorStyle = style
         if let i = selectedIndex {
             var s = items[i].style
             change(&s)
@@ -1492,6 +1559,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         guard snapshot != before else { return }
         undoStack.append(before)
         redoStack.removeAll()
+        edited()
+    }
+
+    private func edited() {
+        revision += 1
+        onEdit?()
     }
 
     // MARK: Inline text
@@ -2311,6 +2384,23 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let out = ci.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: ci.extent)
         let img = Self.ciContext.createCGImage(out, from: ci.extent)
         blurCache[key] = img
+        return img
+    }
+
+    /// A small picture of the screenshot with its annotations, at most `maxSide` points across, for the editor's dock
+    /// (#140). Unlike `flattened()` it leaves typing and cropping as they are.
+    func thumbnail(maxSide: CGFloat) -> NSImage {
+        let k = min(1, maxSide / max(extent.width, extent.height, 1))
+        let img = NSImage(size: NSSize(width: max(1, (extent.width * k).rounded()), height: max(1, (extent.height * k).rounded())))
+        exporting = true
+        img.lockFocus()
+        if let cg = NSGraphicsContext.current?.cgContext {
+            cg.scaleBy(x: k, y: k)
+            cg.translateBy(x: -extent.minX, y: -extent.minY)
+        }
+        draw(extent)
+        img.unlockFocus()
+        exporting = false
         return img
     }
 

@@ -97,6 +97,21 @@ enum Preferences {
         get { (d.dictionary(forKey: "lastBackground")).map(Background.init(plist:)) ?? Background() }
         set { d.set(newValue.plist, forKey: "lastBackground") }
     }
+    /// The editor's last tool and the style for new annotations, so the next editor (also after a relaunch) starts
+    /// with them (#139).
+    static var editorTool: Tool {
+        get {
+            // Only toolbar tools (pictures and rulers aren't picked from the toolbar).
+            guard let raw = d.object(forKey: "editorTool") as? Int, let t = Tool(rawValue: raw),
+                  Tool.shortcuts.values.contains(t) else { return .arrow }
+            return t
+        }
+        set { d.set(newValue.rawValue, forKey: "editorTool") }
+    }
+    static var editorStyle: Style {
+        get { (d.dictionary(forKey: "editorStyle")).map(Style.init(plist:)) ?? Style() }
+        set { d.set(newValue.plist, forKey: "editorStyle") }
+    }
     /// Boxes being drawn or resized in the editor snap to the edges of what's in the screenshot (#123).
     static var snapToObjects: Bool {
         get { d.object(forKey: "snapToObjects") as? Bool ?? true }
@@ -133,6 +148,29 @@ enum Preferences {
         get { d.string(forKey: "confirmationStyle").flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud }
         set { d.set(newValue.rawValue, forKey: "confirmationStyle") }
     }
+    /// Capture Text opens the recognized text in a scratch pad to edit before copying, instead of copying it straight
+    /// away (#134).
+    static var textScratchPad: Bool {
+        get { d.object(forKey: "textScratchPad") as? Bool ?? true }
+        set { d.set(newValue, forKey: "textScratchPad") }
+    }
+    /// The editor's dock of open screenshots (#140): hidden with its button or ⌃⌘S, and on the left or right.
+    static var editorDockCollapsed: Bool {
+        get { d.bool(forKey: "editorDockCollapsed") }
+        set { d.set(newValue, forKey: "editorDockCollapsed") }
+    }
+    static var editorDockOnRight: Bool {
+        get { d.bool(forKey: "editorDockOnRight") }
+        set { d.set(newValue, forKey: "editorDockOnRight") }
+    }
+    /// Editor windows and the full-screen capture overlays zoom in when they appear (macOS's own window animation),
+    /// also when switching screenshots in the dock. Off by default.
+    static var editorWindowZoom: Bool {
+        get { d.bool(forKey: "editorWindowZoom") }
+        set { d.set(newValue, forKey: "editorWindowZoom") }
+    }
+    /// The animation those windows use when they come to the front.
+    static var windowAnimation: NSWindow.AnimationBehavior { editorWindowZoom ? .default : .none }
     /// Skreener's own sounds (copied, recording saved, cancelled).
     static var playSounds: Bool {
         get { d.object(forKey: "playSounds") as? Bool ?? true }
