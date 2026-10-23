@@ -28,7 +28,9 @@ Options:
                       Scripts/make_dev_cert.sh); no notarisation or hardened runtime. The same certificate on every
                       release keeps the Screen Recording permission across updates, but people
                       have to allow the first launch: System Settings -> Privacy & Security ->
-                      Open Anyway.
+                      Open Anyway. With SKREENER_SIGN_P12 (the certificate as a .p12 file) and
+                      SKREENER_SIGN_P12_PASSWORD_FILE, it signs with rcodesign instead of codesign,
+                      which doesn't need the certificate trusted on this Mac (used on CI).
   -h, --help          Show this help.
 
 Signing identity (from your keychain, never the repo):
@@ -98,7 +100,13 @@ if [ -n "$KEYCHAIN" ]; then
 fi
 # find-identity takes the keychain as a trailing argument; codesign takes --keychain.
 IDENTITIES=$(security find-identity -v -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} || true)
-if [ "$SELF_SIGNED" = 1 ]; then
+P12="${SKREENER_SIGN_P12:-}"
+if [ "$SELF_SIGNED" = 1 ] && [ -n "$P12" ]; then
+  [ -f "$P12" ] || die "SKREENER_SIGN_P12=\"$P12\" is not a file."
+  [ -f "${SKREENER_SIGN_P12_PASSWORD_FILE:-}" ] || die "SKREENER_SIGN_P12_PASSWORD_FILE must name the file holding the .p12's password."
+  command -v rcodesign >/dev/null || die "rcodesign not found (github.com/indygreg/apple-platform-rs); it signs from SKREENER_SIGN_P12."
+  IDENTITY="$(basename "$P12") (rcodesign)"
+elif [ "$SELF_SIGNED" = 1 ]; then
   # A self-signed certificate may not be trusted on this Mac, and then find-identity's code-signing policy leaves
   # it out: look among all identities and certificates (by name or SHA-1 hash) and let codesign be the judge.
   IDENTITY="${SKREENER_SIGN_IDENTITY:-Skreener Dev}"
@@ -208,10 +216,27 @@ fi
 # ---- Sign ----
 step "Signing with \"$IDENTITY\"$RUNTIME_NOTE"
 # Nested code is signed inside-out; today the bundle has only the main executable.
-codesign --force "${SIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" \
-  --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
-codesign --verify --deep --strict --verbose=2 "$APP"
+# rcodesign signs straight from the .p12, without the keychain or trust (CI); otherwise codesign.
+rsign() { rcodesign sign --p12-file "$P12" --p12-password-file "$SKREENER_SIGN_P12_PASSWORD_FILE" "$@"; }
+if [ -n "$P12" ]; then
+  # The entitlements option has been renamed between rcodesign versions; use whichever this one has.
+  ENT_FLAG=$(rcodesign sign --help 2>&1 | grep -o -- '--entitlements-xml-[a-z]*' | head -1 || true)
+  rsign ${ENT_FLAG:+"$ENT_FLAG" "$ENTITLEMENTS"} "$APP"
+else
+  codesign --force "${SIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" \
+    --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
+fi
+if [ -n "$P12" ]; then
+  # codesign --verify also checks the certificate against macOS's code-signing policy, which a self-signed
+  # certificate only passes where it's trusted (your Mac), not here ("Invalid Extended Key Usage for policy").
+  # Check the signature itself instead.
+  rcodesign verify "$APP/Contents/MacOS/Skreener"
+else
+  codesign --verify --deep --strict --verbose=2 "$APP"
+fi
 codesign --display --verbose=2 "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|flags|Identifier)=' || true
+# What macOS keys the Screen Recording permission to: the same certificate in every release keeps it.
+codesign --display --requirements - "$APP" 2>&1 | grep designated || true
 if [ "$SELF_SIGNED" = 0 ]; then
   codesign --display --verbose=2 "$APP" 2>&1 | grep -q 'flags=.*runtime' || die "hardened runtime flag missing from the signature."
 fi
@@ -239,7 +264,11 @@ if [ "$FORMAT" != zip ]; then
   ditto "$APP" "$STAGE/Skreener.app"
   ln -s /Applications "$STAGE/Applications"
   hdiutil create -volname "Skreener $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT/$NAME.dmg" >/dev/null
-  codesign --force "${SIGN_ARGS[0]}" --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
+  if [ -n "$P12" ]; then
+    rsign "$OUT/$NAME.dmg"
+  else
+    codesign --force "${SIGN_ARGS[0]}" --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
+  fi
   if [ "$NOTARIZE" = 1 ]; then
     step "Notarising the DMG"
     notarize "$OUT/$NAME.dmg"
