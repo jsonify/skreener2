@@ -41,6 +41,8 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # all commits and tags: build_app.sh takes the version and build number from them
       - name: Select newest Xcode
         run: |
           NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)

@@ -21,7 +21,7 @@ Built from publicly documented behavior only; no code from CleanShot X was decom
 - Pin screenshots on top of other windows (Quick Access → Pin; scroll = opacity, ⌘+scroll/pinch = zoom, double-click/Esc = close). Hover a pin for close, drag out (drops the image as a file), edit, copy and its zoom; right-click for 50/100/200%, Copy, Edit, Save…, Share…, Semi-transparent and Close. Capture Area & Pin opens the pin at 100% right over the area
 - Open… / Open from Clipboard into the editor, Pin to the Screen… from a file or the clipboard
 - Show/Hide Desktop Icons toggle (or hide them only while capturing), About panel
-- Settings window (⌘, the menu bar icon, or the editor's gear button), CleanShot-style with a sidebar: General (launch at login, freeze screen, cursor, desktop icons, permissions status, export location), After Capture (copy / save / open editor, confirmation style for captures nothing else shows: none, system notification or a Skreener message; play sounds; capture history), Shortcuts (a guide to giving ⇧⌘3 / ⇧⌘4 to Skreener that shows whether macOS still uses them; click a shortcut and type a new one, for any capture, recording, self-timer, history, desktop icons or open / pin command; × clears, the arrow resets one, Restore Defaults resets all; warns about combinations macOS or another action already uses; changes apply at once and show in the menu), Screenshots (PNG/JPEG, save Retina captures at 1×, file name template, window capture style and highlight color), Screen Recording (audio, frame rate, cursor), Annotate (drop shadow, editor tabs, what Esc does with nothing selected: nothing, copy and close, or save and close), About (version + build commit)
+- Settings window (⌘, the menu bar icon, or the editor's gear button), CleanShot-style with a sidebar: General (launch at login, freeze screen, cursor, desktop icons, permissions status, export location), After Capture (copy / save / open editor, confirmation style for captures nothing else shows: none, system notification or a Skreener message; play sounds; capture history), Shortcuts (a guide to giving ⇧⌘3 / ⇧⌘4 to Skreener that shows whether macOS still uses them; click a shortcut and type a new one, for any capture, recording, self-timer, history, desktop icons or open / pin command; × clears, the arrow resets one, Restore Defaults resets all; warns about combinations macOS or another action already uses; changes apply at once and show in the menu), Screenshots (PNG/JPEG, save Retina captures at 1×, file name template, window capture style and highlight color), Screen Recording (audio, frame rate, cursor), Annotate (drop shadow, editor tabs, what Esc does with nothing selected: nothing, copy and close, or save and close), About (version, build number and commit)
 
 ## Build
 ```
@@ -35,6 +35,12 @@ To keep that permission across rebuilds, sign with a stable certificate (once):
 Scripts/make_dev_cert.sh          # creates "Skreener Dev"; build_app.sh then uses it automatically
 Scripts/build_app.sh --run        # quits the running copy, rebuilds, relaunches
 ```
+
+## Versions
+Nothing to edit by hand: `build_app.sh` takes the version from the newest `vX.Y.Z` git tag behind the commit you
+build (0.1.0 until the first tag), the build number from the commit count, and adds the short commit hash (with a
+`+` when there are uncommitted changes). About shows all three, e.g. `0.2.0 (412, 48db438)`. To start a new
+version, tag it: `git tag v0.2.0 && git push origin v0.2.0` (that push also runs the release workflow below).
 
 ## Release (Developer ID + notarisation)
 `Scripts/release.sh` builds the app, signs it with your Developer ID Application certificate (hardened

@@ -305,7 +305,7 @@ enum Preferences {
         get { d.object(forKey: "windowShadow") as? Bool ?? true }
         set { d.set(newValue, forKey: "windowShadow") }
     }
-    /// When false, window captures get a solid white background instead of transparency.
+    /// When false, the area around a captured window (rounded corners, shadow, padding) is white instead of transparent.
     static var windowTransparentBackground: Bool {
         get { d.object(forKey: "windowTransparentBackground") as? Bool ?? true }
         set { d.set(newValue, forKey: "windowTransparentBackground") }

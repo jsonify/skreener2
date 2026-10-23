@@ -32,3 +32,50 @@ final class CaptureServiceTests: XCTestCase {
         XCTAssertEqual(r, CGRect(x: 10, y: 90, width: 21, height: 10))
     }
 }
+
+/// The space around a captured window (its rounded corners, padding, shadow): transparent or white (#138).
+final class WindowDecorationTests: XCTestCase {
+    /// A 20 × 20 px red "window" with its top-left pixel left clear, like a rounded corner.
+    private func window() -> CGImage {
+        TestImages.image(width: 20, height: 20) { r in
+            NSColor.red.setFill()
+            r.fill()
+            NSColor.clear.setFill()
+            NSRect(x: 0, y: r.height - 1, width: 1, height: 1).fill(using: .copy)
+        }.cgImage(forProposedRect: nil, context: nil, hints: nil)!
+    }
+
+    private func alpha(_ cg: CGImage, x: Int, y: Int) -> CGFloat? {
+        NSBitmapImageRep(cgImage: cg).colorAt(x: x, y: y)?.alphaComponent
+    }
+
+    func testTransparentPaddingStaysClear() {
+        let out = CaptureService.decorateWindow(window(), scale: 1, shadow: false, transparent: true, padding: 16)
+        XCTAssertEqual(out.width, 52)
+        XCTAssertEqual(alpha(out, x: 0, y: 0), 0)
+        XCTAssertEqual(alpha(out, x: 16, y: 16), 0)   // the window's own clear corner
+        XCTAssertEqual(alpha(out, x: 26, y: 26), 1)
+    }
+
+    func testTransparentWithoutPaddingKeepsTheCorner() {
+        let out = CaptureService.decorateWindow(window(), scale: 1, shadow: false, transparent: true, padding: 0)
+        XCTAssertEqual(out.width, 20)
+        XCTAssertEqual(alpha(out, x: 0, y: 0), 0)
+    }
+
+    func testShadowAreaIsTransparentPastTheShadow() throws {
+        let out = CaptureService.decorateWindow(window(), scale: 1, shadow: true, transparent: true, padding: 0)
+        XCTAssertEqual(out.width, 100)
+        XCTAssertLessThan(try XCTUnwrap(alpha(out, x: 0, y: 0)), 0.02)
+    }
+
+    func testOpaqueFillsWithWhite() throws {
+        let out = CaptureService.decorateWindow(window(), scale: 1, shadow: false, transparent: false, padding: 16)
+        let rep = NSBitmapImageRep(cgImage: out)
+        let corner = try XCTUnwrap(rep.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB))
+        XCTAssertEqual(corner.alphaComponent, 1)
+        XCTAssertEqual(corner.redComponent, 1, accuracy: 0.01)
+        XCTAssertEqual(corner.greenComponent, 1, accuracy: 0.01)
+        XCTAssertEqual(rep.colorAt(x: 16, y: 16)?.alphaComponent, 1)   // the window's corner is white too
+    }
+}
