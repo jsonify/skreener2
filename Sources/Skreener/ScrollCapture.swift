@@ -530,6 +530,7 @@ final class ScrollCaptureController {
         let p = NSPanel(contentRect: rect.insetBy(dx: -4, dy: -4), styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .statusBar
+        p.animationBehavior = Preferences.windowAnimation
         p.isOpaque = false
         p.backgroundColor = .clear
         p.ignoresMouseEvents = true

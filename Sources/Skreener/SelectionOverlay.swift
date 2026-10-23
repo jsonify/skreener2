@@ -64,6 +64,7 @@ final class SelectionOverlay {
             let p = OverlayPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                  backing: .buffered, defer: false)
             p.level = .screenSaver
+            p.animationBehavior = Preferences.windowAnimation   // else the whole screen seems to jump as it appears
             p.isOpaque = false
             p.backgroundColor = .clear
             p.hasShadow = false

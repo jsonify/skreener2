@@ -89,7 +89,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] ⌥-drag an annotation drags out a copy (made on the first move; the original stays; one undo step) — S (#137)
 - [~] The editor remembers the last tool and the style for new annotations (color, stroke, font, size, arrow style, fill…), also after a relaunch (`Style.plist`, unit-tested) — S (#139)
 - [~] Side dock instead of the tab row: thumbnails of the window's screenshots beside the canvas (from 2 screenshots; updated shortly after edits); click switches, × on hover or middle-click closes, right-click: close others, move to new window; its header button, the footer's dock button or ⌃⌘S (Window menu) hides/shows it with a slide, remembered; Settings → Annotate: left or right — M (#140)
-- [~] No zoom-in animation when an editor window appears or a screenshot is picked in the dock; Settings → Annotate → Editor Window → "Zoom, zoom" brings it back — S
+- [~] No zoom-in animation when an editor window appears, a screenshot is picked in the dock, or the area / window / Record Screen overlays come up; Settings → Annotate → Editor Window → "Zoom, zoom" brings it back — S
 - [~] Copy (⌘C), cut (⌘X), paste (⌘V) and duplicate (⌘D) annotations, also into another tab or editor; they stay editable; ⌘C with nothing selected copies the image; pasting an image still works (`AnnotationClipboard`, unit-tested) — S (#125)
 
 ## Batch 5 — capture modes

@@ -109,6 +109,7 @@ final class RecordAreaPicker: NSObject {
 
         let p = PickerPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.level = .screenSaver
+        p.animationBehavior = Preferences.windowAnimation
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = false
@@ -158,6 +159,7 @@ final class RecordAreaPicker: NSObject {
         for s in NSScreen.screens where s != screen {
             let p = NSPanel(contentRect: s.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.level = .screenSaver
+            p.animationBehavior = Preferences.windowAnimation
             p.isOpaque = false
             p.backgroundColor = .clear
             p.hasShadow = false

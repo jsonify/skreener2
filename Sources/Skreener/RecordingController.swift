@@ -163,6 +163,7 @@ final class RecordingController {
         for screen in NSScreen.screens {
             let p = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue - 1)
+            p.animationBehavior = Preferences.windowAnimation
             p.isOpaque = false
             p.backgroundColor = .clear
             p.hasShadow = false
@@ -182,6 +183,7 @@ final class RecordingController {
         let p = NSPanel(contentRect: rect.insetBy(dx: -3, dy: -3), styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .floating
+        p.animationBehavior = Preferences.windowAnimation
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = false

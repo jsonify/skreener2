@@ -456,7 +456,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         + "file, updates that file instead of making a new one. Save As… (⇧⌘S) always asks.",
                            Preferences.saveOverExisting) { Preferences.saveOverExisting = $0 },
                     toggle("Zoom, zoom", "For fans of a little bounce: the editor window zooms in when it opens and "
-                        + "whenever you switch screenshots.",
+                        + "whenever you switch screenshots, and so does the screen when a capture starts.",
                            Preferences.editorWindowZoom) { Preferences.editorWindowZoom = $0 },
                 ]),
             ]

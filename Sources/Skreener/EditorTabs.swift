@@ -102,7 +102,7 @@ final class EditorWindow: NSWindow {
     /// Each tab is its own window, so switching tabs orders one in; without this macOS plays its "window opens" zoom
     /// every time. Settings → Annotate can bring the zoom back.
     override func makeKeyAndOrderFront(_ sender: Any?) {
-        animationBehavior = Preferences.editorWindowZoom ? .default : .none
+        animationBehavior = Preferences.windowAnimation
         super.makeKeyAndOrderFront(sender)
     }
     // Window → Show / Hide Screenshots (⌃⌘S, #140)

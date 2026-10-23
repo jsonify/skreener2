@@ -163,12 +163,14 @@ enum Preferences {
         get { d.bool(forKey: "editorDockOnRight") }
         set { d.set(newValue, forKey: "editorDockOnRight") }
     }
-    /// Editor windows zoom in when they appear (macOS's own window animation), also when switching screenshots in the
-    /// dock. Off by default.
+    /// Editor windows and the full-screen capture overlays zoom in when they appear (macOS's own window animation),
+    /// also when switching screenshots in the dock. Off by default.
     static var editorWindowZoom: Bool {
         get { d.bool(forKey: "editorWindowZoom") }
         set { d.set(newValue, forKey: "editorWindowZoom") }
     }
+    /// The animation those windows use when they come to the front.
+    static var windowAnimation: NSWindow.AnimationBehavior { editorWindowZoom ? .default : .none }
     /// Skreener's own sounds (copied, recording saved, cancelled).
     static var playSounds: Bool {
         get { d.object(forKey: "playSounds") as? Bool ?? true }
