@@ -123,18 +123,21 @@ jobs:
               exit 1
             fi
             # codesign only signs with a trusted identity ("no identity found" otherwise), so trust the certificate
-            # on this runner, as make_dev_cert.sh does on your Mac. Changing admin trust settings normally asks
-            # for a password in a dialog; the authorizationdb rule lets it through on this throwaway machine.
+            # on this runner, as make_dev_cert.sh does on your Mac.
             security find-certificate -a -p "$KC" > "$RUNNER_TEMP/self-signed.pem"
-            sudo security authorizationdb write com.apple.trust-settings.admin allow
-            sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$RUNNER_TEMP/self-signed.pem"
-            echo "Code-signing identities:"
-            security find-identity -v -p codesigning | tee "$RUNNER_TEMP/identities.txt"
-            if ! grep -q "$HASH" "$RUNNER_TEMP/identities.txt"; then
-              echo "::error::The self-signed certificate is still not trusted for code signing on the runner."
-              security dump-trust-settings -d || true
+            sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$RUNNER_TEMP/self-signed.pem" \
+              || echo "::warning::add-trusted-cert failed (exit $?)"
+            # Sign a throwaway copy of a small binary first, so a signing problem shows up in seconds, with details.
+            cp /usr/bin/true "$RUNNER_TEMP/sign-test"
+            if ! codesign --force --sign "$HASH" --keychain "$KC" "$RUNNER_TEMP/sign-test"; then
+              echo "::error::codesign can't sign with the self-signed certificate on the runner."
+              echo "--- code-signing identities in the release keychain:"; security find-identity -v -p codesigning "$KC" || true
+              echo "--- in the search list:"; security find-identity -v -p codesigning || true
+              echo "--- signing without --keychain:"; codesign --force --sign "$HASH" "$RUNNER_TEMP/sign-test" || true
+              echo "--- admin trust settings:"; security dump-trust-settings -d || true
               exit 1
             fi
+            echo "Test signature OK."
             echo "SKREENER_SIGN_IDENTITY=$HASH" >> "$GITHUB_ENV"
           fi
           rm "$RUNNER_TEMP/developer-id.p12"
