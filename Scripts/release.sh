@@ -25,7 +25,7 @@ Options:
                       *-unnotarized and Gatekeeper will still block them on other Macs.
   --self-signed       Release without a paid Apple Developer account: sign with a self-signed
                       certificate (SKREENER_SIGN_IDENTITY, default "Skreener Dev" from
-                      Scripts/make_dev_cert.sh) and don't notarise. The same certificate on every
+                      Scripts/make_dev_cert.sh); no notarisation or hardened runtime. The same certificate on every
                       release keeps the Screen Recording permission across updates, but people
                       have to allow the first launch: System Settings -> Privacy & Security ->
                       Open Anyway.
@@ -196,17 +196,24 @@ SKREENER_SIGN_IDENTITY="-" SKREENER_VERSION="$VERSION" Scripts/build_app.sh
 VERSION=$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")
 BUILD=$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")
 if [ "$NOTARIZE" = 1 ] || [ "$SELF_SIGNED" = 1 ]; then NAME="Skreener-$VERSION"; else NAME="Skreener-$VERSION-unnotarized"; fi
-# Apple's timestamp service only signs for Apple-issued certificates.
-if [ "$SELF_SIGNED" = 1 ]; then TIMESTAMP=--timestamp=none; else TIMESTAMP=--timestamp; fi
+# A self-signed build isn't notarised, which is the only reason for the hardened runtime and Apple's timestamp (whose
+# service only signs for Apple-issued certificates anyway), so it gets neither.
+if [ "$SELF_SIGNED" = 1 ]; then
+  SIGN_ARGS=(--timestamp=none); RUNTIME_NOTE=""
+else
+  SIGN_ARGS=(--timestamp --options runtime); RUNTIME_NOTE=" (hardened runtime)"
+fi
 
 # ---- Sign ----
-step "Signing with \"$IDENTITY\" (hardened runtime)"
+step "Signing with \"$IDENTITY\"$RUNTIME_NOTE"
 # Nested code is signed inside-out; today the bundle has only the main executable.
-codesign --force "$TIMESTAMP" --options runtime --entitlements "$ENTITLEMENTS" \
+codesign --force "${SIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" \
   --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 codesign --display --verbose=2 "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|flags|Identifier)=' || true
-codesign --display --verbose=2 "$APP" 2>&1 | grep -q 'flags=.*runtime' || die "hardened runtime flag missing from the signature."
+if [ "$SELF_SIGNED" = 0 ]; then
+  codesign --display --verbose=2 "$APP" 2>&1 | grep -q 'flags=.*runtime' || die "hardened runtime flag missing from the signature."
+fi
 
 # ---- Notarise the app, staple it ----
 if [ "$NOTARIZE" = 1 ]; then
@@ -231,7 +238,7 @@ if [ "$FORMAT" != zip ]; then
   ditto "$APP" "$STAGE/Skreener.app"
   ln -s /Applications "$STAGE/Applications"
   hdiutil create -volname "Skreener $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT/$NAME.dmg" >/dev/null
-  codesign --force "$TIMESTAMP" --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
+  codesign --force "${SIGN_ARGS[0]}" --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
   if [ "$NOTARIZE" = 1 ]; then
     step "Notarising the DMG"
     notarize "$OUT/$NAME.dmg"
