@@ -13,6 +13,19 @@ enum ImageFormat: String {
     var contentType: UTType { self == .png ? .png : .jpeg }
 }
 
+/// What Esc does in the editor when nothing is selected (#115).
+enum EditorEscAction: String, CaseIterable {
+    case nothing, copyAndClose, saveAndClose
+
+    var title: String {
+        switch self {
+        case .nothing: return "Nothing"
+        case .copyAndClose: return "Copy and Close"
+        case .saveAndClose: return "Save and Close"
+        }
+    }
+}
+
 enum Preferences {
     private static let d = UserDefaults.standard
 
@@ -95,6 +108,21 @@ enum Preferences {
     static var openEditorAfterCapture: Bool {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }
         set { d.set(newValue, forKey: "openEditorAfterCapture") }
+    }
+    /// How a capture that shows nothing else (no editor, Quick Access or pin) is confirmed (#113).
+    static var confirmationStyle: ConfirmationStyle {
+        get { d.string(forKey: "confirmationStyle").flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud }
+        set { d.set(newValue.rawValue, forKey: "confirmationStyle") }
+    }
+    /// Skreener's own sounds (copied, recording saved, cancelled).
+    static var playSounds: Bool {
+        get { d.object(forKey: "playSounds") as? Bool ?? true }
+        set { d.set(newValue, forKey: "playSounds") }
+    }
+    /// Esc in the editor with nothing selected (#115).
+    static var editorEscAction: EditorEscAction {
+        get { d.string(forKey: "editorEscAction").flatMap(EditorEscAction.init(rawValue:)) ?? .nothing }
+        set { d.set(newValue.rawValue, forKey: "editorEscAction") }
     }
     /// Show a Quick Access preview of each screenshot in the bottom-left corner (as well as the editor, if that opens).
     static var showQuickAccess: Bool {

@@ -152,8 +152,8 @@ struct KeyCombo: Hashable {
 
 /// Everything that can have a global shortcut, in Settings → Shortcuts order.
 enum HotKeyAction: String, CaseIterable {
-    case captureArea, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureScrolling,
-         captureText, timedArea, timedWindow, timedFullscreen
+    case captureArea, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureActiveWindow,
+         captureScrolling, captureText, timedArea, timedWindow, timedFullscreen
     case recordScreen
     case showHistory, toggleDesktopIcons, openFile, openClipboard, pinFile, pinClipboard
 
@@ -172,7 +172,7 @@ enum HotKeyAction: String, CaseIterable {
 
     var section: Section {
         switch self {
-        case .captureArea, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow,
+        case .captureArea, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow, .captureActiveWindow,
              .captureScrolling, .captureText, .timedArea, .timedWindow, .timedFullscreen: return .screenshots
         case .recordScreen: return .recording
         case .showHistory, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile, .pinClipboard: return .other
@@ -186,6 +186,7 @@ enum HotKeyAction: String, CaseIterable {
         case .captureAreaAndPin: return "Capture Area & Pin"
         case .captureFullscreen: return "Capture Fullscreen"
         case .captureWindow: return "Capture Window"
+        case .captureActiveWindow: return "Capture Active Window"
         case .captureScrolling: return "Capture Scrolling"
         case .captureText: return "Capture Text (OCR)"
         case .timedArea: return "Self-Timer: Area"
@@ -203,6 +204,7 @@ enum HotKeyAction: String, CaseIterable {
 
     var subtitle: String? {
         switch self {
+        case .captureActiveWindow: return "The frontmost window, without picking it."
         case .captureScrolling: return "Press again to finish."
         case .recordScreen: return "Press again to stop recording."
         case .showHistory: return "Opens and closes the history panel."
@@ -223,8 +225,8 @@ enum HotKeyAction: String, CaseIterable {
         case .captureText: return KeyCombo(keyCode: kVK_ANSI_2, modifiers: mods)
         case .recordScreen: return KeyCombo(keyCode: kVK_ANSI_7, modifiers: mods)
         case .showHistory: return KeyCombo(keyCode: kVK_ANSI_H, modifiers: mods)
-        case .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile,
-             .pinClipboard: return nil
+        case .captureActiveWindow, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
+             .openClipboard, .pinFile, .pinClipboard: return nil
         }
     }
 }
@@ -283,5 +285,48 @@ enum ShortcutStore {
             return .taken(by: other)
         }
         return nil
+    }
+}
+
+/// macOS's own screenshot shortcuts (System Settings → Keyboard → Keyboard Shortcuts → Screenshots), read from its
+/// symbolic hotkeys, so Settings → Shortcuts can tell whether ⇧⌘3 / ⇧⌘4 are free for Skreener (#114). Read only.
+enum MacScreenshotShortcuts {
+    /// Symbolic hotkey ids and their default combinations: save the screen (28) or an area (30) as a file, copy them
+    /// (29, 31), and the screenshot toolbar (184).
+    static let defaults: [Int: KeyCombo] = [
+        28: KeyCombo(keyCode: kVK_ANSI_3, modifiers: shiftKey | cmdKey),
+        29: KeyCombo(keyCode: kVK_ANSI_3, modifiers: controlKey | shiftKey | cmdKey),
+        30: KeyCombo(keyCode: kVK_ANSI_4, modifiers: shiftKey | cmdKey),
+        31: KeyCombo(keyCode: kVK_ANSI_4, modifiers: controlKey | shiftKey | cmdKey),
+        184: KeyCombo(keyCode: kVK_ANSI_5, modifiers: shiftKey | cmdKey),
+    ]
+
+    /// `AppleSymbolicHotKeys` from com.apple.symbolichotkeys, read fresh (System Settings may have just changed it).
+    static func current() -> [String: Any]? {
+        let domain = "com.apple.symbolichotkeys" as CFString
+        _ = CFPreferencesAppSynchronize(domain)
+        return CFPreferencesCopyAppValue("AppleSymbolicHotKeys" as CFString, domain) as? [String: Any]
+    }
+
+    /// Whether macOS still answers to shortcut `id` with its default combination. An id missing from `hotkeys` has
+    /// its default: on. One that is turned off, or set to other keys, leaves the default combination free.
+    static func isOn(_ id: Int, in hotkeys: [String: Any]?) -> Bool {
+        guard let entry = hotkeys?[String(id)] as? [String: Any] else { return true }
+        if let enabled = entry["enabled"] as? NSNumber, !enabled.boolValue { return false }
+        if let combo = defaults[id], let params = (entry["value"] as? [String: Any])?["parameters"] as? [NSNumber],
+           params.count >= 3 {
+            // [character, key code, modifier flags]
+            return params[1].intValue == combo.keyCode && params[2].intValue == Int(combo.modifierFlags.rawValue)
+        }
+        return true
+    }
+
+    /// Whether either of ⇧⌘3 and ⇧⌘4 still belongs to macOS.
+    static func takesShiftCommand3Or4(in hotkeys: [String: Any]?) -> Bool { isOn(28, in: hotkeys) || isOn(30, in: hotkeys) }
+
+    /// True when `combo` is one of these shortcuts and macOS no longer uses it, so its warning can go.
+    static func isFree(_ combo: KeyCombo, in hotkeys: [String: Any]?) -> Bool {
+        guard let id = defaults.first(where: { $0.value == combo })?.key else { return false }
+        return !isOn(id, in: hotkeys)
     }
 }

@@ -62,7 +62,7 @@ final class RecordingController {
                 self?.startedAt = Date()
             } catch {
                 NSLog("Recording failed to start: \(error)")
-                NSSound.beep()
+                Notifier.captureFailed(error, what: "Recording")
                 self?.tearDown()
             }
         }
@@ -104,27 +104,29 @@ final class RecordingController {
                     self?.delivered(gif, video: url)
                 } catch {
                     NSLog("GIF export failed: \(error)")
-                    NSSound.beep()
+                    Notifier.problem("Couldn't make the GIF", detail: error.localizedDescription)
                     try? FileManager.default.removeItem(at: url)
                 }
             }
         case .failure(let error):
             NSLog("Recording failed: \(error)")
-            NSSound.beep()
+            Notifier.captureFailed(error, what: "Recording")
         }
     }
 
     /// `video` is the temporary MP4 a GIF was made from: the preview keeps it for Trim, else it is deleted here.
     private func delivered(_ url: URL, video: URL? = nil) {
-        NSSound(named: "Glass")?.play()
+        Sound.play("Glass")
         if Preferences.copyToClipboard {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([url as NSURL])
         }
         if Preferences.showQuickAccess {
             QuickAccessController.show(recording: url, video: video)
-        } else if let video {
-            try? FileManager.default.removeItem(at: video)
+        } else {
+            if let video { try? FileManager.default.removeItem(at: video) }
+            Notifier.confirm(url.pathExtension.lowercased() == "gif" ? "GIF saved" : "Recording saved",
+                             detail: url.lastPathComponent, file: url)
         }
     }
 

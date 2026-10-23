@@ -234,7 +234,7 @@ final class CaptureHistoryPanel: NSObject {
         switch action {
         case .copy:
             Output.copy(image)
-            NSSound(named: "Pop")?.play()
+            Sound.play("Pop")
         case .edit:
             hide()
             EditorWindowController(image: image).present()

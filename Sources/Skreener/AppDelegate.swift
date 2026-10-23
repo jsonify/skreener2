@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var linkActions: CaptureActions?
     /// Self-timer delay a skreener:// link chose (`delay=`) for the countdown it started.
     private var linkDelay: Int?
+    /// The last app other than Skreener that was in front: Capture Active Window takes its window when Skreener
+    /// itself is in front (an editor or Settings is open).
+    private var lastOtherApp: pid_t?
 
     /// The bundled template glyph (falls back to an SF Symbol when run outside the .app, e.g. `swift run`).
     private lazy var menuBarIcon: NSImage? = {
@@ -48,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .captureAreaAndPin: { [weak self] in self?.captureAreaAndPin() },
             .captureFullscreen: { [weak self] in self?.captureFullscreen() },
             .captureWindow: { [weak self] in self?.captureWindow() },
+            .captureActiveWindow: { [weak self] in self?.captureActiveWindow() },
             .captureScrolling: { [weak self] in self?.captureScrolling() },
             .captureText: { [weak self] in self?.captureText() },
             .timedArea: { [weak self] in self?.timedArea() },
@@ -73,6 +77,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let self { self.captureAreaImage(done) } else { done(nil) }
         }
 
+        if let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid() {
+            lastOtherApp = front.processIdentifier
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil, queue: .main) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier != getpid() else { return }
+            self?.lastOtherApp = app.processIdentifier
+        }
+        Notifier.setUp()
+
         if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
     }
 
@@ -89,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Capture Area & Pin", #selector(captureAreaAndPin), .captureAreaAndPin)
         add("Capture Fullscreen", #selector(captureFullscreen), .captureFullscreen)
         add("Capture Window", #selector(captureWindow), .captureWindow)
+        add("Capture Active Window", #selector(captureActiveWindow), .captureActiveWindow)
         add("Capture Scrolling", #selector(captureScrolling), .captureScrolling)
         add("Capture Text (OCR)", #selector(captureText), .captureText)
         let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
@@ -293,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openClipboard() {
-        guard let img = ImageSource.fromClipboard() else { NSSound.beep(); return }
+        guard let img = ImageSource.fromClipboard() else { noClipboardImage(); return }
         EditorWindowController(image: img).present()
     }
 
@@ -303,8 +319,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func pinClipboard() {
-        guard let img = ImageSource.fromClipboard() else { NSSound.beep(); return }
+        guard let img = ImageSource.fromClipboard() else { noClipboardImage(); return }
         PinnedScreenshotController.pin(img)
+    }
+
+    private func noClipboardImage() {
+        Notifier.problem("No image on the clipboard", detail: "Copy an image or a screenshot first.")
     }
 
     // MARK: Desktop icons during capture
@@ -331,13 +351,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Capture flows
 
     @objc func capturePreviousArea() {
-        guard let (screen, rect) = lastArea, NSScreen.screens.contains(screen) else { endCapture(); NSSound.beep(); return }
-        prepareCapture { [weak self] in self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) } }
+        guard let (screen, rect) = lastArea, NSScreen.screens.contains(screen) else {
+            endCapture()
+            Notifier.problem("No area to repeat",
+                             detail: "Capture Previous Area captures the area you captured last. Capture an area first.")
+            return
+        }
+        prepareCapture { [weak self] in
+            self?.run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
+        }
     }
 
     @objc func captureFullscreen() {
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
-        prepareCapture { [weak self] in self?.run { try await CaptureService.captureScreen(screen) } }
+        prepareCapture { [weak self] in self?.run(screen: screen) { try await CaptureService.captureScreen(screen) } }
     }
 
     @objc func captureAreaAndPin() {
@@ -345,7 +372,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
                 lastArea = (screen, rect)
-                run(areaCapture(screen, rect, frozen)) { CaptureHistory.add($0); PinnedScreenshotController.pin($0) }
+                // The pin opens at 100% exactly over the area it shows.
+                run(screen: screen, areaCapture(screen, rect, frozen)) {
+                    CaptureHistory.add($0)
+                    PinnedScreenshotController.pin($0, at: rect)
+                }
             }
         }
     }
@@ -363,7 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     guard let self else { return }
                     let actions = linkActions
                     endCapture()
-                    if let image { finish(image, actions: actions) }
+                    if let image { finish(image, actions: actions, screen: screen) }
                 }
             }
         }
@@ -402,14 +433,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .area(let screen, let rect, _)?:
                     showRecordPicker(screen, rect)
                 case .window(let w)?:
-                    // SCWindow frames are top-left origin; the picker works in bottom-left global coordinates.
-                    let primaryH = NSScreen.screens.first?.frame.height ?? 0
-                    let rect = CGRect(x: w.frame.minX, y: primaryH - w.frame.maxY, width: w.frame.width, height: w.frame.height)
-                    let screen = NSScreen.screens.max { a, b in
-                        a.frame.intersection(rect).width * a.frame.intersection(rect).height
-                            < b.frame.intersection(rect).width * b.frame.intersection(rect).height
-                    }
-                    guard let screen else { endCapture(); return }
+                    let rect = Self.globalFrame(of: w)
+                    guard let screen = Self.screen(containing: rect) else { endCapture(); return }
                     showRecordPicker(screen, rect.intersection(screen.frame))
                 case nil:
                     endCapture()
@@ -434,13 +459,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             recording.start(screen: screen, rect: rect, gif: true)
         case .screenshot(let screen, let rect)?:
             lastArea = (screen, rect)
-            run { try await CaptureService.captureScreen(screen, globalRect: rect) }
+            run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
         case .text(let screen, let rect)?:
-            run({ try await CaptureService.captureScreen(screen, globalRect: rect) }, then: copyText)
+            run(screen: screen, { try await CaptureService.captureScreen(screen, globalRect: rect) }, then: copyText)
         case .timer(let screen, let rect)?:
             lastArea = (screen, rect)
             selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
-                self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) }
+                self?.run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
             }, cancelled: { [weak self] in self?.endCapture() })
         case .fullscreenShot?:
             captureFullscreen()
@@ -491,7 +516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self, case .area(let screen, let rect, _)? = sel else { self?.endCapture(); return }
                 lastArea = (screen, rect)
                 selfTimer.start(seconds: seconds, completion: { [weak self] in
-                    self?.run { try await CaptureService.captureScreen(screen, globalRect: rect) }
+                    self?.run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
                 }, cancelled: { [weak self] in self?.endCapture() })
             }
         }
@@ -505,7 +530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in
                     guard let self, case .window(let w)? = sel else { self?.endCapture(); return }
                     selfTimer.start(seconds: seconds, completion: { [weak self] in
-                        self?.run { try await CaptureService.captureWindow(w) }
+                        self?.run(screen: Self.screen(for: w)) { try await CaptureService.captureWindow(w) }
                     }, cancelled: { [weak self] in self?.endCapture() })
                 }
             }
@@ -516,7 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
-                run(areaCapture(screen, rect, frozen), then: copyText)
+                run(screen: screen, areaCapture(screen, rect, frozen), then: copyText)
             }
         }
     }
@@ -525,7 +550,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func copyText(_ image: NSImage) {
         Task { @MainActor in
             let text = await TextRecognizer.recognize(image)
-            if text.isEmpty { NSSound.beep() } else { TextRecognizer.copyText(text); NSSound(named: "Pop")?.play() }
+            guard !text.isEmpty else {
+                Notifier.problem("No text found", detail: "Skreener couldn't find any text in the area.")
+                return
+            }
+            TextRecognizer.copyText(text)
+            Sound.play("Pop")
+            let lines = text.split(separator: "\n").count
+            Notifier.confirm(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
         }
     }
 
@@ -539,9 +571,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         prepareCapture { [weak self] in
             Task { @MainActor in
                 let wins = await CaptureService.onScreenWindows()
-                self?.overlay.begin(mode: .window, windows: wins) { [weak self] sel in self?.handle(sel) }
+                self?.pickWindow(wins)
             }
         }
+    }
+
+    /// The window picker, or a message when there is nothing to pick.
+    private func pickWindow(_ windows: [SCWindow]) {
+        guard !windows.isEmpty else {
+            endCapture()
+            Notifier.problem("No windows are present", detail: "Try a fullscreen screenshot instead.")
+            return
+        }
+        overlay.begin(mode: .window, windows: windows) { [weak self] sel in self?.handle(sel) }
+    }
+
+    /// Captures the front window of the app in front, without picking it (#110). Choosing this from Skreener's menu
+    /// or with an editor in front makes Skreener the active app, so then the app that was in front before is used.
+    /// When that app has no window on screen, the window picker opens instead.
+    @objc func captureActiveWindow() {
+        let front = NSWorkspace.shared.frontmostApplication
+        let pid = front == nil || front?.processIdentifier == getpid() ? lastOtherApp : front?.processIdentifier
+        prepareCapture { [weak self] in
+            Task { @MainActor in
+                let wins = await CaptureService.onScreenWindows()
+                self?.captureFrontWindow(of: pid, in: wins)
+            }
+        }
+    }
+
+    /// `windows` are frontmost first, so the first one `pid` owns is its front window.
+    private func captureFrontWindow(of pid: pid_t?, in windows: [SCWindow]) {
+        if let pid, let w = windows.first(where: { $0.owningApplication?.processID == pid }) {
+            run(screen: Self.screen(for: w)) { try await CaptureService.captureWindow(w) }
+            return
+        }
+        if !windows.isEmpty {
+            let name = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName }
+            Notifier.problem(name.map { "\($0) has no window on screen" } ?? "No active window",
+                             detail: "Click a window to capture it.")
+        }
+        pickWindow(windows)
     }
 
     private func handle(_ sel: Selection?) {
@@ -549,10 +619,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switch sel {
         case .area(let screen, let rect, let frozen):
             lastArea = (screen, rect)
-            run(areaCapture(screen, rect, frozen))
-        case .window(let w): run { try await CaptureService.captureWindow(w) }
+            run(screen: screen, areaCapture(screen, rect, frozen))
+        case .window(let w): run(screen: Self.screen(for: w)) { try await CaptureService.captureWindow(w) }
         }
     }
+
+    /// A window's frame in global bottom-left coordinates (SCWindow frames are top-left origin).
+    private static func globalFrame(of w: SCWindow) -> CGRect {
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        return CGRect(x: w.frame.minX, y: primaryH - w.frame.maxY, width: w.frame.width, height: w.frame.height)
+    }
+
+    /// The screen that shows most of `rect` (global coordinates).
+    private static func screen(containing rect: CGRect) -> NSScreen? {
+        NSScreen.screens.max { a, b in
+            a.frame.intersection(rect).width * a.frame.intersection(rect).height
+                < b.frame.intersection(rect).width * b.frame.intersection(rect).height
+        }
+    }
+
+    private static func screen(for w: SCWindow) -> NSScreen? { screen(containing: globalFrame(of: w)) }
 
     /// Area capture for the editor's Add Image → Capture Area: no Quick Access, just the image (nil if cancelled).
     private func captureAreaImage(_ completion: @escaping (NSImage?) -> Void) {
@@ -567,9 +653,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let capture = areaCapture(screen, rect, frozen)
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
-                    let image = try? await capture()
-                    if let image { CaptureHistory.add(image) } else { NSSound.beep() }
-                    done(image)
+                    do {
+                        let image = try await capture()
+                        CaptureHistory.add(image)
+                        done(image)
+                    } catch {
+                        Notifier.captureFailed(error)
+                        done(nil)
+                    }
                 }
             }
         }
@@ -581,36 +672,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return { try await CaptureService.captureScreen(screen, globalRect: rect) }
     }
 
-    private func run(_ capture: @escaping () async throws -> NSImage, then: ((NSImage) -> Void)? = nil) {
+    /// `screen` is where the capture came from: its editor opens there (#111).
+    private func run(screen: NSScreen?, _ capture: @escaping () async throws -> NSImage, then: ((NSImage) -> Void)? = nil) {
         let actions = linkActions
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
             do {
                 let image = try await capture()
                 endCapture()
-                if let then { then(image) } else { self.finish(image, actions: actions) }
+                if let then { then(image) } else { self.finish(image, actions: actions, screen: screen) }
             } catch {
                 endCapture()
                 NSLog("Capture failed: \(error)")
-                NSSound.beep()
+                Notifier.captureFailed(error)
             }
         }
     }
 
     /// The after-capture steps: Settings → After Capture, or the ones a skreener:// link chose (`actions`).
-    private func finish(_ image: NSImage, actions: CaptureActions? = nil) {
+    private func finish(_ image: NSImage, actions: CaptureActions? = nil, screen: NSScreen? = nil) {
         let actions = actions ?? .fromPreferences
         CaptureHistory.add(image)
         if actions.contains(.copy) { Output.copy(image) }
-        if actions.contains(.save) { Output.save(image) }
+        var saved: URL?
+        if actions.contains(.save) {
+            saved = Output.save(image)
+            if saved == nil {
+                Notifier.problem("Couldn't save the screenshot",
+                                 detail: "Check the export location in Settings → General.")
+            }
+        }
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
         var editor: EditorWindowController?
         if actions.contains(.edit) {
             editor = EditorWindowController(image: image)
-            editor?.present()
+            editor?.present(on: screen)
         }
         if actions.contains(.pin) { PinnedScreenshotController.pin(image) }
         if actions.contains(.quickAccess) { QuickAccessController.show(image, editor: editor) }
+        // Nothing on screen shows the result, so say what happened (#113).
+        guard actions.isDisjoint(with: [.edit, .pin, .quickAccess]) else { return }
+        let copied = actions.contains(.copy)
+        if let saved {
+            Notifier.confirm(copied ? "Screenshot copied and saved" : "Screenshot saved", detail: saved.lastPathComponent,
+                             file: saved)
+        } else if copied {
+            Notifier.confirm("Screenshot copied")
+        }
     }
 }
 

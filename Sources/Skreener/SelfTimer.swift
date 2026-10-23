@@ -63,7 +63,7 @@ final class SelfTimer {
         guard isRunning else { return }
         let c = onCancel
         stop()
-        NSSound(named: "Funk")?.play()
+        Sound.play("Funk")
         c?()
     }
 

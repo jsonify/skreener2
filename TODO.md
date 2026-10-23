@@ -29,6 +29,9 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Area selection keys: Shift-drag = square, ⌥-drag = from the center; on the adjustable selection arrows move 1/10 pt, ⌘ + arrows resize the right/bottom edge, scroll wheel up/down grows/shrinks every side; middle button does nothing; moving no longer grows it (math in `SelectionGeometry`, unit-tested) — S (#103)
 - [~] Window capture options: transparent background, shadow toggle, padding (menu → Window Capture) — M (#50)
 - [~] Window picking: the screen isn't dimmed; the visible part of the window under the pointer gets a blue tint (windows in front of it stay clear), the pointer is a camera, nothing is reordered; the tint color is in Settings → Screenshots — S (#129)
+- [~] Capture Active Window (menu, `skreener://grab/window/active`, no default shortcut): the front window of the app in front, no picking; from Skreener's menu or with an editor in front, the app that was in front before; with no window of that app on screen, a message and the window picker — S (#110)
+- [~] The editor opens on the display the capture came from (area, previous area, fullscreen, window, scrolling, timers); opened files and pins use the screen under the pointer; a new tab still joins the open editor window — S (#111)
+- [~] Messages instead of beeps: no area to repeat, no windows, no window of the active app, nothing on the clipboard, no text found, nothing scrolled, failed save, failed capture or recording (with an Open System Settings button when Screen Recording is off), Auto-Scroll without Accessibility; Settings → General → Permissions shows Screen Recording / Accessibility / Microphone status with Open System Settings buttons — M (#112)
 - [~] Auto-hide desktop icons only while capturing (menu toggle; restores after the capture) — S (#51)
 - [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S (#52)
 
@@ -72,6 +75,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Smart Erase (E; fills the box with the most common color around it) and Text Only for pixelate, blur and erase (OCR finds the lines in the box; only those are hidden) — M (#105)
 - [~] Magnifier (M): lens showing an area at 1.5/2/3/4×, circle or rectangle, border and connector line; lens and area move separately — M (#106)
 - [~] Pixel ruler: hold 1 / ← → (across) or 2 / ↑ ↓ (up and down; arrows only with nothing selected) to measure the run of color under the pointer, Shift adds a border on each side, click keeps it as an editable ruler annotation (pt and px on Retina; `RulerScanner`, unit-tested) — M (#107)
+- [~] Esc with nothing selected (Settings → Annotate → Editor Window): Nothing / Copy and Close / Save and Close — S (#115)
 - [~] Color picker: Tab copies the pixel under the pointer, ⇧Tab the darkest color within 10 px, ⇧C the average color of a dragged area; formats HEX, HEX without #, CSS rgba, RGB 0–1, Android, UIColor, C#, OKLCH (picked from the footer's live color readout, remembered); Tab while typing a label inserts the color — M (#108)
 - [~] Check Contrast (⇧K, footer color menu or Image menu): drag over text and its background; WCAG 2 ratio with AA/AAA, or APCA Lc (button or ⌥-click switches); each drag measures again, Esc ends — M (#109)
 
@@ -96,6 +100,9 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history; always shares a named file so the sheet shows its thumbnail and name — S (#89)
 - [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S (#90)
 - [~] URL scheme for automation (skreener://grab/area?then=copy,save …; off until allowed in Settings → General or from the first link's prompt) — M (#104)
+- [~] Confirmation style (Settings → After Capture): None / System Notification (click reveals the saved file; falls back to the message without permission) / Skreener Message, for captures that open no editor, Quick Access or pin, Capture Text, editor Esc and recordings without Quick Access; Play sounds toggle — S (#113)
+- [~] Settings → Shortcuts: "Use ⇧⌘3 and ⇧⌘4 for Skreener" guide: reads macOS's symbolic hotkeys (28/30) to show whether its screenshot shortcuts are on, steps + Open Keyboard Shortcuts, one button gives ⇧⌘3 to Capture Fullscreen and ⇧⌘4 to Capture Area; the macOS warning goes once macOS's own shortcut is off (`MacScreenshotShortcuts`, unit-tested) — S (#114)
+- [~] Pins: hover toolbar (close, drag out as a file, edit, copy, zoom %), right-click menu (50/100/200%, Copy, Edit, Save…, Share…, Semi-transparent, Close), ⌘C copies; Capture Area & Pin opens the pin at 100% exactly over the captured area — M (#116)
 
 ## Menu parity with CleanShot X (from its menu bar)
 - [ ] Check for Updates… (Sparkle or equivalent) — M (#34)

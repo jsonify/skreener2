@@ -21,6 +21,12 @@ final class URLCommandTests: XCTestCase {
         XCTAssertEqual(parse("SKREENER://Grab/Window/"), .success(URLCommand(command: .run(.captureWindow))))
     }
 
+    func testActiveWindow() {
+        XCTAssertEqual(parse("skreener://grab/window/active?then=copy"),
+                       .success(URLCommand(command: .run(.captureActiveWindow), then: .copy)))
+        XCTAssertEqual(parse("skreener://capture/window/active"), .success(URLCommand(command: .run(.captureActiveWindow))))
+    }
+
     func testEveryCommandParses() {
         for (path, command) in URLCommand.commands {
             XCTAssertEqual(parse("skreener://" + path), .success(URLCommand(command: command)), path)
