@@ -28,6 +28,13 @@ on:
         description: The release tag to build, e.g. v0.2.0
         required: true
         type: string
+  # Actions -> Release -> Run workflow: rebuild a release whose build failed, without a new version.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to rebuild, e.g. v0.2.0
+        required: true
+        type: string
 
 permissions:
   contents: write   # create or add to the GitHub release
@@ -70,6 +77,13 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0   # all commits and tags: build_app.sh takes the version and build number from them
+      # A rebuild uses release.sh from the commit it was started on, so fixes to it apply to an older tag. Marked
+      # unchanged so the build isn't stamped as having uncommitted changes.
+      - name: Use the current release script
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git show "$GITHUB_SHA:Scripts/release.sh" > Scripts/release.sh
+          git update-index --assume-unchanged Scripts/release.sh
       - name: Select newest Xcode
         run: |
           NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
@@ -91,25 +105,32 @@ jobs:
           security set-keychain-settings -lut 21600 "$KC"
           security unlock-keychain -p "$KC_PASSWORD" "$KC"
           security import "$RUNNER_TEMP/developer-id.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASSWORD" "$KC" >/dev/null
+          # Add it to the search list (keeping the existing keychains) so codesign finds the identity and its chain.
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
           if [ "$MODE" = developer-id ]; then
             echo "$KEY" | base64 --decode > "$RUNNER_TEMP/notary-key.p8"
             # Developer ID intermediate, in case the .p12 doesn't carry the chain.
             curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
             security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KC" || true
           else
-            # Sign by the certificate's hash, so its name doesn't matter.
-            HASH=$(security find-identity -p codesigning "$KC" | awk '/^ *1\)/ { print $2; exit }')
-            [ -n "$HASH" ] || { echo "::error::SELF_SIGNED_P12_BASE64 holds no code-signing identity."; exit 1; }
+            # Sign by the certificate's SHA-1 hash, so its name doesn't matter. It's read off the certificate:
+            # find-identity -p codesigning doesn't list a self-signed certificate this runner doesn't trust.
+            HASH=$(security find-certificate -a -Z "$KC" | awk '/^SHA-1 hash:/ { print $3; exit }')
+            if [ -z "$HASH" ]; then
+              echo "::error::SELF_SIGNED_P12_BASE64 holds no certificate."
+              security find-identity "$KC" || true
+              exit 1
+            fi
             # Trust it for code signing on this runner, as make_dev_cert.sh does on your Mac. A self-signed
             # certificate is its own root, so codesign can sign without this; it only keeps the identity "valid".
             security find-certificate -a -p "$KC" > "$RUNNER_TEMP/self-signed.pem"
             sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain \
               "$RUNNER_TEMP/self-signed.pem" || echo "::warning::Couldn't mark the certificate trusted; signing anyway."
             echo "SKREENER_SIGN_IDENTITY=$HASH" >> "$GITHUB_ENV"
+            echo "Identities in the release keychain:"
+            security find-identity "$KC" || true
           fi
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASSWORD" "$KC" >/dev/null
-          # Add it to the search list (keeping the existing keychains) so codesign finds the chain.
-          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/developer-id.p12"
           echo "SKREENER_KEYCHAIN=$KC" >> "$GITHUB_ENV"
       - name: Build, sign, notarise, package
