@@ -293,7 +293,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let fillPopup = PillPopUp(pullsDown: false)
     private let paddingPopup = PillPopUp(pullsDown: false)
     private let cornerPopup = PillPopUp(pullsDown: false)
-    private let bgShadowBox = PillButton(title: "Shadow", symbol: "shadow", style: .raised, height: pillHeight)
+    private let directionPopup = PillPopUp(pullsDown: false)
+    private let gradientFrom = ColorPill()
+    private let gradientTo = ColorPill()
+    private lazy var chooseImageButton = textButton("Choose…", self, #selector(chooseBackgroundImage))
+    private let blurPopup = PillPopUp(pullsDown: false)
+    private let aspectPopup = PillPopUp(pullsDown: false)
+    private let framePopup = PillPopUp(pullsDown: true)
+    private let shadowLabel = NSTextField(labelWithString: "Shadow")
+    private let shadowSlider = NSSlider(value: 0.5, minValue: 0, maxValue: 1, target: nil, action: nil)
+    /// Tags of the Frame menu's items: an inset, or the whole image's corner radius, plus the value in points.
+    private static let insetTag = 1000, outerCornerTag = 2000
     private static let fontChoices = [("System", ""), ("Helvetica Neue", "Helvetica Neue"), ("Avenir Next", "Avenir Next"),
                                       ("Georgia", "Georgia"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
                                       ("Chalkboard SE", "Chalkboard SE")]
@@ -783,7 +793,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             return groupItem(id, "Image", [
                 iconButton("crop", "Crop (C)", self, #selector(cropIt)),
                 iconMenuButton("rotate.right", "Rotate, flip, resize or cut out part of the screenshot",
-                               commands(CanvasView.imageCommands, CanvasView.sizeCommands)),
+                               commands(CanvasView.imageCommands, CanvasView.sizeCommands, CanvasView.snapCommands)),
                 iconMenuButton("plus.rectangle.on.rectangle",
                                "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu()),
                 iconButton("photo", "Background", self, #selector(backgroundIt)),
@@ -939,51 +949,99 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     private func buildBackgroundBar() {
         fillPopup.toolTip = "Fill"
-        fillPopup.target = self; fillPopup.action = #selector(backgroundChanged)
+        fillPopup.target = self; fillPopup.action = #selector(backgroundFillPicked)
         fillPopup.menu?.autoenablesItems = false
         fillPopup.addItem(withTitle: "None"); fillPopup.lastItem?.tag = -1
         for (i, preset) in Background.presets.enumerated() {
             fillPopup.addItem(withTitle: preset.name)
             fillPopup.lastItem?.tag = i
-            fillPopup.lastItem?.image = NSImage(size: NSSize(width: 26, height: 14), flipped: false) { r in
-                let clip = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
-                clip.addClip()
-                Background.draw(fill: i, in: r)
-                NSColor.separatorColor.setStroke(); clip.stroke()
-                return true
-            }
+            var b = Background()
+            b.fill = i
+            fillPopup.lastItem?.image = b.swatch()
         }
         fillPopup.menu?.addItem(.separator())
-        fillPopup.addItem(withTitle: "Desktop Wallpaper")
-        fillPopup.lastItem?.tag = Background.wallpaperFill
-        refreshWallpaperItem()
-        for (popup, tip, choices) in [(paddingPopup, "Padding", [16, 32, 48, 64, 96, 128]), (cornerPopup, "Corner radius", [0, 6, 10, 16, 24])] {
-            popup.toolTip = tip
-            popup.target = self; popup.action = #selector(backgroundChanged)
-            for v in choices { popup.addItem(withTitle: "\(tip == "Padding" ? "Padding" : "Corners") \(v) pt"); popup.lastItem?.tag = v }
+        for (title, tag) in [("Custom Gradient", Background.customFill), ("Desktop Wallpaper", Background.wallpaperFill),
+                             ("Image…", Background.imageFill)] {
+            fillPopup.addItem(withTitle: title); fillPopup.lastItem?.tag = tag
         }
-        bgShadowBox.target = self; bgShadowBox.action = #selector(backgroundShadowToggled)
-        [fillPopup, paddingPopup, cornerPopup, bgShadowBox].forEach(backgroundBar.addArrangedSubview)
+        refreshPictureItems(nil)
+
+        func setUp(_ popup: PillPopUp, _ tip: String, _ choices: [(String, Int)]) {
+            popup.toolTip = tip
+            popup.target = self; popup.action = #selector(backgroundOptionPicked(_:))
+            for (title, tag) in choices { popup.addItem(withTitle: title); popup.lastItem?.tag = tag }
+        }
+        setUp(directionPopup, "Gradient direction", Background.GradientDirection.allCases.map { ($0.name, $0.rawValue) })
+        setUp(blurPopup, "Blur", [("No Blur", 0), ("Light Blur", 6), ("Blur", 15), ("Strong Blur", 35)])
+        setUp(aspectPopup, "Aspect ratio of the whole image",
+              [("Any Ratio", -1)] + Background.aspects.enumerated().map { ($1.name, $0) })
+        setUp(paddingPopup, "Padding", [0, 16, 32, 48, 64, 96, 128].map { ("Padding \($0) pt", $0) })
+        setUp(cornerPopup, "Corner radius", [0, 6, 10, 16, 24].map { ("Corners \($0) pt", $0) })
+        for (pill, tip) in [(gradientFrom, "Gradient start color"), (gradientTo, "Gradient end color")] {
+            pill.toolTip = tip
+            pill.target = self; pill.action = #selector(gradientColorChanged)
+        }
+        chooseImageButton.toolTip = "Choose the picture for the background"
+
+        framePopup.toolTip = "Inset: a frame in the screenshot's edge color · Outer corners: round the whole image"
+        framePopup.addItem(withTitle: "Frame")
+        framePopup.menu?.autoenablesItems = false
+        func section(_ title: String, _ values: [Int], base: Int, _ name: (Int) -> String) {
+            framePopup.addItem(withTitle: title); framePopup.lastItem?.isEnabled = false
+            for v in values {
+                framePopup.addItem(withTitle: name(v))
+                framePopup.lastItem?.tag = base + v
+                framePopup.lastItem?.indentationLevel = 1
+                framePopup.lastItem?.action = #selector(backgroundFramePicked(_:))
+                framePopup.lastItem?.target = self
+            }
+        }
+        section("Inset", [0, 4, 8, 16, 24], base: Self.insetTag) { $0 == 0 ? "None" : "\($0) pt" }
+        framePopup.menu?.addItem(.separator())
+        section("Outer Corners", [0, 12, 24, 40], base: Self.outerCornerTag) { $0 == 0 ? "Square" : "\($0) pt" }
+
+        shadowLabel.font = .systemFont(ofSize: 12)
+        shadowLabel.textColor = .secondaryLabelColor
+        shadowSlider.controlSize = .small
+        shadowSlider.isContinuous = false
+        shadowSlider.toolTip = "Shadow under the screenshot"
+        shadowSlider.target = self; shadowSlider.action = #selector(backgroundShadowChanged)
+        shadowSlider.widthAnchor.constraint(equalToConstant: 80).isActive = true
+
+        [fillPopup, directionPopup, gradientFrom, gradientTo, chooseImageButton, blurPopup, aspectPopup, paddingPopup,
+         cornerPopup, framePopup, shadowLabel, shadowSlider].forEach(backgroundBar.addArrangedSubview)
         backgroundBar.spacing = 6
+        backgroundBar.setCustomSpacing(4, after: shadowLabel)
         backgroundBar.isHidden = true
     }
 
-    /// The wallpaper can change while the editor is open, so its swatch is redrawn whenever the options show.
-    private func refreshWallpaperItem() {
-        guard let item = fillPopup.menu?.items.first(where: { $0.tag == Background.wallpaperFill }) else { return }
-        let available = Background.wallpaper != nil
-        item.isEnabled = available
-        item.title = available ? "Desktop Wallpaper" : "Desktop Wallpaper (unavailable)"
-        item.toolTip = available ? nil : "The current wallpaper is not a still image (for example a dynamic or aerial wallpaper)."
-        item.image = nil
-        guard available else { return }
-        item.image = NSImage(size: NSSize(width: 26, height: 14), flipped: false) { r in
-            let clip = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
-            clip.addClip()
-            Background.draw(fill: Background.wallpaperFill, in: r)
-            NSColor.separatorColor.setStroke(); clip.stroke()
-            return true
+    /// The wallpaper can change while the editor is open, and the custom gradient and picture with the background, so
+    /// those items are redrawn whenever the options show.
+    private func refreshPictureItems(_ bg: Background?) {
+        let items = fillPopup.menu?.items ?? []
+        if let item = items.first(where: { $0.tag == Background.wallpaperFill }) {
+            let available = Background.wallpaper != nil
+            item.isEnabled = available
+            item.title = available ? "Desktop Wallpaper" : "Desktop Wallpaper (unavailable)"
+            item.toolTip = available ? nil : "The current wallpaper is not a still image (for example a dynamic or aerial wallpaper)."
+            var b = bg ?? Background()
+            b.fill = Background.wallpaperFill
+            item.image = available ? b.swatch() : nil
         }
+        if let item = items.first(where: { $0.tag == Background.customFill }) {
+            var b = bg ?? Preferences.lastBackground
+            b.fill = Background.customFill
+            item.image = b.swatch()
+        }
+        if let item = items.first(where: { $0.tag == Background.imageFill }) {
+            let url = bg?.imageURL
+            let name = url?.deletingPathExtension().lastPathComponent ?? ""
+            item.title = name.isEmpty ? "Image…" : "Image: " + (name.count > 16 ? name.prefix(15) + "…" : name)
+            var b = bg ?? Background()
+            b.fill = Background.imageFill
+            item.image = url == nil ? nil : b.swatch()
+        }
+        fillPopup.synchronizeTitleAndSelectedItem()
     }
 
     private func contextChanged() {
@@ -1008,13 +1066,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .background:
             attributesTitle.stringValue = "Background"
             attributesTitle.isHidden = false; attributesHint.isHidden = true
-            refreshWallpaperItem()
-            let bg = canvas.background
-            fillPopup.selectItem(withTag: bg?.fill ?? -1)
-            paddingPopup.selectItem(withTag: Int(bg?.padding ?? Background().padding))
-            cornerPopup.selectItem(withTag: Int(bg?.cornerRadius ?? Background().cornerRadius))
-            bgShadowBox.isOn = bg?.shadow ?? true
-            [paddingPopup, cornerPopup, bgShadowBox].forEach { $0.isEnabled = bg != nil }
+            refreshBackgroundBar()
         }
         // An empty options row would leave a double gap.
         if stripMode == .tools, attributesBar.arrangedSubviews.allSatisfy(\.isHidden) { attributesBar.isHidden = true }
@@ -1207,7 +1259,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         guard let url = item.representedObject as? URL, let img = NSImage(contentsOf: url) else { NSSound.beep(); return }
         canvas.insertImage(img)
     }
-    @objc private func addImageFromClipboard() { canvas.paste(nil) }
+    @objc private func addImageFromClipboard() {
+        guard let img = ImageSource.fromClipboard() else { NSSound.beep(); return }
+        canvas.insertImage(img)
+    }
     /// Hides this editor, lets the user pick an area, then adds the capture to the canvas.
     @objc private func addImageFromCapture() {
         guard let capture = Self.captureArea, let w = window else { return }
@@ -1266,25 +1321,126 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             menu.addItem(i)
         }
     }
-    /// Shows the background options, adding the default background the first time.
+    /// Shows the background options, adding the last background used the first time.
     @objc private func backgroundIt() {
         if stripMode == .background { stripMode = .tools; return }
         canvas.applyCrop()
         canvas.clearSelection()
-        if canvas.background == nil { canvas.updateBackground { $0 = Background() } }
+        if canvas.background == nil { canvas.updateBackground { $0 = Preferences.lastBackground } }
         stripMode = .background
         window?.makeFirstResponder(canvas)
     }
-    @objc private func backgroundChanged() {
-        let fill = fillPopup.selectedTag()
-        let padding = CGFloat(paddingPopup.selectedTag()), corner = CGFloat(cornerPopup.selectedTag())
-        let shadow = bgShadowBox.isOn
-        canvas.updateBackground { bg in
-            guard fill >= 0 else { bg = nil; return }
-            bg = Background(fill: fill, padding: padding, cornerRadius: corner, shadow: shadow)
+
+    /// Loads the background options from the canvas's background, showing only those that apply to its fill.
+    private func refreshBackgroundBar() {
+        let bg = canvas.background
+        refreshPictureItems(bg)
+        let fill = bg?.fill ?? -1
+        fillPopup.selectItem(withTag: fill)
+        let custom = fill == Background.customFill
+        let picture = fill == Background.wallpaperFill || fill == Background.imageFill
+        let gradient = custom || (Background.presets.indices.contains(fill) && Background.presets[fill].colors.count > 1)
+        directionPopup.isHidden = !gradient
+        gradientFrom.isHidden = !custom; gradientTo.isHidden = !custom
+        chooseImageButton.isHidden = fill != Background.imageFill
+        blurPopup.isHidden = !picture
+        let b = bg ?? Preferences.lastBackground
+        directionPopup.selectItem(withTag: b.direction.rawValue)
+        if b.colors.count == 2 { gradientFrom.color = b.colors[0]; gradientTo.color = b.colors[1] }
+        blurPopup.selectItem(withTag: Int(b.imageBlur))
+        aspectPopup.selectItem(withTag: Background.aspects.firstIndex { $0.aspect == b.aspect } ?? -1)
+        paddingPopup.selectItem(withTag: Int(b.padding))
+        cornerPopup.selectItem(withTag: Int(b.cornerRadius))
+        for item in framePopup.itemArray.dropFirst() where item.action != nil {
+            let value = item.tag >= Self.outerCornerTag ? b.outerRadius : b.inset
+            item.state = item.tag % 1000 == Int(value) ? .on : .off
         }
+        shadowSlider.doubleValue = Double(b.shadow)
+        let controls: [NSControl] = [directionPopup, gradientFrom, gradientTo, chooseImageButton, blurPopup, aspectPopup,
+                                     paddingPopup, cornerPopup, framePopup, shadowSlider]
+        controls.forEach { $0.isEnabled = bg != nil }
+        shadowLabel.textColor = bg != nil ? .secondaryLabelColor : .tertiaryLabelColor
+    }
+
+    /// Changes the background (one undo step) and remembers it for the next screenshot.
+    private func changeBackground(_ change: (inout Background) -> Void) {
+        canvas.updateBackground { bg in
+            var b = bg ?? Preferences.lastBackground
+            change(&b)
+            bg = b
+        }
+        if let bg = canvas.background { Preferences.lastBackground = bg }
         refreshStrip()
     }
+
+    @objc private func backgroundFillPicked() {
+        let fill = fillPopup.selectedTag()
+        if fill < 0 { canvas.updateBackground { $0 = nil }; refreshStrip(); return }
+        if fill == Background.imageFill, canvas.background?.imageURL == nil, Preferences.lastBackground.imageURL == nil {
+            chooseBackgroundImage()
+            return
+        }
+        changeBackground { b in
+            b.fill = fill
+            if fill == Background.imageFill, b.imageURL == nil { b.imageURL = Preferences.lastBackground.imageURL }
+        }
+    }
+
+    @objc private func backgroundOptionPicked(_ popup: PillPopUp) {
+        let tag = popup.selectedTag()
+        let change: (inout Background) -> Void
+        switch popup {
+        case directionPopup: change = { $0.direction = Background.GradientDirection(rawValue: tag) ?? .diagonal }
+        case blurPopup: change = { $0.imageBlur = CGFloat(tag) }
+        case aspectPopup: change = { $0.aspect = Background.aspects.indices.contains(tag) ? Background.aspects[tag].aspect : nil }
+        case paddingPopup: change = { $0.padding = CGFloat(tag) }
+        case cornerPopup: change = { $0.cornerRadius = CGFloat(tag) }
+        default: return
+        }
+        changeBackground(change)
+    }
+
+    @objc private func backgroundFramePicked(_ item: NSMenuItem) {
+        let value = CGFloat(item.tag % 1000)
+        changeBackground { b in
+            if item.tag >= Self.outerCornerTag { b.outerRadius = value } else { b.inset = value }
+        }
+    }
+
+    @objc private func gradientColorChanged() {
+        let colors = [gradientFrom.color, gradientTo.color]
+        changeBackground { b in
+            b.fill = Background.customFill
+            b.colors = colors
+        }
+    }
+
+    @objc private func backgroundShadowChanged() {
+        let v = CGFloat(shadowSlider.doubleValue)
+        changeBackground { $0.shadow = v }
+    }
+
+    /// Picks the picture for the background; cancelling leaves the background as it was.
+    @MainActor @objc private func chooseBackgroundImage() {
+        guard let w = window else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a picture for the background"
+        panel.beginSheetModal(for: w) { [weak self] response in
+            guard let self else { return }
+            if response == .OK, let url = panel.url {
+                self.changeBackground { b in
+                    b.fill = Background.imageFill
+                    b.imageURL = url
+                }
+            } else {
+                self.refreshStrip()
+            }
+            self.window?.makeFirstResponder(self.canvas)
+        }
+    }
+
     @objc private func redoIt() { canvas.redo() }
 
     // MARK: Resize (#122)
@@ -1310,9 +1466,5 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             }
             self.window?.makeFirstResponder(self.canvas)
         }
-    }
-    @objc private func backgroundShadowToggled() {
-        bgShadowBox.isOn.toggle()
-        backgroundChanged()
     }
 }

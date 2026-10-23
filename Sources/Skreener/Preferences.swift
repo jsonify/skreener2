@@ -92,6 +92,16 @@ enum Preferences {
         get { d.object(forKey: "annotationShadow") as? Bool ?? true }
         set { d.set(newValue, forKey: "annotationShadow") }
     }
+    /// The editor's Background tool starts from the last background chosen (#124).
+    static var lastBackground: Background {
+        get { (d.dictionary(forKey: "lastBackground")).map(Background.init(plist:)) ?? Background() }
+        set { d.set(newValue.plist, forKey: "lastBackground") }
+    }
+    /// Boxes being drawn or resized in the editor snap to the edges of what's in the screenshot (#123).
+    static var snapToObjects: Bool {
+        get { d.object(forKey: "snapToObjects") as? Bool ?? true }
+        set { d.set(newValue, forKey: "snapToObjects") }
+    }
     /// Fill the area an annotation grows the canvas into with the image's top-left pixel colour instead of white.
     static var matchExtensionColor: Bool {
         get { d.bool(forKey: "matchExtensionColor") }

@@ -21,6 +21,10 @@ enum Tool: Int, CaseIterable {
     var hasCorners: Bool { self == .rect || self == .filledRect || self == .spotlight }
     /// Freehand tools keep every point of the drag.
     var isFreehand: Bool { self == .pen || self == .highlighter }
+    /// Box tools that snap to the edges of what's in the screenshot (#123).
+    var snapsToObjects: Bool {
+        [.rect, .filledRect, .pixelate, .blur, .spotlight, .erase, .magnifier].contains(self)
+    }
 
     var name: String {
         switch self {
@@ -123,63 +127,6 @@ struct Style: Equatable {
     var counterRadius: CGFloat { max(10, fontSize * 0.75) }
 }
 
-/// Backdrop drawn around the whole screenshot (CleanShot's "Background" tool): a gradient or solid fill,
-/// padding, rounded corners and a shadow under the screenshot.
-struct Background: Equatable {
-    var fill = 0
-    var padding: CGFloat = 48
-    var cornerRadius: CGFloat = 10
-    var shadow = true
-
-    static let presets: [(name: String, colors: [NSColor])] = [
-        ("Sky", [hex(0x4FACFE), hex(0x00F2FE)]),
-        ("Sunset", [hex(0xF093FB), hex(0xF5576C)]),
-        ("Peach", [hex(0xFFECD2), hex(0xFCB69F)]),
-        ("Mint", [hex(0x43E97B), hex(0x38F9D7)]),
-        ("Violet", [hex(0x667EEA), hex(0x764BA2)]),
-        ("Graphite", [hex(0x434343), hex(0x111111)]),
-        ("White", [.white]),
-        ("Black", [.black]),
-    ]
-
-    /// `fill` value for the desktop wallpaper of the main screen (it comes after the presets).
-    static var wallpaperFill: Int { presets.count }
-
-    private static var wallpaperCache: (url: URL, image: NSImage)?
-    /// The main screen's current wallpaper, or nil when it is not a plain image file (a folder or a dynamic aerial).
-    static var wallpaper: NSImage? {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first,
-              let url = NSWorkspace.shared.desktopImageURL(for: screen) else { return nil }
-        if let c = wallpaperCache, c.url == url { return c.image }
-        guard let img = NSImage(contentsOf: url) else { return nil }
-        wallpaperCache = (url, img)
-        return img
-    }
-
-    private static func hex(_ v: Int) -> NSColor {
-        NSColor(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
-                blue: CGFloat(v & 0xFF) / 255, alpha: 1)
-    }
-
-    static func draw(fill: Int, in r: NSRect) {
-        if fill == wallpaperFill {
-            guard let img = wallpaper, img.size.width > 0, img.size.height > 0 else {
-                NSColor.windowBackgroundColor.setFill(); r.fill(); return
-            }
-            // Aspect-fill, centered.
-            let scale = max(r.width / img.size.width, r.height / img.size.height)
-            let w = img.size.width * scale, h = img.size.height * scale
-            NSGraphicsContext.saveGraphicsState()
-            NSBezierPath(rect: r).addClip()
-            img.draw(in: NSRect(x: r.midX - w / 2, y: r.midY - h / 2, width: w, height: h))
-            NSGraphicsContext.restoreGraphicsState()
-            return
-        }
-        let colors = presets[min(max(fill, 0), presets.count - 1)].colors
-        if colors.count == 1 { colors[0].setFill(); r.fill() } else { NSGradient(colors: colors)?.draw(in: r, angle: -45) }
-    }
-}
-
 /// One annotation, kept as an editable object (never baked into the image until export).
 /// For text, `start` is the top-left corner of the text.
 struct Annotation: Equatable {
@@ -207,6 +154,15 @@ struct Annotation: Equatable {
 
     private static var lastSeq = 0
     private static func nextSeq() -> Int { lastSeq += 1; return lastSeq }
+
+    /// The same annotation as a new object: its own id, and the next creation number (a copied counter gets the next
+    /// number, #125).
+    func duplicate() -> Annotation {
+        var a = self
+        a.id = UUID()
+        a.seq = Annotation.nextSeq()
+        return a
+    }
 
     mutating func translate(dx: CGFloat, dy: CGFloat) {
         mapPoints { NSPoint(x: $0.x + dx, y: $0.y + dy) }
@@ -429,6 +385,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             drag = .move(last: p)
         default:
             draft = Annotation(tool: tool, start: p, end: p, points: [p], style: style)
+            drawAnchor = p
             drag = .draw
         }
     }
@@ -447,6 +404,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         switch drag {
         case .draw?:
             draft?.end = p
+            if let d = draft, d.tool.snapsToObjects {
+                let c = snapped(from: drawAnchor, to: p, free: event.modifierFlags.contains(.command))
+                draft?.start = c.0; draft?.end = c.1
+            }
             // Shift keeps a pen or highlighter stroke straight.
             if draft?.tool.isFreehand == true, event.modifierFlags.contains(.shift), let first = draft?.points.first {
                 draft?.points = [first, p]
@@ -468,7 +429,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .resizeCorner(let anchor)?:
             guard let i = selectedIndex else { return }
             items[i].start = anchor
-            items[i].end = items[i].tool == .image ? aspectLocked(items[i], anchor: anchor, to: p) : p
+            if items[i].tool.snapsToObjects {
+                let c = snapped(from: anchor, to: p, free: event.modifierFlags.contains(.command))
+                items[i].start = c.0; items[i].end = c.1
+            } else {
+                items[i].end = items[i].tool == .image ? aspectLocked(items[i], anchor: anchor, to: p) : p
+            }
         case .resizeEnd(let isStart)?:
             guard let i = selectedIndex else { return }
             if isStart { items[i].start = p } else { items[i].end = p }
@@ -535,6 +501,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             }
             return
         }
+        snapGuides = []
         guard let d = drag else { return }   // text add/edit records its own undo step
         if isCropping { drag = nil; return }  // the crop is recorded when it is applied
         if case .draw = d, var a = draft, isMeaningful(a) {
@@ -565,6 +532,85 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         a.points = StrokeShapes.simplify(a.points, epsilon: 1.5 / zoom)
         return a
     }
+
+    // MARK: Snap to objects (#123)
+
+    /// Where the box being drawn started (the draft's own start moves when it snaps).
+    private var drawAnchor = NSPoint.zero
+    /// The sides of the box that are on an edge of the screenshot's content, drawn as guides while dragging.
+    private var snapGuides: [(NSPoint, NSPoint)] = []
+
+    /// The corners of the box from `a` to `b` with its sides moved onto the edges of what's in the screenshot within a
+    /// few points (Settings → Annotate → Snap to objects; `free`, ⌘ held, draws without). `a` stays the first corner.
+    private func snapped(from a: NSPoint, to b: NSPoint, free: Bool) -> (NSPoint, NSPoint) {
+        snapGuides = []
+        guard Preferences.snapToObjects, !free, let buf = pixels else { return (a, b) }
+        let r = NSRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
+        guard r.width >= 4 / zoom, r.height >= 4 / zoom, r.intersects(imageRect) else { return (a, b) }
+        let s = pixelScale, h = base.size.height
+        let found = ObjectSnap.snap(pixelRect(r), in: buf, reach: max(Int((8 / zoom * s.x).rounded()), 1))
+        guard found.sides.any else { return (a, b) }
+        let q = found.rect
+        var x0 = r.minX, x1 = r.maxX, y0 = r.minY, y1 = r.maxY
+        if found.sides.left { x0 = q.minX / s.x }
+        if found.sides.right { x1 = q.maxX / s.x }
+        if found.sides.top { y1 = h - q.minY / s.y }
+        if found.sides.bottom { y0 = h - q.maxY / s.y }
+        let ext = 10 / zoom
+        if found.sides.left { snapGuides.append((NSPoint(x: x0, y: y0 - ext), NSPoint(x: x0, y: y1 + ext))) }
+        if found.sides.right { snapGuides.append((NSPoint(x: x1, y: y0 - ext), NSPoint(x: x1, y: y1 + ext))) }
+        if found.sides.top { snapGuides.append((NSPoint(x: x0 - ext, y: y1), NSPoint(x: x1 + ext, y: y1))) }
+        if found.sides.bottom { snapGuides.append((NSPoint(x: x0 - ext, y: y0), NSPoint(x: x1 + ext, y: y0))) }
+        let leftFirst = a.x <= b.x, bottomFirst = a.y <= b.y
+        return (NSPoint(x: leftFirst ? x0 : x1, y: bottomFirst ? y0 : y1),
+                NSPoint(x: leftFirst ? x1 : x0, y: bottomFirst ? y1 : y0))
+    }
+
+    private func drawSnapGuides() {
+        guard !snapGuides.isEmpty else { return }
+        let path = NSBezierPath()
+        for (a, b) in snapGuides { path.move(to: a); path.line(to: b) }
+        path.lineWidth = 1 / zoom
+        path.setLineDash([4 / zoom, 3 / zoom], count: 2, phase: 0)
+        NSColor.systemPink.setStroke()
+        path.stroke()
+    }
+
+    /// Image → Repeat on Similar Objects: copies of the selected box over every other place in the screenshot that looks
+    /// like what's inside it (blur every avatar, box every price). One undo step.
+    @objc func repeatOnSimilarObjects(_ sender: Any?) {
+        finishTextEditing()
+        applyCrop()
+        guard let i = selectedIndex, items[i].tool.snapsToObjects, let buf = pixels else {
+            onMessage?("Select a box, blur, pixelate or spotlight first"); NSSound.beep(); return
+        }
+        let a = items[i], box = rect(a)
+        guard imageRect.contains(box) else { onMessage?("The box has to be inside the screenshot"); NSSound.beep(); return }
+        let image = base, s = pixelScale, h = base.size.height, template = pixelRect(box)
+        onMessage?("Looking for similar objects…")
+        Task { @MainActor [weak self] in
+            let found = await ObjectSnap.similar(to: template, in: buf)
+            guard let self, self.base === image else { return }
+            guard !found.isEmpty else { self.onMessage?("Nothing similar found"); NSSound.beep(); return }
+            let added = found.map { q -> Annotation in
+                var c = a.duplicate()
+                let dx = q.minX / s.x - box.minX, dy = (h - q.maxY / s.y) - box.minY
+                c.translate(dx: dx, dy: dy)
+                return c
+            }
+            self.mutate { self.items += added }
+            self.onMessage?(added.count == 1 ? "Added 1 copy" : "Added \(added.count) copies")
+        }
+    }
+
+    @objc func toggleSnapToObjects(_ sender: Any?) {
+        Preferences.snapToObjects.toggle()
+    }
+
+    static let snapCommands: [(String, Selector)] = [
+        ("Snap to Objects", #selector(CanvasView.toggleSnapToObjects(_:))),
+        ("Repeat on Similar Objects", #selector(CanvasView.repeatOnSimilarObjects(_:))),
+    ]
 
     /// Corner for an image resized from `anchor` toward `p`, keeping the picture's proportions.
     private func aspectLocked(_ a: Annotation, anchor: NSPoint, to p: NSPoint) -> NSPoint {
@@ -729,10 +775,44 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         window?.makeFirstResponder(self)
     }
 
-    // Edit menu → Paste (⌘V): pastes an image from the clipboard onto the canvas.
+    // Edit menu → Paste (⌘V): copied annotations (#125), else an image from the clipboard, onto the canvas.
     @objc func paste(_ sender: Any?) {
+        if let copied = AnnotationClipboard.read() { add(copied); return }
         guard let img = ImageSource.fromClipboard() else { NSSound.beep(); return }
         insertImage(img)
+    }
+
+    // Edit menu → Copy (⌘C): the selected annotation, as an editable object for another tab or editor; with nothing
+    // selected, the whole image, like the footer's Copy.
+    @objc func copy(_ sender: Any?) {
+        finishTextEditing()
+        guard let i = selectedIndex else { Output.copy(flattened()); return }
+        AnnotationClipboard.write([items[i]])
+    }
+
+    // Edit menu → Cut (⌘X).
+    @objc func cut(_ sender: Any?) {
+        finishTextEditing()
+        guard let i = selectedIndex else { NSSound.beep(); return }
+        AnnotationClipboard.write([items[i]])
+        deleteSelection()
+    }
+
+    // Edit menu → Duplicate (⌘D): a copy of the selection, 10 pt down and right.
+    @objc func duplicate(_ sender: Any?) {
+        finishTextEditing()
+        guard let i = selectedIndex else { NSSound.beep(); return }
+        add([items[i]])
+    }
+
+    /// Adds copies of `copied` (one undo step) and selects the last one.
+    private func add(_ copied: [Annotation]) {
+        finishTextEditing()
+        cancelCrop()
+        let added = AnnotationClipboard.pasted(copied, into: items)
+        mutate { items += added }
+        selectedID = added.last?.id
+        window?.makeFirstResponder(self)
     }
 
     // MARK: Arrange (the screenshot itself is not an annotation, so it always stays at the bottom)
@@ -762,8 +842,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return selectedIndex.map { $0 < items.count - 1 } ?? false
         case #selector(sendBackward(_:)), #selector(sendToBack(_:)):
             return selectedIndex.map { $0 > 0 } ?? false
-        case #selector(deleteSelected(_:)):
+        case #selector(deleteSelected(_:)), #selector(cut(_:)), #selector(duplicate(_:)):
             return selectedIndex != nil
+        case #selector(repeatOnSimilarObjects(_:)):
+            return selectedIndex.map { items[$0].tool.snapsToObjects } ?? false
+        case #selector(toggleSnapToObjects(_:)):
+            item.state = Preferences.snapToObjects ? .on : .off
+            return true
         default:
             return true
         }
@@ -778,6 +863,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         selectedID = items[i].id
         needsDisplay = true
         let m = NSMenu()
+        for (title, action, key) in [("Cut", #selector(cut(_:)), "x"), ("Copy", #selector(copy(_:)), "c"),
+                                     ("Duplicate", #selector(duplicate(_:)), "d")] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.target = self
+            m.addItem(item)
+        }
+        m.addItem(.separator())
         for (title, action, key, mods) in CanvasView.arrangeCommands {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.keyEquivalentModifierMask = mods
@@ -1519,8 +1611,14 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// crop, plus the background padding. Annotations keep image coordinates: only the view's bounds change.
     private func updateExtent() {
         let content = cropDraft == nil ? (crop ?? fullContentRect()) : fullContentRect()
-        let pad = isCropping ? cropMargin : activeBackground?.padding ?? 0
-        let r = content.insetBy(dx: -pad, dy: -pad)
+        let r: NSRect
+        if isCropping {
+            r = content.insetBy(dx: -cropMargin, dy: -cropMargin)
+        } else if let bg = activeBackground {
+            r = Background.canvas(around: content, margin: bg.padding + bg.inset, aspect: bg.aspect)
+        } else {
+            r = content
+        }
         contentRect = content
         needsDisplay = true
         guard r != extent else { return }
@@ -1705,15 +1803,27 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let ctx = NSGraphicsContext.current?.cgContext
         ctx?.saveGState()
         if let bg = activeBackground {
-            Background.draw(fill: bg.fill, in: bounds)
-            let card = NSBezierPath(roundedRect: contentRect, xRadius: bg.cornerRadius, yRadius: bg.cornerRadius)
-            if bg.shadow {
+            if bg.outerRadius > 0 {
+                NSBezierPath(roundedRect: bounds, xRadius: bg.outerRadius, yRadius: bg.outerRadius).addClip()
+            }
+            bg.drawFill(in: bounds)
+            let cardRect = contentRect.insetBy(dx: -bg.inset, dy: -bg.inset)
+            let card = NSBezierPath(roundedRect: cardRect, xRadius: bg.cornerRadius, yRadius: bg.cornerRadius)
+            if bg.shadow > 0 {
                 ctx?.saveGState()
-                ctx?.setShadow(offset: CGSize(width: 0, height: -8), blur: 28, color: NSColor.black.withAlphaComponent(0.4).cgColor)
+                ctx?.setShadow(offset: CGSize(width: 0, height: -8), blur: 28,
+                               color: NSColor.black.withAlphaComponent(0.8 * bg.shadow).cgColor)
                 backdrop.setFill(); card.fill()
                 ctx?.restoreGState()
             }
-            card.addClip()
+            if bg.inset > 0 {
+                // The inset is a frame in the screenshot's edge color; the screenshot's corners follow the card's.
+                backdrop.setFill(); card.fill()
+                let inner = max(bg.cornerRadius - bg.inset, 0)
+                NSBezierPath(roundedRect: contentRect, xRadius: inner, yRadius: inner).addClip()
+            } else {
+                card.addClip()
+            }
         } else {
             NSBezierPath(rect: contentRect).addClip()
         }
@@ -1731,6 +1841,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if !exporting, areaDraft == nil, let r = contrastArea, let s = contrastSummary { drawTag(s, under: r) }
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
         if !exporting, let d = rulerDraft { renderShape(d) }
+        if !exporting { drawSnapGuides() }
     }
 
     /// Dims the screenshot everywhere except inside the spotlights (all of them together, so they never double-darken).

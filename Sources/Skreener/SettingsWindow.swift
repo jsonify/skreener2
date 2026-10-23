@@ -397,6 +397,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         Preferences.matchExtensionColor = $0
                         NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
                     },
+                    toggle("Snap to objects", "Boxes, ellipses, blur, pixelate, erase and spotlight snap to the edges of "
+                        + "buttons, fields and other shapes in the screenshot while drawn or resized. Hold ⌘ to draw freely.",
+                           Preferences.snapToObjects) { Preferences.snapToObjects = $0 },
                 ]),
                 group("Editor Window", [
                     toggle("Open screenshots as tabs", "New screenshots join the open editor window instead of opening their own.",

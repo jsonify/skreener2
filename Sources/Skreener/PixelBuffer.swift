@@ -26,7 +26,7 @@ struct RGBColor: Equatable {
 
 /// A screenshot's pixels as 8-bit sRGB RGBA, row 0 at the top, read once so the editor can look at single pixels as
 /// the pointer moves (the color picker, the ruler) or at an area (average color, contrast).
-struct PixelBuffer {
+struct PixelBuffer: Sendable {
     let width: Int
     let height: Int
     /// Premultiplied RGBA, four bytes per pixel.
