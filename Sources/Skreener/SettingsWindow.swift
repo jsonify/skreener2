@@ -55,6 +55,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             case .about: return .systemGray
             }
         }
+
+        /// The categories in the sidebar's list; About sits on its own at the bottom of the sidebar (#136).
+        static let listed = allCases.filter { $0 != .about }
     }
 
     /// Target objects for the controls' closures (controls hold their targets weakly).
@@ -67,6 +70,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     /// Each permission's status in Settings → General, refreshed whenever Settings comes to the front (#112).
     private var permissionLabels: [Permission: NSTextField] = [:]
     private let sidebar = NSTableView()
+    /// One-row list pinned to the bottom of the sidebar, below a divider, holding About (#136).
+    private let footer = NSTableView()
     private let detail = NSScrollView()
     /// Each pane is built once, the first time it is shown.
     private var panes: [Pane: NSView] = [:]
@@ -99,6 +104,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         w.setContentSize(NSSize(width: Self.width, height: 660))
         w.center()
         sidebar.reloadData()
+        footer.reloadData()
         sidebar.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         show(.general)
 
@@ -132,26 +138,55 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     // MARK: Sidebar
 
     private func buildSidebar() -> NSView {
+        let list = sidebarList(sidebar)
+        let bottom = sidebarList(footer)
+        let divider = NSBox()
+        divider.boxType = .separator
+        let side = NSView()
+        [list, divider, bottom].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; side.addSubview($0) }
+        NSLayoutConstraint.activate([
+            list.topAnchor.constraint(equalTo: side.topAnchor),
+            list.leadingAnchor.constraint(equalTo: side.leadingAnchor),
+            list.trailingAnchor.constraint(equalTo: side.trailingAnchor),
+            list.bottomAnchor.constraint(equalTo: divider.topAnchor, constant: -6),
+            divider.leadingAnchor.constraint(equalTo: side.leadingAnchor, constant: 14),
+            divider.trailingAnchor.constraint(equalTo: side.trailingAnchor, constant: -14),
+            divider.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -6),
+            bottom.leadingAnchor.constraint(equalTo: side.leadingAnchor),
+            bottom.trailingAnchor.constraint(equalTo: side.trailingAnchor),
+            bottom.bottomAnchor.constraint(equalTo: side.bottomAnchor, constant: -10),
+            // One 32 pt row plus the source list's own row padding.
+            bottom.heightAnchor.constraint(equalToConstant: 42),
+        ])
+        return side
+    }
+
+    /// A source-list table of panes in a scroll view, styled the same for the main list and the About footer.
+    private func sidebarList(_ table: NSTableView) -> NSScrollView {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("pane"))
         column.width = Self.sidebarWidth - 20
-        sidebar.addTableColumn(column)
-        sidebar.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
-        sidebar.headerView = nil
-        sidebar.style = .sourceList
-        sidebar.rowHeight = 32
-        sidebar.dataSource = self
-        sidebar.delegate = self
+        table.addTableColumn(column)
+        table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        table.headerView = nil
+        table.style = .sourceList
+        table.rowHeight = 32
+        table.dataSource = self
+        table.delegate = self
         let scroll = NSScrollView()
-        scroll.documentView = sidebar
+        scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
         return scroll
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { Pane.allCases.count }
+    private func panes(in table: NSTableView) -> [Pane] { table === footer ? [.about] : Pane.listed }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { panes(in: tableView).count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let pane = Pane(rawValue: row) else { return nil }
+        let list = panes(in: tableView)
+        guard list.indices.contains(row) else { return nil }
+        let pane = list[row]
         let cell = NSTableCellView()
         let icon = NSImageView(image: Self.icon(pane.symbol, pane.color))
         let label = NSTextField(labelWithString: pane.title)
@@ -171,8 +206,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        guard let pane = Pane(rawValue: sidebar.selectedRow) else { return }
-        show(pane)
+        guard let table = notification.object as? NSTableView else { return }
+        let list = panes(in: table)
+        guard list.indices.contains(table.selectedRow) else { return }
+        // Only one row is highlighted across the two lists.
+        (table === footer ? sidebar : footer).deselectAll(nil)
+        show(list[table.selectedRow])
     }
 
     /// White symbol on a rounded square of `color`, with a soft top highlight.
