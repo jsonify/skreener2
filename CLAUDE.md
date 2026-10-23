@@ -15,3 +15,6 @@ macOS menu-bar screenshot app (Swift/AppKit, SwiftPM). See README.md for feature
 - Whenever a change needs the owner to test it (manual checks on a Mac, anything the tests don't cover), give
   step-by-step test instructions: how to build and launch, exactly what to click or press, and the expected
   result for each step, so the owner isn't guessing what or how to test.
+- Commit subjects use Conventional Commits (`fix(editor): …`, `feat(capture): …`, `docs: …`, `ci: …`): release-please
+  picks the next version from them (fix → patch, feat → minor, `!` → major) and CI rejects PRs whose commits don't
+  match. Keep the issue reference, e.g. `fix(capture): keep window corners transparent (#138)`.

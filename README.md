@@ -37,10 +37,16 @@ Scripts/build_app.sh --run        # quits the running copy, rebuilds, relaunches
 ```
 
 ## Versions
-Nothing to edit by hand: `build_app.sh` takes the version from the newest `vX.Y.Z` git tag behind the commit you
-build (0.1.0 until the first tag), the build number from the commit count, and adds the short commit hash (with a
-`+` when there are uncommitted changes). About shows all three, e.g. `0.2.0 (412, 48db438)`. To start a new
-version, tag it: `git tag v0.2.0 && git push origin v0.2.0` (that push also runs the release workflow below).
+Nothing to edit by hand. Commit messages use [Conventional Commits](https://www.conventionalcommits.org)
+(`fix(editor): …`, `feat: …`; the *Commit messages* check enforces it on PRs), and on every push to main
+[release-please](https://github.com/googleapis/release-please) keeps a release PR open with the next version
+and the changelog: `fix` → patch, `feat` → minor, `feat!:` or a `BREAKING CHANGE:` footer → major (minor while
+below 1.0; a `Release-As: 1.0.0` footer forces a version). Merge that PR to release: it tags `vX.Y.Z`, updates
+`CHANGELOG.md` and `version.txt`, and the signed, notarised app is built and attached to the GitHub release.
+
+`build_app.sh` takes the version from the newest `vX.Y.Z` tag behind the commit you build (else `version.txt`),
+the build number from the commit count, and adds the short commit hash (with a `+` when there are uncommitted
+changes). About shows all three, e.g. `0.2.0 (412, 48db438)`.
 
 ## Release (Developer ID + notarisation)
 `Scripts/release.sh` builds the app, signs it with your Developer ID Application certificate (hardened

@@ -11,10 +11,11 @@ fi
 APP=build/Skreener.app
 # Version info comes from git, so it changes on its own with every commit and release (#135); nothing to edit by hand.
 # Marketing version (About, Finder): SKREENER_VERSION (release.sh sets it from --version or the tag), else the newest
-# vX.Y.Z tag this commit descends from, without the "v". Tag a release (git tag v0.2.0) to move it on.
+# vX.Y.Z tag this commit descends from, without the "v", else version.txt. release-please moves both on when its
+# release PR is merged (.github/workflows/release-please.yml).
 TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
 VERSION="${SKREENER_VERSION:-${TAG#v}}"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-$(tr -d '[:space:]' < version.txt)}"
 # Build number: the count of commits up to this one, so it goes up with every commit (CI needs the full history).
 BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 0)
 # Shown in About Skreener next to the version, so you can tell which commit is actually running. "+" marks a build

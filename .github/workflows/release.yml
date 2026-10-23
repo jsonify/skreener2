@@ -1,8 +1,8 @@
 name: Release
 
-# Runs only when a version tag is pushed (git tag v0.2.0 && git push origin v0.2.0), never on normal
-# pushes or pull requests. Builds, signs with Developer ID, notarises and staples via
-# Scripts/release.sh, then attaches the DMG and zip to a draft GitHub release for you to publish.
+# Runs when release-please.yml creates a release (merging its release PR), or when a version tag is pushed by
+# hand (git tag v0.2.0 && git push origin v0.2.0); never on normal pushes or pull requests. Builds, signs with
+# Developer ID, notarises and staples via Scripts/release.sh, then attaches the DMG and zip to the GitHub release.
 #
 # Repository secrets it needs (Settings -> Secrets and variables -> Actions):
 #   DEVELOPER_ID_P12_BASE64     base64 of the "Developer ID Application" certificate + private key (.p12)
@@ -13,6 +13,12 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag to build, e.g. v0.2.0
+        required: true
+        type: string
 
 permissions:
   contents: write   # create the draft release
@@ -20,6 +26,8 @@ permissions:
 jobs:
   release:
     runs-on: macos-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     timeout-minutes: 60
     steps:
       - name: Check secrets
@@ -42,6 +50,7 @@ jobs:
           fi
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0   # all commits and tags: build_app.sh takes the version and build number from them
       - name: Select newest Xcode
         run: |
@@ -78,18 +87,24 @@ jobs:
           SKREENER_NOTARY_KEY: ${{ runner.temp }}/notary-key.p8
           SKREENER_NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
           SKREENER_NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
-        run: ./Scripts/release.sh --version "${GITHUB_REF_NAME#v}"
+        run: ./Scripts/release.sh --version "${TAG#v}"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Skreener-${{ github.ref_name }}
+          name: Skreener-${{ env.TAG }}
           path: build/release/
-      - name: Create draft GitHub release
+      # release-please has already made the release (with the changelog) for its tags: add the files to it.
+      # A tag pushed by hand gets a draft release for you to publish.
+      - name: Attach to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" build/release/* \
-            --draft --verify-tag --title "Skreener ${GITHUB_REF_NAME#v}" --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" build/release/* --clobber
+          else
+            gh release create "$TAG" build/release/* \
+              --draft --verify-tag --title "Skreener ${TAG#v}" --generate-notes
+          fi
       - name: Clean up keychain and key
         if: always()
         run: |
