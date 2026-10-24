@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/jsonify/skreener2/compare/v0.5.0...v0.6.0) (2026-10-24)
+
+
+### Features
+
+* **capture:** all-in-one capture picker ([#29](https://github.com/jsonify/skreener2/issues/29)) ([de8cbe4](https://github.com/jsonify/skreener2/commit/de8cbe4f2aad4dbdb96f9ca5182ba7aa18480345))
+* **history:** reopen captures with their annotations still editable ([#30](https://github.com/jsonify/skreener2/issues/30)) ([b0a350b](https://github.com/jsonify/skreener2/commit/b0a350b8b648fd3017749fee4bb2063636844ffc))
+
 ## [0.5.0](https://github.com/jsonify/skreener2/compare/v0.4.1...v0.5.0) (2026-10-24)
 
 
