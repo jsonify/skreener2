@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/jsonify/skreener2/compare/v0.4.0...v0.4.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **release:** refuse a signing certificate that isn't for code signing ([#151](https://github.com/jsonify/skreener2/issues/151)) ([b086ca6](https://github.com/jsonify/skreener2/commit/b086ca6d5d63a33c85057f507f31fc3d04d1947d))
+* **release:** refuse a signing certificate that isn't for code signing ([#151](https://github.com/jsonify/skreener2/issues/151)) ([7102eb9](https://github.com/jsonify/skreener2/commit/7102eb9d14e4cd7ba35603f4c908bc562e4744ea))
+
 ## [0.4.0](https://github.com/jsonify/skreener2/compare/v0.3.2...v0.4.0) (2026-10-24)
 
 
