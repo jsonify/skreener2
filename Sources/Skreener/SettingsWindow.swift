@@ -326,8 +326,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     toggle("Open in the editor", nil,
                            Preferences.openEditorAfterCapture) { Preferences.openEditorAfterCapture = $0 },
                     toggle("Show Quick Access preview",
-                           "A thumbnail in the bottom-left corner that stays until you copy, save, edit, pin, share or close it.",
+                           "A thumbnail in a bottom corner that stays until you copy, save, edit, pin, share or close it.",
                            Preferences.showQuickAccess) { Preferences.showQuickAccess = $0 },
+                    row("Quick Access position", "The corner the previews stack up from, on the screen with the pointer.",
+                        quickAccessSidePopup()),
                 ], note: "Capture Text and Capture Area & Pin skip these."),
                 group("Capture Text", [
                     toggle("Edit the text before copying",
@@ -514,6 +516,17 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             Preferences.historyLimit = ($0 as? NSPopUpButton)?.selectedTag() ?? 100
             CaptureHistory.prune()
             NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
+        }
+        return popup
+    }
+
+    private func quickAccessSidePopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.addItems(withTitles: ["Bottom Left", "Bottom Right"])
+        popup.selectItem(at: Preferences.quickAccessOnRight ? 1 : 0)
+        bind(popup) {
+            Preferences.quickAccessOnRight = ($0 as? NSPopUpButton)?.indexOfSelectedItem == 1
+            QuickAccessController.refreshPosition()
         }
         return popup
     }

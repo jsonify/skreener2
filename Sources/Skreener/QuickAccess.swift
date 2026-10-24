@@ -147,7 +147,16 @@ import AVFoundation
         panel.contentView = card
     }
 
-    /// Places the previews from the bottom-left corner upwards, newest first. Ones that no longer fit are dropped.
+    /// Left edge of a preview `width` wide in the bottom corner Settings → After Capture picks (#32).
+    static func x(width: CGFloat, in frame: NSRect, onRight: Bool) -> CGFloat {
+        onRight ? frame.maxX - margin - width : frame.minX + margin
+    }
+
+    /// Moves the previews on screen to the corner Settings now picks.
+    static func refreshPosition() { layout(animated: true) }
+
+    /// Places the previews from the bottom-left (or bottom-right) corner upwards, newest first. Ones that no longer
+    /// fit are dropped.
     private static func layout(animated: Bool) {
         guard let frame = (screen ?? NSScreen.main)?.visibleFrame else { return }
         var y = frame.minY + margin
@@ -155,7 +164,8 @@ import AVFoundation
         for qa in live.reversed() {
             let size = qa.panel.frame.size
             if y + size.height > frame.maxY - margin, qa !== live.last { overflow.append(qa); continue }
-            let target = NSRect(origin: NSPoint(x: frame.minX + margin, y: y), size: size)
+            let left = x(width: size.width, in: frame, onRight: Preferences.quickAccessOnRight)
+            let target = NSRect(origin: NSPoint(x: left, y: y), size: size)
             // A new preview starts in place; the ones above it slide up to make room.
             if animated, qa.panel.isVisible {
                 NSAnimationContext.runAnimationGroup { ctx in
