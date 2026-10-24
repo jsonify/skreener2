@@ -98,7 +98,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [ ] Scrolling capture: live preview of the stitched image beside the area — S (#28)
 - [ ] All-in-one capture mode picker — M (#29)
 - [~] Capture history: panel slides down from the top (menu / ⌃⇧H); edit, copy, save, pin, delete, drag out; last 100 kept; Settings toggle — M (#84)
-- [ ] Capture history: restore editable annotations (save the editor document, not just the flattened capture) — M (#30)
+- [~] Capture history keeps editable annotations: the editor saves its document (annotations, crop, background, the screenshot as edited, pictures added) in a `.skreener` folder beside the history PNG about a second after each edit and when it closes, and rewrites the PNG flattened; Edit in the history panel reopens it with everything still editable, older captures open flat; deleting or pruning an entry removes the folder (`EditorDocument`, unit-tested) — M (#30)
 - [~] Library: the history panel's Saved Files view indexes the export location (also older files; a folder watcher keeps it current; app / edited / OCR text kept in Application Support/Skreener/Library.json); search, Month / App / Type / Edited filters with counts, up to 300 shown; right-click Show in Finder, Open in Default App, Copy File(s), Move to Trash on one or several (⌘-click); small/medium/large thumbnails; capture buttons in the panel; history keeps 25/100/500/all (`SavedLibrary`, unit-tested) — L (#117)
 
 ## Batch 6 — sharing & output

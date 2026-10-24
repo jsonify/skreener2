@@ -331,6 +331,43 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
     }
 
+    /// The capture-history entry this editor keeps its document in, and what was last written there (#30).
+    private var historyEntry: URL?
+    private var historyBase: NSImage?
+    private var historyRevision = 0
+    private var historySaveTask: Task<Void, Never>?
+
+    /// Ties the editor to a capture in the history: its annotations, crop and background are kept there as it is
+    /// edited, so the capture can be reopened and edited further. `document` is the one already saved there, if any.
+    func attachHistory(_ png: URL, document: EditorDocument? = nil) {
+        historyEntry = png
+        historyBase = document == nil ? nil : canvas.base   // a loaded screenshot is already on disk
+        if let document { canvas.load(document) }
+        historyRevision = canvas.revision
+    }
+
+    /// Saves about a second after the last edit, so a stream of edits makes one write.
+    private func scheduleHistorySave() {
+        guard historyEntry != nil else { return }
+        historySaveTask?.cancel()
+        historySaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, let self else { return }
+            // Not in the middle of typing or choosing a crop: saving would end that.
+            if self.canvas.isBusy { self.scheduleHistorySave() } else { self.saveHistoryDocument() }
+        }
+    }
+
+    private func saveHistoryDocument() {
+        guard let png = historyEntry, canvas.revision != historyRevision else { return }
+        historySaveTask?.cancel()
+        historyRevision = canvas.revision
+        let base = canvas.base
+        let changedBase = historyBase !== base
+        historyBase = base
+        CaptureHistory.saveDocument(canvas.document, base: changedBase ? base : nil, flattened: canvas.flattened(), for: png)
+    }
+
     /// `title` names the editor's tab; it defaults to the time the editor opened, or the name of `file`, the file the
     /// screenshot was saved to or opened from.
     init(image: NSImage, title: String? = nil, file: URL? = nil) {
@@ -368,7 +405,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             guard let self else { return }
             EditorWindowController.live.removeAll { $0 === self }
             // Posted on the main thread (and delivered on the main queue).
-            MainActor.assumeIsolated { self.tabGroup.remove(self) }
+            MainActor.assumeIsolated { self.saveHistoryDocument(); self.tabGroup.remove(self) }
             Task { @MainActor in DockPresence.update() }
         }
         // Picked in the Window menu while it was a hidden tab: show it in place of the current one.
@@ -404,7 +441,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             self?.contrastLabel.stringValue = line ?? ""
             self?.refreshStrip()
         }
-        canvas.onEdit = { [weak self] in self?.scheduleDockRefresh() }
+        canvas.onEdit = { [weak self] in self?.scheduleDockRefresh(); self?.scheduleHistorySave() }
         dock.onSelect = { [weak self] i in self?.selectTab(i) }
         dock.onClose = { [weak self] i in self?.closeTab(i) }
         dock.onCollapse = { [weak self] in self?.toggleDock() }
