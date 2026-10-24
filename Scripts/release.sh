@@ -23,16 +23,11 @@ Options:
   --format F          dmg, zip or both (default: both).
   --skip-notarize     Sign and package only; no Apple credentials needed. Outputs are named
                       *-unnotarized and Gatekeeper will still block them on other Macs.
-  --self-signed       Release without a paid Apple Developer account: sign with a self-signed
-                      certificate (SKREENER_SIGN_IDENTITY, default "Skreener Dev" from
-                      Scripts/make_dev_cert.sh); no notarisation or hardened runtime. The same certificate on every
-                      release keeps the Screen Recording permission across updates, but people
-                      have to allow the first launch: System Settings -> Privacy & Security ->
-                      Open Anyway. The DMG is left unsigned: Gatekeeper rejects a disk image
-                      signed with a self-signed certificate outright. With SKREENER_SIGN_P12
-                      (the certificate as a .p12 file) and
-                      SKREENER_SIGN_P12_PASSWORD_FILE, it signs with rcodesign instead of codesign,
-                      which doesn't need the certificate trusted on this Mac (used on CI).
+  --ad-hoc            Release without a paid Apple Developer account: sign ad-hoc, with no
+                      certificate, notarisation or hardened runtime. People allow the first
+                      launch in System Settings -> Privacy & Security -> Open Anyway (or with
+                      xattr -dr com.apple.quarantine), and grant Screen Recording again after
+                      each update, since an ad-hoc signature changes with every build.
   -h, --help          Show this help.
 
 Signing identity (from your keychain, never the repo):
@@ -65,7 +60,7 @@ step() { echo; echo "==> $*"; }
 VERSION="${SKREENER_VERSION:-}"
 FORMAT=both
 NOTARIZE=1
-SELF_SIGNED=0
+AD_HOC=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) [ $# -ge 2 ] || die "--version needs a value, e.g. --version 0.2.0"; VERSION="$2"; shift 2 ;;
@@ -73,7 +68,7 @@ while [ $# -gt 0 ]; do
     --format) [ $# -ge 2 ] || die "--format needs dmg, zip or both"; FORMAT="$2"; shift 2 ;;
     --format=*) FORMAT="${1#*=}"; shift ;;
     --skip-notarize|--skip-notarise) NOTARIZE=0; shift ;;
-    --self-signed) SELF_SIGNED=1; NOTARIZE=0; shift ;;
+    --ad-hoc) AD_HOC=1; NOTARIZE=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; echo >&2; die "unknown option: $1" ;;
   esac
@@ -102,20 +97,10 @@ if [ -n "$KEYCHAIN" ]; then
 fi
 # find-identity takes the keychain as a trailing argument; codesign takes --keychain.
 IDENTITIES=$(security find-identity -v -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} || true)
-P12="${SKREENER_SIGN_P12:-}"
-if [ "$SELF_SIGNED" = 1 ] && [ -n "$P12" ]; then
-  [ -f "$P12" ] || die "SKREENER_SIGN_P12=\"$P12\" is not a file."
-  [ -f "${SKREENER_SIGN_P12_PASSWORD_FILE:-}" ] || die "SKREENER_SIGN_P12_PASSWORD_FILE must name the file holding the .p12's password."
-  command -v rcodesign >/dev/null || die "rcodesign not found (github.com/indygreg/apple-platform-rs); it signs from SKREENER_SIGN_P12."
-  IDENTITY="$(basename "$P12") (rcodesign)"
-elif [ "$SELF_SIGNED" = 1 ]; then
-  # A self-signed certificate may not be trusted on this Mac, and then find-identity's code-signing policy leaves
-  # it out: look among all identities and certificates (by name or SHA-1 hash) and let codesign be the judge.
-  IDENTITY="${SKREENER_SIGN_IDENTITY:-Skreener Dev}"
-  ALL_IDENTITIES=$( (security find-identity ${KEYCHAIN:+"$KEYCHAIN"}; security find-certificate -a -Z ${KEYCHAIN:+"$KEYCHAIN"}) 2>/dev/null || true)
-  printf '%s\n' "$ALL_IDENTITIES" | grep -qF "$IDENTITY" \
-    || die "signing identity \"$IDENTITY\" not found. Create it once with Scripts/make_dev_cert.sh, or name yours
-       with SKREENER_SIGN_IDENTITY."
+if [ "$AD_HOC" = 1 ]; then
+  # A certificate Apple didn't issue makes Gatekeeper call a downloaded app "damaged", with no Open Anyway (#151);
+  # an ad-hoc signature gets the ordinary "could not verify" prompt instead.
+  IDENTITY="-"
 else
   IDENTITY="${SKREENER_DEVELOPER_ID:-}"
   if [ -z "$IDENTITY" ]; then
@@ -206,10 +191,10 @@ SKREENER_SIGN_IDENTITY="-" SKREENER_VERSION="$VERSION" Scripts/build_app.sh
 [ -d "$APP" ] || die "build_app.sh did not produce $APP."
 VERSION=$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")
 BUILD=$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")
-if [ "$NOTARIZE" = 1 ] || [ "$SELF_SIGNED" = 1 ]; then NAME="Skreener-$VERSION"; else NAME="Skreener-$VERSION-unnotarized"; fi
-# A self-signed build isn't notarised, which is the only reason for the hardened runtime and Apple's timestamp (whose
-# service only signs for Apple-issued certificates anyway), so it gets neither.
-if [ "$SELF_SIGNED" = 1 ]; then
+if [ "$NOTARIZE" = 1 ] || [ "$AD_HOC" = 1 ]; then NAME="Skreener-$VERSION"; else NAME="Skreener-$VERSION-unnotarized"; fi
+# An ad-hoc build isn't notarised, which is the only reason for the hardened runtime and Apple's timestamp (which
+# needs a certificate anyway), so it gets neither.
+if [ "$AD_HOC" = 1 ]; then
   SIGN_ARGS=(--timestamp=none); RUNTIME_NOTE=""
 else
   SIGN_ARGS=(--timestamp --options runtime); RUNTIME_NOTE=" (hardened runtime)"
@@ -218,28 +203,13 @@ fi
 # ---- Sign ----
 step "Signing with \"$IDENTITY\"$RUNTIME_NOTE"
 # Nested code is signed inside-out; today the bundle has only the main executable.
-# rcodesign signs straight from the .p12, without the keychain or trust (CI); otherwise codesign.
-rsign() { rcodesign sign --p12-file "$P12" --p12-password-file "$SKREENER_SIGN_P12_PASSWORD_FILE" "$@"; }
-if [ -n "$P12" ]; then
-  # The entitlements option has been renamed between rcodesign versions; use whichever this one has.
-  ENT_FLAG=$(rcodesign sign --help 2>&1 | grep -o -- '--entitlements-xml-[a-z]*' | head -1 || true)
-  rsign ${ENT_FLAG:+"$ENT_FLAG" "$ENTITLEMENTS"} "$APP"
-else
-  codesign --force "${SIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" \
-    --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
-fi
-if [ -n "$P12" ]; then
-  # codesign --verify also checks the certificate against macOS's code-signing policy, which a self-signed
-  # certificate only passes where it's trusted (your Mac), not here ("Invalid Extended Key Usage for policy").
-  # Check the signature itself instead.
-  rcodesign verify "$APP/Contents/MacOS/Skreener"
-else
-  codesign --verify --deep --strict --verbose=2 "$APP"
-fi
+codesign --force "${SIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" \
+  --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
 codesign --display --verbose=2 "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|flags|Identifier)=' || true
 # What macOS keys the Screen Recording permission to: the same certificate in every release keeps it.
 codesign --display --requirements - "$APP" 2>&1 | grep designated || true
-if [ "$SELF_SIGNED" = 0 ]; then
+if [ "$AD_HOC" = 0 ]; then
   codesign --display --verbose=2 "$APP" 2>&1 | grep -q 'flags=.*runtime' || die "hardened runtime flag missing from the signature."
 fi
 
@@ -266,11 +236,10 @@ if [ "$FORMAT" != zip ]; then
   ditto "$APP" "$STAGE/Skreener.app"
   ln -s /Applications "$STAGE/Applications"
   hdiutil create -volname "Skreener $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT/$NAME.dmg" >/dev/null
-  # Gatekeeper checks a signed disk image when it is opened, and rejects one signed with a certificate Apple didn't
-  # issue ("Move to Trash", with no Open Anyway) (#151). Left unsigned it just mounts, and the app inside gets the usual
-  # Open Anyway prompt.
-  if [ "$SELF_SIGNED" = 1 ]; then
-    echo "Leaving the DMG unsigned (self-signed release)."
+  # Gatekeeper checks a signed disk image when it is opened and rejects one without an Apple-issued certificate
+  # ("Move to Trash") (#151). Left unsigned it just mounts.
+  if [ "$AD_HOC" = 1 ]; then
+    echo "Leaving the DMG unsigned (ad-hoc release)."
   else
     codesign --force "${SIGN_ARGS[0]}" --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
   fi
@@ -297,8 +266,8 @@ echo
 echo "Release $VERSION (build $BUILD) in $OUT/:"
 for a in "${ARTIFACTS[@]}"; do echo "  $a"; done
 echo "  SHA256SUMS"
-if [ "$SELF_SIGNED" = 1 ]; then
-  echo "note: self-signed, not notarised: on other Macs the first launch needs System Settings -> Privacy & Security -> Open Anyway." >&2
+if [ "$AD_HOC" = 1 ]; then
+  echo "note: ad-hoc signed, not notarised: on other Macs the first launch needs System Settings -> Privacy & Security -> Open Anyway." >&2
 elif [ "$NOTARIZE" = 0 ]; then
   echo "note: not notarised (--skip-notarize); other Macs will refuse to open these." >&2
 fi

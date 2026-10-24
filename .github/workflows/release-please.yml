@@ -3,7 +3,7 @@ name: Release Please
 # On every push to main, release-please reads the commit messages since the last release and keeps a release PR
 # open: the next version (fix: -> patch, feat: -> minor, a "!" or BREAKING CHANGE -> major; while below 1.0 a
 # breaking change bumps the minor instead), CHANGELOG.md and version.txt. Merging that PR tags vX.Y.Z, creates the
-# GitHub release, and runs release.yml to build and sign the app (Developer ID and notarised, or self-signed when
+# GitHub release, and runs release.yml to build and sign the app (Developer ID and notarised, or ad-hoc when
 # those secrets aren't set) and attach it to the release.
 #
 # Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".

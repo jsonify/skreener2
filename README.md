@@ -32,20 +32,19 @@ No code from CleanShot X was decompiled or copied.
 2. Open the DMG and drag **Skreener** into **Applications**.
 3. Open Skreener from Applications. Its icon shows up in the menu bar, not in the Dock.
 
-Releases are currently signed with a self-signed certificate, not an Apple Developer ID, so macOS blocks the first
-launch. To allow it:
+Releases are not signed with an Apple Developer ID or notarized, so macOS blocks the first launch. To allow it:
 
-1. Try to open Skreener once and dismiss the warning.
+1. Try to open Skreener once and click **Done**.
 2. Open **System Settings > Privacy & Security**.
 3. Next to the message about Skreener, click **Open Anyway** and confirm.
 
-Or, from Terminal, run this once:
+If macOS refuses to open it, run this once in Terminal:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Skreener.app
 ```
 
-Every release is signed with the same certificate, so permissions you grant carry over when you update.
+After an update, macOS asks for Screen Recording permission again, because it treats each unsigned build as a new app.
 
 ### From source
 
@@ -230,12 +229,9 @@ short commit hash. The About panel shows all three, for example `0.2.0 (412, 48d
 
   If you have several Developer ID identities, pick one with `SKREENER_DEVELOPER_ID`.
 
-- **Without a developer account.** Run `Scripts/release.sh --self-signed` to sign the app with the "Skreener Dev"
-  certificate instead. The DMG stays unsigned, because macOS refuses to open a disk image signed with a certificate
-  Apple didn't issue. CI does this automatically when the Developer ID secrets are not set. To set it up for CI,
-  export **Skreener Dev** from Keychain Access as a `.p12`. Add it as the repository secret `SELF_SIGNED_P12_BASE64`
-  (base64-encoded) and its password as `SELF_SIGNED_P12_PASSWORD`, then delete the `.p12` file. Keep the certificate
-  itself: a new one would make every user grant Screen Recording again.
+- **Without a developer account.** Run `Scripts/release.sh --ad-hoc` to sign ad-hoc instead, with no certificate.
+  CI does this automatically when the Developer ID secrets are not set. Not with a self-signed certificate: macOS
+  calls a downloaded app signed that way "damaged" and offers no Open Anyway.
 
 Merging a release PR or pushing a `v*` tag runs `.github/workflows/release.yml`. The secrets it needs are listed
 at the top of that file.

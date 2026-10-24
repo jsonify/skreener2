@@ -5,9 +5,9 @@ name: Release
 # with Developer ID, notarises and staples) via Scripts/release.sh, then attaches the DMG and zip to the GitHub release.
 #
 # Signing: with the five Developer ID secrets below (paid Apple Developer Program) the app is signed with Developer
-# ID and notarised, so it opens anywhere without warnings. Without them, the two SELF_SIGNED_* secrets give a free
-# release instead: signed with your self-signed "Skreener Dev" certificate, not notarised, so people allow the first
-# launch in System Settings -> Privacy & Security -> Open Anyway (the release notes say how). With neither, it fails.
+# ID and notarised, so it opens anywhere without warnings. Without them the app is signed ad-hoc and not notarised, so
+# people allow the first launch in System Settings -> Privacy & Security -> Open Anyway (the release notes say how).
+# Not with a self-signed certificate: Gatekeeper calls such a download "damaged" and offers no Open Anyway (#151).
 #
 # Developer ID secrets (Settings -> Secrets and variables -> Actions):
 #   DEVELOPER_ID_P12_BASE64     base64 of the "Developer ID Application" certificate + private key (.p12)
@@ -15,10 +15,6 @@ name: Release
 #   NOTARY_API_KEY_BASE64       base64 of the App Store Connect API key file (AuthKey_XXXX.p8)
 #   NOTARY_API_KEY_ID           that key's ID
 #   NOTARY_API_ISSUER           the issuer ID shown above the key list
-#
-# Self-signed secrets (see README "Releasing without an Apple Developer account"):
-#   SELF_SIGNED_P12_BASE64      base64 of the "Skreener Dev" certificate + private key exported from Keychain Access
-#   SELF_SIGNED_P12_PASSWORD    the password it was exported with
 on:
   push:
     tags: ['v*']
@@ -54,8 +50,6 @@ jobs:
           KEY: ${{ secrets.NOTARY_API_KEY_BASE64 }}
           KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
           ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
-          SELF_P12: ${{ secrets.SELF_SIGNED_P12_BASE64 }}
-          SELF_P12_PASSWORD: ${{ secrets.SELF_SIGNED_P12_PASSWORD }}
         run: |
           missing=""
           [ -n "$P12" ] || missing="$missing DEVELOPER_ID_P12_BASE64"
@@ -66,12 +60,9 @@ jobs:
           if [ -z "$missing" ]; then
             echo "Developer ID: signed and notarised."
             echo "mode=developer-id" >> "$GITHUB_OUTPUT"
-          elif [ -n "$SELF_P12" ] && [ -n "$SELF_P12_PASSWORD" ]; then
-            echo "No Developer ID secrets (missing:$missing): self-signed, not notarised."
-            echo "mode=self-signed" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::No signing secrets. Set SELF_SIGNED_P12_BASE64 and SELF_SIGNED_P12_PASSWORD for a free self-signed release, or the Developer ID ones (missing:$missing). See the comment at the top of .github/workflows/release.yml."
-            exit 1
+            echo "No Developer ID secrets (missing:$missing): ad-hoc signed, not notarised."
+            echo "mode=ad-hoc" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/checkout@v4
         with:
@@ -114,29 +105,6 @@ jobs:
           security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/developer-id.p12"
           echo "SKREENER_KEYCHAIN=$KC" >> "$GITHUB_ENV"
-      # codesign only signs with an identity the Mac trusts, and a CI runner can't be made to trust a self-signed
-      # certificate without someone at the keyboard. rcodesign (github.com/indygreg/apple-platform-rs) signs straight
-      # from the .p12 instead; the signature is the same kind codesign makes with that certificate on your Mac.
-      - name: Set up rcodesign with the self-signed certificate
-        if: steps.mode.outputs.mode == 'self-signed'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          P12: ${{ secrets.SELF_SIGNED_P12_BASE64 }}
-          P12_PASSWORD: ${{ secrets.SELF_SIGNED_P12_PASSWORD }}
-        run: |
-          DIR="$RUNNER_TEMP/rcodesign"; mkdir -p "$DIR"
-          # Pinned: a signing tool shouldn't change under a release without a review. Bump it here on purpose.
-          RELEASE=apple-codesign/0.29.0
-          gh release download "$RELEASE" --repo indygreg/apple-platform-rs --pattern '*macos-universal.tar.gz' --dir "$DIR"
-          tar -xzf "$DIR"/*.tar.gz -C "$DIR"
-          BIN=$(find "$DIR" -type f -name rcodesign | head -1)
-          [ -n "$BIN" ] || { echo "::error::rcodesign not found in the $RELEASE download."; exit 1; }
-          chmod +x "$BIN"; "$BIN" --version
-          echo "$(dirname "$BIN")" >> "$GITHUB_PATH"
-          echo "$P12" | base64 --decode > "$RUNNER_TEMP/self-signed.p12"
-          printf '%s' "$P12_PASSWORD" > "$RUNNER_TEMP/self-signed.pass"
-          echo "SKREENER_SIGN_P12=$RUNNER_TEMP/self-signed.p12" >> "$GITHUB_ENV"
-          echo "SKREENER_SIGN_P12_PASSWORD_FILE=$RUNNER_TEMP/self-signed.pass" >> "$GITHUB_ENV"
       - name: Build, sign, notarise, package
         env:
           MODE: ${{ steps.mode.outputs.mode }}
@@ -145,8 +113,8 @@ jobs:
           SKREENER_NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
           SKREENER_NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
         run: |
-          if [ "$MODE" = self-signed ]; then
-            ./Scripts/release.sh --version "${TAG#v}" --self-signed
+          if [ "$MODE" = ad-hoc ]; then
+            ./Scripts/release.sh --version "${TAG#v}" --ad-hoc
           else
             ./Scripts/release.sh --version "${TAG#v}"
           fi
@@ -167,20 +135,23 @@ jobs:
             gh release create "$TAG" build/release/* \
               --draft --verify-tag --title "Skreener ${TAG#v}" --generate-notes
           fi
-      - name: Add install notes for a self-signed build
-        if: steps.mode.outputs.mode == 'self-signed'
+      - name: Add install notes for an ad-hoc build
+        if: steps.mode.outputs.mode == 'ad-hoc'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A rebuild replaces the note an earlier build added instead of adding a second one.
+          BODY=$(gh release view "$TAG" --json body -q .body)
           {
-            gh release view "$TAG" --json body -q .body
+            printf '%s\n' "${BODY%%$'\n---\n'\*\*Installing:*}"
             cat <<'NOTE'
 
           ---
           **Installing:** this build isn't notarised by Apple, so macOS blocks the first launch. Drag Skreener to
           Applications and open it once; then go to System Settings -> Privacy & Security, click **Open Anyway** next
-          to the Skreener message, and confirm. (Or run `xattr -dr com.apple.quarantine /Applications/Skreener.app`
-          in Terminal.) Updates signed with the same certificate keep the Screen Recording permission.
+          to the Skreener message, and confirm. If macOS refuses to open it, run
+          `xattr -dr com.apple.quarantine /Applications/Skreener.app` in Terminal. After updating, grant Screen
+          Recording again: macOS treats each unsigned build as a new app.
           NOTE
           } > "$RUNNER_TEMP/notes.md"
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
@@ -188,4 +159,4 @@ jobs:
         if: always()
         run: |
           [ -n "${SKREENER_KEYCHAIN:-}" ] && security delete-keychain "$SKREENER_KEYCHAIN" || true
-          rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/self-signed.p12" "$RUNNER_TEMP/self-signed.pass"
+          rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/developer-id.p12"
