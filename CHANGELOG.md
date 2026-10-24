@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/jsonify/skreener2/compare/v0.2.0...v0.3.0) (2026-10-24)
+
+
+### Features
+
+* **capture:** plain area selection without dimming or crosshair lines ([2f3f057](https://github.com/jsonify/skreener2/commit/2f3f057e645b96493e39e63698ff2629f2aeeb54))
+* **capture:** plain area selection without dimming or crosshair lines ([3d913ba](https://github.com/jsonify/skreener2/commit/3d913baaad5d3089279118d319edd1122dc30155))
+
 ## [0.2.0](https://github.com/jsonify/skreener2/compare/v0.1.0...v0.2.0) (2026-10-23)
 
 
