@@ -297,6 +297,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Capture", [
                     toggle("Freeze screen while selecting", "Shows a still frame while you pick an area and captures from it.",
                            Preferences.freezeScreen) { Preferences.freezeScreen = $0 },
+                    toggle("Show magnifier while selecting",
+                           "A zoomed view of the pixels around the pointer while you pick an area.",
+                           Preferences.showMagnifier) { Preferences.showMagnifier = $0 },
                     toggle("Adjust the area before capturing",
                            "The selection stays after the drag: drag its handles, move it or use the keys, then press "
                            + "Return or double-click it to capture. Esc cancels.",

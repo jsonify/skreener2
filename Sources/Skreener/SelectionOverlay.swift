@@ -46,7 +46,7 @@ final class SelectionOverlay {
         self.hints = hints
         self.adjustable = adjustable
         self.completion = completion
-        guard mode == .area else { show(snapshots: [:]); return }
+        guard mode == .area, Preferences.showMagnifier || Preferences.freezeScreen else { show(snapshots: [:]); return }
         // Grab a clean frame of every display first so the magnifier can show real pixels (not the dim overlay).
         Task { @MainActor [weak self] in
             var snaps: [ObjectIdentifier: CGImage] = [:]
@@ -95,6 +95,12 @@ final class SelectionOverlay {
         }
         SelectionView.cursor(for: mode).push(); cursorPushed = true
         NSApp.activate(ignoringOtherApps: true)
+        // The push above can lose to the previously active app's cursor; set it again once activation has settled.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, completion != nil else { return }
+            for p in panels { if let v = p.contentView { p.invalidateCursorRects(for: v) } }
+            SelectionView.cursor(for: mode).set()
+        }
     }
 
     /// A new selection on one screen replaces one waiting to be adjusted on another.
@@ -155,28 +161,8 @@ final class SelectionOverlay {
 }
 
 private final class SelectionView: NSView {
-    /// A small target for areas, a camera for windows (#129).
-    static func cursor(for mode: SelectionOverlay.Mode) -> NSCursor { mode == .window ? cameraCursor : targetCursor }
-
-    /// Thin cross with a translucent ring at its center, like the macOS screenshot pointer. Black on a white
-    /// outline, so it shows on light and dark content alike.
-    static let targetCursor: NSCursor = {
-        let side: CGFloat = 25, c = side / 2
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
-            let ring = NSBezierPath(ovalIn: NSRect(x: c - 6, y: c - 6, width: 12, height: 12))
-            NSColor.gray.withAlphaComponent(0.35).setFill(); ring.fill()
-            let cross = NSBezierPath()
-            cross.move(to: NSPoint(x: 1, y: c)); cross.line(to: NSPoint(x: side - 1, y: c))
-            cross.move(to: NSPoint(x: c, y: 1)); cross.line(to: NSPoint(x: c, y: side - 1))
-            for (color, width) in [(NSColor.white, CGFloat(3)), (NSColor.black, CGFloat(1))] {
-                color.setStroke()
-                ring.lineWidth = width; ring.stroke()
-                cross.lineWidth = width; cross.stroke()
-            }
-            return true
-        }
-        return NSCursor(image: image, hotSpot: NSPoint(x: c, y: c))
-    }()
+    /// The system crosshair for areas, a camera for windows (#129).
+    static func cursor(for mode: SelectionOverlay.Mode) -> NSCursor { mode == .window ? cameraCursor : .crosshair }
 
     /// A black camera with a white outline, so it shows on light and dark windows alike.
     static let cameraCursor: NSCursor = {
@@ -284,15 +270,17 @@ private final class SelectionView: NSView {
         handles(of: r).firstIndex { abs($0.x - p.x) <= Self.grab && abs($0.y - p.y) <= Self.grab }
     }
 
-    /// Resize arrows over the handles, an open hand inside the selection, the target elsewhere.
+    /// Resize arrows over the handles, an open hand inside the selection, the crosshair elsewhere. Set again on every
+    /// move: Skreener is an accessory app, so another app's cursor rects can reset the pointer to an arrow (#161).
     private func updateCursor(at p: NSPoint) {
-        guard mode == .area, let r = adjusted, drag == nil else { return }
+        guard mode == .area, drag == nil else { return }
+        guard let r = adjusted else { NSCursor.crosshair.set(); return }
         if let i = handle(at: p, of: r) {
             (i % 2 == 0 ? NSCursor.crosshair : (i == 1 || i == 5 ? NSCursor.resizeUpDown : NSCursor.resizeLeftRight)).set()
         } else if r.contains(p) {
             NSCursor.openHand.set()
         } else {
-            Self.targetCursor.set()
+            NSCursor.crosshair.set()
         }
     }
 
@@ -323,7 +311,11 @@ private final class SelectionView: NSView {
         guard !dismantled, window?.isVisible == true, keyHeldElsewhere?() != true else { return }
         window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(self)
+        updateCursor(at: convert(event.locationInWindow, from: nil))
+        if mode == .window { Self.cameraCursor.set() }
     }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: Self.cursor(for: mode)) }
 
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
@@ -496,7 +488,7 @@ private final class SelectionView: NSView {
         // The screen isn't dimmed: only the selection gets a translucent fill.
         let hole: NSRect? = selectionRect
         // While a selection waits to be adjusted, the loupe only shows while dragging it.
-        let pointerAids = mode == .area && (adjusted == nil || drag != nil)
+        let pointerAids = mode == .area && Preferences.showMagnifier && (adjusted == nil || drag != nil)
         defer { if pointerAids, let c = cursorPoint { drawLoupe(at: c) } }
         if let hint, start == nil, adjusted == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
         guard let h = hole else { return }
@@ -536,7 +528,7 @@ private final class SelectionView: NSView {
                                                     .shadow: shadow, .paragraphStyle: style]
         let label = "\(Int(r.width))\n\(Int(r.height))" as NSString
         let size = label.size(withAttributes: attrs)
-        let loupeOnLeft = p.x + Self.loupeGap + Self.loupeSide > bounds.maxX - 4
+        let loupeOnLeft = Preferences.showMagnifier && p.x + Self.loupeGap + Self.loupeSide > bounds.maxX - 4
         style.alignment = loupeOnLeft ? .left : .right
         var origin = NSPoint(x: loupeOnLeft ? p.x + 10 : p.x - 10 - size.width, y: p.y - 10 - size.height)
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - size.width - 2)
