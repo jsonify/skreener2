@@ -28,7 +28,9 @@ Options:
                       Scripts/make_dev_cert.sh); no notarisation or hardened runtime. The same certificate on every
                       release keeps the Screen Recording permission across updates, but people
                       have to allow the first launch: System Settings -> Privacy & Security ->
-                      Open Anyway. With SKREENER_SIGN_P12 (the certificate as a .p12 file) and
+                      Open Anyway. The DMG is left unsigned: Gatekeeper rejects a disk image
+                      signed with a self-signed certificate outright. With SKREENER_SIGN_P12
+                      (the certificate as a .p12 file) and
                       SKREENER_SIGN_P12_PASSWORD_FILE, it signs with rcodesign instead of codesign,
                       which doesn't need the certificate trusted on this Mac (used on CI).
   -h, --help          Show this help.
@@ -264,8 +266,11 @@ if [ "$FORMAT" != zip ]; then
   ditto "$APP" "$STAGE/Skreener.app"
   ln -s /Applications "$STAGE/Applications"
   hdiutil create -volname "Skreener $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT/$NAME.dmg" >/dev/null
-  if [ -n "$P12" ]; then
-    rsign "$OUT/$NAME.dmg"
+  # Gatekeeper checks a signed disk image when it is opened, and rejects one signed with a certificate Apple didn't
+  # issue ("Move to Trash", with no Open Anyway) (#151). Left unsigned it just mounts, and the app inside gets the usual
+  # Open Anyway prompt.
+  if [ "$SELF_SIGNED" = 1 ]; then
+    echo "Leaving the DMG unsigned (self-signed release)."
   else
     codesign --force "${SIGN_ARGS[0]}" --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$OUT/$NAME.dmg"
   fi
