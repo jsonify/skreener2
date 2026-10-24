@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/jsonify/skreener2/compare/v0.3.0...v0.3.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **capture:** keep the record picker's cards as tall as their buttons ([a637ead](https://github.com/jsonify/skreener2/commit/a637ead8a943f9b9ee031a753964e60ebd496918))
+* **capture:** stop clipping the record picker's button icons ([4e8c3dc](https://github.com/jsonify/skreener2/commit/4e8c3dc236c3605ee8c3729b4726e7324eaad69a))
+
 ## [0.3.0](https://github.com/jsonify/skreener2/compare/v0.2.0...v0.3.0) (2026-10-24)
 
 
