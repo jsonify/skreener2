@@ -4,6 +4,7 @@ import AppKit
 enum RecordPick {
     case video(NSScreen, CGRect), gif(NSScreen, CGRect)        // global, bottom-left origin coordinates
     case screenshot(NSScreen, CGRect), text(NSScreen, CGRect), timer(NSScreen, CGRect)
+    case scrolling(NSScreen, CGRect)
     case fullscreenShot, window
     /// Space in the picker: pick a window to record instead.
     case selectWindow
@@ -11,11 +12,21 @@ enum RecordPick {
 
 /// The instruction shown on every screen while picking what to record.
 let recordAreaHint = "Drag to record a part of the screen. Press Space to select a window."
+/// The same for the all-in-one picker, where the action comes after the selection (#29).
+let allInOneAreaHint = "Drag to select an area, then choose what to do with it. Press Space to select a window."
+
+/// What opened the picker: Record Screen, or the all-in-one capture mode, which takes a screenshot on Return (#29).
+enum PickerPurpose {
+    case record, allInOne
+
+    var areaHint: String { self == .allInOne ? allInOneAreaHint : recordAreaHint }
+}
 
 /// Another screen while the picker is open: dimmed, with the instruction banner. Dragging there starts a new
 /// selection on that screen.
 private final class OtherScreenView: NSView {
     var onSelect: ((NSRect) -> Void)?
+    var hint = recordAreaHint
     private var start: NSPoint?
     private var current: NSPoint?
 
@@ -41,7 +52,7 @@ private final class OtherScreenView: NSView {
             NSColor.white.setStroke()
             NSBezierPath(rect: r).stroke()
         } else {
-            drawHintBanner(recordAreaHint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY))
+            drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY))
         }
     }
 }
@@ -97,14 +108,17 @@ final class RecordAreaPicker: NSObject {
     private var popover: NSPopover?
     private var screen: NSScreen!
     private var completion: ((RecordPick?) -> Void)?
+    private var purpose = PickerPurpose.record
 
     var isActive: Bool { completion != nil }
 
     /// `rect` is the starting selection in global coordinates on `screen`. `showHint` also shows the
     /// instruction banner on this screen (when the picker opens on a remembered area, with no drag first).
-    func begin(screen: NSScreen, rect: CGRect, showHint: Bool = false, completion: @escaping (RecordPick?) -> Void) {
+    func begin(screen: NSScreen, rect: CGRect, showHint: Bool = false, purpose: PickerPurpose = .record,
+               completion: @escaping (RecordPick?) -> Void) {
         guard self.completion == nil else { return }
         self.screen = screen
+        self.purpose = purpose
         actions.removeAll(); toggles.removeAll()
 
         let p = PickerPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -122,7 +136,7 @@ final class RecordAreaPicker: NSObject {
         v.selection = rect.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY).intersection(v.bounds)
         v.onChange = { [weak self] in self?.layout() }
         v.onKey = { [weak self] e in self?.key(e) ?? false }
-        v.hint = showHint ? recordAreaHint : nil
+        v.hint = showHint ? purpose.areaHint : nil
         let c = buildControls()
         let bar = buildModeBar()
         v.addSubview(c); v.addSubview(bar)
@@ -166,6 +180,7 @@ final class RecordAreaPicker: NSObject {
             p.isReleasedWhenClosed = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             let v = OtherScreenView(frame: NSRect(origin: .zero, size: s.frame.size))
+            v.hint = purpose.areaHint
             v.onSelect = { [weak self] r in self?.moveSelection(to: s, rect: r.offsetBy(dx: s.frame.minX, dy: s.frame.minY)) }
             p.contentView = v
             p.orderFrontRegardless()
@@ -180,7 +195,7 @@ final class RecordAreaPicker: NSObject {
         completion = nil
         popover?.close(); popover = nil
         tearDown()
-        begin(screen: s, rect: rect, completion: done)
+        begin(screen: s, rect: rect, purpose: purpose, completion: done)
         if wasRecording { showRecording() }
     }
 
@@ -194,6 +209,8 @@ final class RecordAreaPicker: NSObject {
         case 53: finish(nil)
         case 49: finish(.selectWindow)
         case 36, 76:
+            // All-in-one: Return takes the screenshot, unless Recording was picked first.
+            if purpose == .allInOne, controls?.isHidden != false { finish(.screenshot(screen, globalSelection)); return true }
             // The first Return picks Recording (shows the panel); the next one starts it.
             guard controls?.isHidden == false else { showRecording(); return true }
             finish(e.modifierFlags.contains(.option) ? .gif(screen, globalSelection) : .video(screen, globalSelection))
@@ -408,7 +425,7 @@ final class RecordAreaPicker: NSObject {
             let b = TileButton(symbol: sym, title: title, width: 72)
             switch title {
             case "Area":
-                b.toolTip = "Screenshot of the selected area"
+                b.toolTip = purpose == .allInOne ? "Screenshot of the selected area (↩)" : "Screenshot of the selected area"
                 bind(b) { [weak self] _ in guard let self else { return }; finish(.screenshot(screen, globalSelection)) }
             case "Timer":
                 b.toolTip = "Screenshot of the selected area after a \(Preferences.selfTimerSeconds) s countdown"
@@ -417,8 +434,8 @@ final class RecordAreaPicker: NSObject {
                 b.toolTip = "Copy the text in the selected area"
                 bind(b) { [weak self] _ in guard let self else { return }; finish(.text(screen, globalSelection)) }
             case "Scrolling":
-                b.toolTip = "Scrolling capture isn't available yet"
-                b.isEnabled = false
+                b.toolTip = "Scrolling capture of the selected area"
+                bind(b) { [weak self] _ in guard let self else { return }; finish(.scrolling(screen, globalSelection)) }
             case "Recording":
                 b.toolTip = "Record the selected area (↩)"
                 bind(b) { [weak self] _ in self?.showRecording() }

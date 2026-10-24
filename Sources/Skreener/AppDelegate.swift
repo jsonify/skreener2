@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
+    /// Whether the picker on screen was opened by Record Screen or by All-in-One (#29).
+    private var pickerPurpose = PickerPurpose.record
     private let scrollCapture = ScrollCaptureController()
     /// After-capture steps a skreener:// link chose (`then=`) for the capture it started; nil uses Settings.
     /// `endCapture()` clears it, so it never carries over to a later capture.
@@ -47,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let shortcuts = ShortcutCenter.shared
         shortcuts.handlers = [
             .captureArea: { [weak self] in self?.captureArea() },
+            .allInOne: { [weak self] in self?.allInOne() },
             .capturePreviousArea: { [weak self] in self?.capturePreviousArea() },
             .captureAreaAndPin: { [weak self] in self?.captureAreaAndPin() },
             .captureFullscreen: { [weak self] in self?.captureFullscreen() },
@@ -110,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             shortcutItems[shortcut] = i
         }
         add("Capture Area", #selector(captureArea), .captureArea)
+        add("All-in-One", #selector(allInOne), .allInOne)
         add("Capture Previous Area", #selector(capturePreviousArea), .capturePreviousArea)
         add("Capture Area & Pin", #selector(captureAreaAndPin), .captureAreaAndPin)
         add("Capture Fullscreen", #selector(captureFullscreen), .captureFullscreen)
@@ -435,6 +439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func recordScreen() {
         if recording.isRecording { recording.stop(); return }
         guard !recordPicker.isActive else { return }
+        pickerPurpose = .record
         prepareCapture { [weak self] in
             if Preferences.recordRememberSelection, let last = Preferences.lastRecordRect,
                let screen = NSScreen.screens.first(where: { $0.frame.contains(last) }) {
@@ -445,11 +450,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// All-in-One (#29): drag an area (or press Space and click a window), then choose the action in the picker's mode
+    /// bar: screenshot (↩), fullscreen, window, scrolling capture, self-timer, OCR or recording.
+    @objc func allInOne() {
+        guard !recordPicker.isActive, !recording.isRecording else { return }
+        pickerPurpose = .allInOne
+        prepareCapture { [weak self] in self?.pickRecordTarget(.area) }
+    }
+
     /// The Record Screen overlay on every screen: drag an area, or Space and click a window.
     private func pickRecordTarget(_ mode: SelectionOverlay.Mode) {
+        let allInOne = pickerPurpose == .allInOne
         let hints: [SelectionOverlay.Mode: String] = [
-            .area: recordAreaHint,
-            .window: "Click a window to record it. Press Space to drag an area instead.",
+            .area: pickerPurpose.areaHint,
+            .window: "Click a window to \(allInOne ? "choose what to do with" : "record") it. Press Space to drag an area instead.",
         ]
         Task { @MainActor [weak self] in
             let windows = mode == .window ? await CaptureService.onScreenWindows() : []
@@ -470,7 +484,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func showRecordPicker(_ screen: NSScreen, _ rect: CGRect, showHint: Bool = false) {
-        recordPicker.begin(screen: screen, rect: rect, showHint: showHint) { [weak self] pick in self?.handle(pick) }
+        recordPicker.begin(screen: screen, rect: rect, showHint: showHint, purpose: pickerPurpose) { [weak self] pick in
+            self?.handle(pick)
+        }
     }
 
     private func handle(_ pick: RecordPick?) {
@@ -493,6 +509,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
                 self?.run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
             }, cancelled: { [weak self] in self?.endCapture() })
+        case .scrolling(let screen, let rect)?:
+            scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
+                guard let self else { return }
+                let actions = linkActions
+                endCapture()
+                if let image { finish(image, actions: actions, screen: screen) }
+            }
         case .fullscreenShot?:
             captureFullscreen()
         case .window?:

@@ -67,7 +67,7 @@ final class ShortcutTests: XCTestCase {
         let expected: [HotKeyAction: String] = [
             .captureArea: "⌃⇧4", .capturePreviousArea: "⌃⇧1", .captureAreaAndPin: "⌃⇧6", .captureFullscreen: "⌃⇧3",
             .captureWindow: "⌃⇧5", .captureScrolling: "⌃⇧8", .captureText: "⌃⇧2", .recordScreen: "⌃⇧7",
-            .showHistory: "⌃⇧H",
+            .showHistory: "⌃⇧H", .allInOne: "⌃⇧9",
         ]
         for action in HotKeyAction.allCases {
             XCTAssertEqual(ShortcutStore.combo(for: action, in: defaults)?.displayString, expected[action], action.rawValue)
