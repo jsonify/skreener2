@@ -745,7 +745,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The after-capture steps: Settings → After Capture, or the ones a skreener:// link chose (`actions`).
     private func finish(_ image: NSImage, actions: CaptureActions? = nil, screen: NSScreen? = nil) {
         let actions = actions ?? .fromPreferences
-        CaptureHistory.add(image)
+        let historyEntry = CaptureHistory.add(image)
         if actions.contains(.copy) { Output.copy(image) }
         var saved: URL?
         if actions.contains(.save) {
@@ -762,6 +762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if actions.contains(.edit) {
             // An auto-saved capture is saved again over the same file (#118).
             editor = EditorWindowController(image: image, file: saved)
+            if let historyEntry { editor?.attachHistory(historyEntry) }
             editor?.present(on: screen)
         }
         if actions.contains(.pin) { PinnedScreenshotController.pin(image) }

@@ -191,6 +191,9 @@ struct Annotation: Equatable {
 
     private static var lastSeq = 0
     private static func nextSeq() -> Int { lastSeq += 1; return lastSeq }
+    /// After annotations with creation numbers up to `seq` were loaded from a saved document, so new ones (and counters
+    /// numbered by it) come after them.
+    static func resumeNumbering(after seq: Int) { lastSeq = max(lastSeq, seq) }
 
     /// The same annotation as a new object: its own id, and the next creation number (a copied counter gets the next
     /// number, #125).
@@ -350,6 +353,21 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
     private var draft: Annotation? {
         didSet { updateExtent() }
+    }
+    /// What capture history keeps to reopen this capture with its annotations still editable (#30).
+    var document: EditorDocument { EditorDocument(items: items, crop: crop, background: background) }
+    /// Typing a text annotation or choosing a crop is under way: the state isn't a finished edit yet.
+    var isBusy: Bool { textEditor != nil || isCropping }
+
+    /// Replaces the annotations, crop and background with a saved document's; its undo history starts empty.
+    func load(_ doc: EditorDocument) {
+        items = doc.items
+        crop = doc.crop
+        background = doc.background
+        undoStack.removeAll()
+        redoStack.removeAll()
+        selectedID = nil
+        needsDisplay = true
     }
     private var drag: Drag?
     private lazy var beforeDrag = snapshot

@@ -25,18 +25,62 @@ enum CaptureHistory {
         return dir
     }
 
-    /// Encodes and writes in the background so a large capture never holds up the Quick Access thumbnail.
-    static func add(_ image: NSImage) {
-        guard Preferences.keepHistory, let tiff = image.tiffRepresentation else { return }
+    /// Writing and document saving share one queue, so a document is never saved before its capture's PNG exists.
+    private static let queue = DispatchQueue(label: "skreener.history", qos: .utility)
+
+    /// Encodes and writes in the background so a large capture never holds up the Quick Access thumbnail. Returns the
+    /// file the capture will be in, for the editor to save its document against (#30).
+    @discardableResult
+    static func add(_ image: NSImage) -> URL? {
+        guard Preferences.keepHistory, let tiff = image.tiffRepresentation else { return nil }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss.SSS"
         let url = directory.appendingPathComponent("Skreener \(f.string(from: Date())).png")
-        DispatchQueue.global(qos: .utility).async {
+        queue.async {
             guard let data = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return }
             do { try data.write(to: url) } catch { NSLog("History save failed: \(error)"); return }
             prune()
             DispatchQueue.main.async { NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil) }
         }
+        return url
+    }
+
+    // MARK: Editable documents (#30)
+
+    /// Where the editor document of the capture in `png` lives: a folder beside it, which `entries()` doesn't list.
+    static func documentFolder(for png: URL) -> URL { png.deletingPathExtension().appendingPathExtension("skreener") }
+
+    /// The capture's saved screenshot and annotations, if the editor kept them.
+    static func document(for png: URL) -> (base: NSImage, document: EditorDocument)? {
+        EditorDocument.read(from: documentFolder(for: png))
+    }
+
+    /// Keeps `document` for the capture in `png` and replaces the PNG with `flattened`, the capture as it now looks (for
+    /// thumbnails, copying and Add Image). `base` is the editor's screenshot, passed only when it changed since last time.
+    static func saveDocument(_ document: EditorDocument, base: NSImage?, flattened: NSImage, for png: URL) {
+        let tiff = flattened.tiffRepresentation
+        let baseTIFF = base?.tiffRepresentation
+        queue.async {
+            let fm = FileManager.default
+            // Pruned or deleted since the editor opened: leave nothing behind.
+            guard fm.fileExists(atPath: png.path) else { return }
+            let folder = documentFolder(for: png)
+            do {
+                try document.write(to: folder, base: baseTIFF.flatMap { NSImage(data: $0) })
+                // In place (not atomically), so the capture keeps its creation date and its place in the history.
+                if let data = tiff.flatMap({ NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }) {
+                    try data.write(to: png)
+                }
+            } catch { NSLog("History document save failed: \(error)"); return }
+            if !fm.fileExists(atPath: png.path) { try? fm.removeItem(at: folder) }
+            DispatchQueue.main.async { NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil) }
+        }
+    }
+
+    /// Removes a capture and its editor document.
+    static func remove(_ png: URL) {
+        try? FileManager.default.removeItem(at: png)
+        try? FileManager.default.removeItem(at: documentFolder(for: png))
     }
 
     /// Newest first.
@@ -52,16 +96,16 @@ enum CaptureHistory {
     /// Deletes the oldest captures past `limit` (right away when the limit is lowered).
     static func prune() {
         guard let limit else { return }
-        for old in entries().dropFirst(limit) { try? FileManager.default.removeItem(at: old.url) }
+        for old in entries().dropFirst(limit) { remove(old.url) }
     }
 
     static func delete(_ entry: Entry) {
-        try? FileManager.default.removeItem(at: entry.url)
+        remove(entry.url)
         NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
     }
 
     static func clear() {
-        entries().forEach { try? FileManager.default.removeItem(at: $0.url) }
+        entries().forEach { remove($0.url) }
         NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
     }
 
@@ -447,7 +491,9 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         default:
             break
         }
-        guard let image = NSImage(contentsOf: item.url) else { NSSound.beep(); return }
+        // A capture the editor kept a document for reopens with its annotations still editable (#30).
+        let saved = item.inLibrary ? nil : CaptureHistory.document(for: item.url)
+        guard let image = saved?.base ?? NSImage(contentsOf: item.url) else { NSSound.beep(); return }
         switch action {
         case .copy:
             Output.copy(image)
@@ -455,7 +501,9 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         case .edit:
             hide()
             // A saved file is saved again over itself (#118); a history capture is a copy, so it isn't.
-            EditorWindowController(image: image, file: item.inLibrary ? item.url : nil).present()
+            let editor = EditorWindowController(image: image, file: item.inLibrary ? item.url : nil)
+            if !item.inLibrary { editor.attachHistory(item.url, document: saved?.document) }
+            editor.present()
         case .pin:
             hide()
             PinnedScreenshotController.pin(image)
