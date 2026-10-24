@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/jsonify/skreener2/compare/v0.3.2...v0.4.0) (2026-10-24)
+
+
+### Features
+
+* install script and in-app updater that keep Screen Recording across updates ([#151](https://github.com/jsonify/skreener2/issues/151), [#34](https://github.com/jsonify/skreener2/issues/34)) ([336b5ca](https://github.com/jsonify/skreener2/commit/336b5cafb9f1cffe53008ec9de2aced2c20a5454))
+* **release:** install script that skips Gatekeeper's quarantine check ([#151](https://github.com/jsonify/skreener2/issues/151)) ([b7b0f93](https://github.com/jsonify/skreener2/commit/b7b0f939273d3cb777f150db6c5d4680b5140be1))
+* **update:** check for updates and install them in place ([#34](https://github.com/jsonify/skreener2/issues/34)) ([a18f1e4](https://github.com/jsonify/skreener2/commit/a18f1e4e20fe11de50d8a54fc3672f2d5e4db2b6))
+
 ## [0.3.2](https://github.com/jsonify/skreener2/compare/v0.3.1...v0.3.2) (2026-10-24)
 
 
