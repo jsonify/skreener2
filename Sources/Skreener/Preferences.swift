@@ -138,6 +138,11 @@ enum Preferences {
         get { d.bool(forKey: "allowURLScheme") }
         set { d.set(newValue, forKey: "allowURLScheme") }
     }
+    /// Look for a new release a minute after launch and once a day (#34).
+    static var checkForUpdates: Bool {
+        get { d.object(forKey: "checkForUpdates") as? Bool ?? true }
+        set { d.set(newValue, forKey: "checkForUpdates") }
+    }
     /// Open each screenshot in the editor.
     static var openEditorAfterCapture: Bool {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }

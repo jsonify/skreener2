@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.lastOtherApp = app.processIdentifier
         }
         Notifier.setUp()
+        Updater.start()
 
         if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
     }
@@ -152,6 +153,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.keyEquivalentModifierMask = [.command]; settings.target = self; m.addItem(settings)
         m.addItem(withTitle: "About Skreener", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let update = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        update.target = self; m.addItem(update)
         let version = NSMenuItem(title: "Version \(SettingsWindowController.version)", action: nil, keyEquivalent: "")
         version.isEnabled = false; m.addItem(version)
         m.addItem(.separator())
@@ -160,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+    @MainActor @objc private func checkForUpdates() { Updater.check(userInitiated: true) }
 
     // MARK: skreener:// links
 
@@ -257,6 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         _ = submenu("Skreener", [
             item("About Skreener", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            item("Check for Updates…", #selector(checkForUpdates), target: self),
             .separator(),
             item("Settings…", #selector(openSettings), ",", target: self),
             .separator(),
