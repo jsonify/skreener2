@@ -288,7 +288,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             folder.spacing = 10
 
             return [
-                group("App", [row("Launch at login", loginSwitch)]),
+                group("App", [
+                    row("Launch at login", loginSwitch),
+                    toggle("Check for updates automatically",
+                           "Looks for a new version once a day and asks before installing it.",
+                           Preferences.checkForUpdates) { Preferences.checkForUpdates = $0; Updater.start() },
+                ]),
                 group("Capture", [
                     toggle("Freeze screen while selecting", "Shows a still frame while you pick an area and captures from it.",
                            Preferences.freezeScreen) { Preferences.freezeScreen = $0 },
@@ -476,11 +481,14 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             version.isSelectable = true
             let blurb = NSTextField(labelWithString: "Screenshots, annotations and screen recordings from the menu bar.")
             blurb.textColor = .secondaryLabelColor
-            let stack = NSStackView(views: [icon, name, version, blurb])
+            let update = NSButton(title: "Check for Updates…", target: nil, action: nil)
+            bind(update) { _ in Updater.check(userInitiated: true) }
+            let stack = NSStackView(views: [icon, name, version, blurb, update])
             stack.orientation = .vertical
             stack.alignment = .centerX
             stack.spacing = 8
             stack.setCustomSpacing(4, after: name)
+            stack.setCustomSpacing(16, after: blurb)
             return [stack]
         }
     }

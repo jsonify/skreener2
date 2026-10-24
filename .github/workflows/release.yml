@@ -6,8 +6,9 @@ name: Release
 #
 # Signing: with the five Developer ID secrets below (paid Apple Developer Program) the app is signed with Developer
 # ID and notarised, so it opens anywhere without warnings. Without them, the two SELF_SIGNED_* secrets give a free
-# release instead: signed with your self-signed "Skreener Dev" certificate, not notarised, so people allow the first
-# launch in System Settings -> Privacy & Security -> Open Anyway (the release notes say how). With neither, it fails.
+# release instead: signed with your self-signed "Skreener Dev" certificate, not notarised. Gatekeeper calls a browser
+# download of it "damaged", so people install with Scripts/install.sh or the in-app updater (the release notes say
+# how). With neither, it fails.
 #
 # Developer ID secrets (Settings -> Secrets and variables -> Actions):
 #   DEVELOPER_ID_P12_BASE64     base64 of the "Developer ID Application" certificate + private key (.p12)
@@ -172,15 +173,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A rebuild replaces the note an earlier build added instead of adding a second one.
+          BODY=$(gh release view "$TAG" --json body -q .body)
           {
-            gh release view "$TAG" --json body -q .body
+            printf '%s\n' "${BODY%%$'\n---\n'\*\*Installing:*}"
             cat <<'NOTE'
 
           ---
-          **Installing:** this build isn't notarised by Apple, so macOS blocks the first launch. Drag Skreener to
-          Applications and open it once; then go to System Settings -> Privacy & Security, click **Open Anyway** next
-          to the Skreener message, and confirm. (Or run `xattr -dr com.apple.quarantine /Applications/Skreener.app`
-          in Terminal.) Updates signed with the same certificate keep the Screen Recording permission.
+          **Installing:** run this in Terminal:
+
+          ```sh
+          curl -fsSL https://raw.githubusercontent.com/jsonify/skreener2/main/Scripts/install.sh | bash
+          ```
+
+          Once installed, Skreener updates itself (**Check for Updates…** in its menu). This build is signed
+          with Skreener's own certificate, not an Apple Developer ID, so macOS calls a copy downloaded in a browser
+          "damaged". If you use the DMG or zip below, drag Skreener to Applications and run
+          `xattr -dr com.apple.quarantine /Applications/Skreener.app` once before opening it. Every release has the
+          same certificate, so the Screen Recording permission carries over to updates.
           NOTE
           } > "$RUNNER_TEMP/notes.md"
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"

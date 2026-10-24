@@ -120,7 +120,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Pins: hover toolbar (close, drag out as a file, edit, copy, zoom %), right-click menu (50/100/200%, Copy, Edit, Save…, Share…, Semi-transparent, Close), ⌘C copies; Capture Area & Pin opens the pin at 100% exactly over the captured area — M (#116)
 
 ## Menu parity with CleanShot X (from its menu bar)
-- [ ] Check for Updates… (Sparkle or equivalent) — M (#34)
+- [~] Check for Updates… (menu bar menu, app menu, Settings → About; daily check, Settings → General toggle): downloads the latest GitHub release, checks its SHA256SUMS and that it carries the running copy's certificate, swaps it in and relaunches; `Scripts/install.sh` installs without the quarantine flag — M (#34, #151)
 - [~] Settings… (⌘,) — see Settings window in batch 6 (#85)
 - [ ] Match CleanShot-style hotkeys (⇧⌘4 area, ⇧⌘3 fullscreen, ⇧⌘6 scrolling, ⇧⌘7 OCR, ⇧⌘5 all-in-one) as rebindable defaults — S (#35)
 
