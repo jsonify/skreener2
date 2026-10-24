@@ -209,8 +209,8 @@ version and the changelog:
 - `feat` bumps the minor version.
 - `feat!:` or a `BREAKING CHANGE:` footer bumps the major version. It bumps the minor version while below 1.0.
 
-Merging the release PR tags `vX.Y.Z` and updates `CHANGELOG.md` and `version.txt`. CI then attaches a signed DMG and
-zip to the GitHub release.
+Merging the release PR tags `vX.Y.Z` and updates `CHANGELOG.md` and `version.txt`. CI then attaches a DMG and zip of the
+signed app to the GitHub release.
 
 `build_app.sh` takes the version from the newest `vX.Y.Z` tag, the build number from the commit count, and adds the
 short commit hash. The About panel shows all three, for example `0.2.0 (412, 48db438)`.
@@ -230,8 +230,9 @@ short commit hash. The About panel shows all three, for example `0.2.0 (412, 48d
 
   If you have several Developer ID identities, pick one with `SKREENER_DEVELOPER_ID`.
 
-- **Without a developer account.** Run `Scripts/release.sh --self-signed` to sign with the "Skreener Dev"
-  certificate instead. CI does this automatically when the Developer ID secrets are not set. To set it up for CI,
+- **Without a developer account.** Run `Scripts/release.sh --self-signed` to sign the app with the "Skreener Dev"
+  certificate instead. The DMG stays unsigned, because macOS refuses to open a disk image signed with a certificate
+  Apple didn't issue. CI does this automatically when the Developer ID secrets are not set. To set it up for CI,
   export **Skreener Dev** from Keychain Access as a `.p12`. Add it as the repository secret `SELF_SIGNED_P12_BASE64`
   (base64-encoded) and its password as `SELF_SIGNED_P12_PASSWORD`, then delete the `.p12` file. Keep the certificate
   itself: a new one would make every user grant Screen Recording again.
