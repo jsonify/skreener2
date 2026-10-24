@@ -28,24 +28,25 @@ No code from CleanShot X was decompiled or copied.
 
 ### From a release
 
-1. Download the latest `Skreener-<version>.dmg` from the [Releases](https://github.com/jsonify/skreener2/releases) page.
-2. Open the DMG and drag **Skreener** into **Applications**.
-3. Open Skreener from Applications. Its icon shows up in the menu bar, not in the Dock.
+Run this in Terminal:
 
-Releases are currently signed with a self-signed certificate, not an Apple Developer ID, so macOS blocks the first
-launch. To allow it:
+```sh
+curl -fsSL https://raw.githubusercontent.com/jsonify/skreener2/main/Scripts/install.sh | bash
+```
 
-1. Try to open Skreener once and dismiss the warning.
-2. Open **System Settings > Privacy & Security**.
-3. Next to the message about Skreener, click **Open Anyway** and confirm.
+It downloads the latest release, checks it against the release's checksums, installs it in **Applications** and
+opens it. Its icon shows up in the menu bar, not in the Dock. Run the same command again to update, or use
+**Check for Updates…** in Skreener's menu: Skreener also checks once a day and asks before installing.
 
-Or, from Terminal, run this once:
+Releases are signed with Skreener's own certificate, not an Apple Developer ID. Every release has the same
+certificate, so the Screen Recording permission you grant once carries over to every update. macOS only checks
+apps downloaded in a browser, and calls a browser-downloaded copy "damaged". If you downloaded the DMG or zip from the
+[Releases](https://github.com/jsonify/skreener2/releases) page instead, drag Skreener into **Applications** and run
+this once before opening it:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Skreener.app
 ```
-
-Every release is signed with the same certificate, so permissions you grant carry over when you update.
 
 ### From source
 
@@ -231,8 +232,9 @@ short commit hash. The About panel shows all three, for example `0.2.0 (412, 48d
   If you have several Developer ID identities, pick one with `SKREENER_DEVELOPER_ID`.
 
 - **Without a developer account.** Run `Scripts/release.sh --self-signed` to sign the app with the "Skreener Dev"
-  certificate instead. The DMG stays unsigned, because macOS refuses to open a disk image signed with a certificate
-  Apple didn't issue. CI does this automatically when the Developer ID secrets are not set. To set it up for CI,
+  certificate instead. macOS calls a browser download of such an app "damaged", so people install with
+  `Scripts/install.sh` or the in-app updater, which don't mark the download as quarantined. The DMG stays unsigned,
+  because macOS refuses to open a disk image signed with a certificate Apple didn't issue. CI does this automatically when the Developer ID secrets are not set. To set it up for CI,
   export **Skreener Dev** from Keychain Access as a `.p12`. Add it as the repository secret `SELF_SIGNED_P12_BASE64`
   (base64-encoded) and its password as `SELF_SIGNED_P12_PASSWORD`, then delete the `.p12` file. Keep the certificate
   itself: a new one would make every user grant Screen Recording again.

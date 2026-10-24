@@ -26,9 +26,9 @@ Options:
   --self-signed       Release without a paid Apple Developer account: sign with a self-signed
                       certificate (SKREENER_SIGN_IDENTITY, default "Skreener Dev" from
                       Scripts/make_dev_cert.sh); no notarisation or hardened runtime. The same certificate on every
-                      release keeps the Screen Recording permission across updates, but people
-                      have to allow the first launch: System Settings -> Privacy & Security ->
-                      Open Anyway. The DMG is left unsigned: Gatekeeper rejects a disk image
+                      release keeps the Screen Recording permission across updates, but Gatekeeper
+                      calls a browser download "damaged": people install with Scripts/install.sh or
+                      the in-app updater, which skip it. The DMG is left unsigned: Gatekeeper rejects a disk image
                       signed with a self-signed certificate outright. With SKREENER_SIGN_P12
                       (the certificate as a .p12 file) and
                       SKREENER_SIGN_P12_PASSWORD_FILE, it signs with rcodesign instead of codesign,
@@ -298,7 +298,7 @@ echo "Release $VERSION (build $BUILD) in $OUT/:"
 for a in "${ARTIFACTS[@]}"; do echo "  $a"; done
 echo "  SHA256SUMS"
 if [ "$SELF_SIGNED" = 1 ]; then
-  echo "note: self-signed, not notarised: on other Macs the first launch needs System Settings -> Privacy & Security -> Open Anyway." >&2
+  echo "note: self-signed, not notarised: install with Scripts/install.sh; a browser download needs xattr -dr com.apple.quarantine." >&2
 elif [ "$NOTARIZE" = 0 ]; then
   echo "note: not notarised (--skip-notarize); other Macs will refuse to open these." >&2
 fi
