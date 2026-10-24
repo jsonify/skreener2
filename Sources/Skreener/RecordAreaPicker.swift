@@ -92,7 +92,7 @@ final class RecordAreaPicker: NSObject {
     private var modeBar: NSView?
     private let widthField = NSTextField()
     private let heightField = NSTextField()
-    private var toggles: [(NSButton, () -> Bool)] = []
+    private var toggles: [(TileButton, () -> Bool)] = []
     private var actions: [Action] = []
     private var popover: NSPopover?
     private var screen: NSScreen!
@@ -202,13 +202,13 @@ final class RecordAreaPicker: NSObject {
         return true
     }
 
-    private var recordingButton: NSButton?
+    private var recordingButton: TileButton?
 
     /// Recording picked in the mode bar: highlight it and show the recording panel in the selection.
     private func showRecording() {
         guard let c = controls else { return }
         c.isHidden = false
-        recordingButton?.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        recordingButton?.isOn = true
         layout()
     }
 
@@ -329,27 +329,28 @@ final class RecordAreaPicker: NSObject {
     }
 
     /// The recording panel shown in the selection once Recording is picked: options, audio and effect toggles
-    /// (each with a check mark underneath when on), Record GIF and Record Video.
+    /// (tiles like the mode bar's, filled when on), Record GIF and Record Video.
     private func buildControls() -> NSView {
-        let options = Self.iconButton("slider.vertical.3", "Recording options")
+        let options = TileButton(symbol: "slider.vertical.3", title: "Options", width: 56)
+        options.toolTip = "Recording options"
         bind(options) { [weak self] sender in self?.showOptions(sender as? NSView) }
-        // Row 2: audio and effect toggles, each with a check mark underneath when on.
+        // Row 2: audio and effect toggles, filled when on.
         let micAvailable: Bool
         if #available(macOS 15.0, *) { micAvailable = true } else { micAvailable = false }
         let row2 = NSStackView(views: [
             options,
-            toggle("mic", micAvailable ? "Record microphone" : "Microphone recording needs macOS 15 or later", enabled: micAvailable,
+            toggle("mic", "Mic", micAvailable ? "Record microphone" : "Microphone recording needs macOS 15 or later", enabled: micAvailable,
                    get: { Preferences.recordMicrophone }, set: { Preferences.recordMicrophone = $0 }),
-            toggle("speaker.wave.2", "Record system audio",
+            toggle("speaker.wave.2", "Audio", "Record system audio",
                    get: { Preferences.recordSystemAudio }, set: { Preferences.recordSystemAudio = $0 }),
-            toggle("cursorarrow.click.2", "Highlight clicks",
+            toggle("cursorarrow.click.2", "Clicks", "Highlight clicks",
                    get: { Preferences.recordHighlightClicks }, set: { Preferences.recordHighlightClicks = $0 }),
-            toggle("command", "Show keystrokes",
+            toggle("command", "Keys", "Show keystrokes",
                    get: { Preferences.recordShowKeystrokes }, set: { [weak self] on in self?.setKeystrokes(on) }),
         ])
-        row2.distribution = .fillEqually
+        row2.distribution = .equalSpacing
         row2.spacing = 0
-        row2.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 6, right: 6)
+        row2.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
 
         let top = column([row2], spacing: 0)
 
@@ -371,16 +372,11 @@ final class RecordAreaPicker: NSObject {
         return stack
     }
 
-    private func toggle(_ sym: String, _ tip: String, enabled: Bool = true,
-                        get: @escaping () -> Bool, set: @escaping (Bool) -> Void) -> NSButton {
-        let b = NSButton(title: "", image: NSImage(systemSymbolName: sym, accessibilityDescription: tip) ?? NSImage(), target: nil, action: nil)
-        b.isBordered = false
-        b.imagePosition = .imageAbove
-        b.font = .systemFont(ofSize: 9, weight: .bold)
+    private func toggle(_ sym: String, _ title: String, _ tip: String, enabled: Bool = true,
+                        get: @escaping () -> Bool, set: @escaping (Bool) -> Void) -> TileButton {
+        let b = TileButton(symbol: sym, title: title, width: 56)
         b.toolTip = tip
         b.isEnabled = enabled
-        b.translatesAutoresizingMaskIntoConstraints = false
-        b.heightAnchor.constraint(equalToConstant: 40).isActive = true
         bind(b) { [weak self] _ in set(!get()); self?.refreshToggles() }
         toggles.append((b, enabled ? get : { false }))
         return b
@@ -389,8 +385,7 @@ final class RecordAreaPicker: NSObject {
     private func refreshToggles() {
         for (b, isOn) in toggles {
             let on = isOn()
-            b.title = on ? "✓" : " "
-            b.contentTintColor = on ? .labelColor : .secondaryLabelColor
+            b.isOn = on
             b.setAccessibilityValue(on ? "on" : "off")
         }
     }
@@ -408,15 +403,7 @@ final class RecordAreaPicker: NSObject {
         ]
         var buttons: [NSView] = []
         for (sym, title, pick) in modes {
-            let b = NSButton(title: title, image: NSImage(systemSymbolName: sym, accessibilityDescription: title) ?? NSImage(),
-                             target: nil, action: nil)
-            b.isBordered = false
-            b.imagePosition = .imageAbove
-            b.font = .systemFont(ofSize: 11, weight: .medium)
-            b.contentTintColor = .labelColor
-            b.translatesAutoresizingMaskIntoConstraints = false
-            b.widthAnchor.constraint(equalToConstant: 72).isActive = true
-            b.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            let b = TileButton(symbol: sym, title: title, width: 72)
             switch title {
             case "Area":
                 b.toolTip = "Screenshot of the selected area"
@@ -432,8 +419,6 @@ final class RecordAreaPicker: NSObject {
                 b.isEnabled = false
             case "Recording":
                 b.toolTip = "Record the selected area (↩)"
-                b.wantsLayer = true
-                b.layer?.cornerRadius = 8
                 bind(b) { [weak self] _ in self?.showRecording() }
                 recordingButton = b
             default:
@@ -451,7 +436,7 @@ final class RecordAreaPicker: NSObject {
         }
         let row = NSStackView(views: buttons)
         row.spacing = 4
-        row.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        row.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         let modesCard = Self.card(row), sizeCard = Self.card(buildSizeControls())
         let bar = NSStackView(views: [modesCard, sizeCard])
         // Only once both cards are in the stack: a constraint between views with no common ancestor throws.
@@ -590,6 +575,86 @@ final class RecordAreaPicker: NSObject {
         m.addItem(menuItem("Bottom of Area", checked: !Preferences.keystrokesAtTop) { Preferences.keystrokesAtTop = false })
         m.addItem(menuItem("Top of Area", checked: Preferences.keystrokesAtTop) { Preferences.keystrokesAtTop = true })
         return m
+    }
+}
+
+/// A symbol above a short title, the picker's mode bar and recording toggles. The symbol and title are laid out
+/// here rather than by the button cell, which clips an image placed above a title in a fixed-height button. Fills
+/// faintly on hover, more while pressed or when `isOn` (the chosen mode, a toggle that is on).
+private final class TileButton: NSButton {
+    static let height: CGFloat = 50
+    private let icon = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+    private var hover = false { didSet { applyColors() } }
+    private var pressed = false { didSet { applyColors() } }
+
+    var isOn = false { didSet { applyColors() } }
+
+    override var isEnabled: Bool {
+        didSet { alphaValue = isEnabled ? 1 : 0.4; applyColors() }
+    }
+
+    init(symbol: String, title: String, width: CGFloat) {
+        super.init(frame: .zero)
+        isBordered = false
+        self.title = ""
+        wantsLayer = true
+        layer?.cornerRadius = 9
+        layer?.cornerCurve = .continuous
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        icon.imageScaling = .scaleNone
+        label.stringValue = title
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.alignment = .center
+        label.lineBreakMode = .byClipping
+        let content = NSStackView(views: [icon, label])
+        content.orientation = .vertical
+        content.alignment = .centerX
+        content.spacing = 3
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            // A fixed symbol box, so titles line up whatever each symbol's shape.
+            icon.heightAnchor.constraint(equalToConstant: 20),
+            content.centerXAnchor.constraint(equalTo: centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: centerYAnchor),
+            widthAnchor.constraint(equalToConstant: width),
+            heightAnchor.constraint(equalToConstant: Self.height),
+        ])
+        setAccessibilityLabel(title)
+        applyColors()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// Clicks on the symbol or title belong to the button.
+    override func hitTest(_ point: NSPoint) -> NSView? { !isHidden && frame.contains(point) ? self : nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { hover = true }
+    override func mouseExited(with event: NSEvent) { hover = false }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        pressed = true
+        super.mouseDown(with: event)   // tracks the click until the button is released
+        pressed = false
+    }
+
+    private func applyColors() {
+        let active = isEnabled && (isOn || pressed)
+        let alpha: CGFloat = active ? 0.2 : (isEnabled && hover ? 0.1 : 0)
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(alpha).cgColor
+        // On the dark cards: white when on, a softer white otherwise (as the toggles' off state).
+        let content = NSColor.white.withAlphaComponent(isOn ? 1 : 0.85)
+        icon.contentTintColor = content
+        label.textColor = content
     }
 }
 
