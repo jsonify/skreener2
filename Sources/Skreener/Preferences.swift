@@ -197,6 +197,11 @@ enum Preferences {
         get { d.object(forKey: "showQuickAccess") as? Bool ?? true }
         set { d.set(newValue, forKey: "showQuickAccess") }
     }
+    /// Quick Access previews stack up from the bottom-right corner instead of the bottom-left (#32).
+    static var quickAccessOnRight: Bool {
+        get { d.bool(forKey: "quickAccessOnRight") }
+        set { d.set(newValue, forKey: "quickAccessOnRight") }
+    }
     /// Open each new editor as a tab of the editor window that is already open, instead of its own window.
     static var editorTabs: Bool {
         get { d.object(forKey: "editorTabs") as? Bool ?? true }
