@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/jsonify/skreener2/compare/v0.4.1...v0.5.0) (2026-10-24)
+
+
+### Features
+
+* **quick-access:** choose the corner the previews appear in ([#32](https://github.com/jsonify/skreener2/issues/32)) ([92498eb](https://github.com/jsonify/skreener2/commit/92498ebfed4422e568b5a43c28ddfd04f6c08b2d))
+* **quick-access:** choose the corner the previews appear in ([#32](https://github.com/jsonify/skreener2/issues/32)) ([8abcf40](https://github.com/jsonify/skreener2/commit/8abcf406151295dba622a8c82df10eab964c69d4))
+
 ## [0.4.1](https://github.com/jsonify/skreener2/compare/v0.4.0...v0.4.1) (2026-10-24)
 
 
