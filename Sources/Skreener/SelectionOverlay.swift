@@ -22,7 +22,7 @@ private final class OverlayPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// Full-screen dimmed overlay (one per display) for picking an area or a window.
+/// Full-screen clear overlay (one per display) for picking an area or a window.
 final class SelectionOverlay {
     enum Mode { case area, window }
     private var panels: [OverlayPanel] = []
@@ -68,6 +68,8 @@ final class SelectionOverlay {
             p.isOpaque = false
             p.backgroundColor = .clear
             p.hasShadow = false
+            // Nothing is drawn over most of the screen now; set explicitly, clear areas still take the clicks.
+            p.ignoresMouseEvents = false
             p.isReleasedWhenClosed = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             let v = SelectionView(frame: CGRect(origin: .zero, size: screen.frame.size))
@@ -153,8 +155,28 @@ final class SelectionOverlay {
 }
 
 private final class SelectionView: NSView {
-    /// The crosshair for areas, a camera for windows (#129).
-    static func cursor(for mode: SelectionOverlay.Mode) -> NSCursor { mode == .window ? cameraCursor : .crosshair }
+    /// A small target for areas, a camera for windows (#129).
+    static func cursor(for mode: SelectionOverlay.Mode) -> NSCursor { mode == .window ? cameraCursor : targetCursor }
+
+    /// Thin cross with a translucent ring at its center, like the macOS screenshot pointer. Black on a white
+    /// outline, so it shows on light and dark content alike.
+    static let targetCursor: NSCursor = {
+        let side: CGFloat = 25, c = side / 2
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let ring = NSBezierPath(ovalIn: NSRect(x: c - 6, y: c - 6, width: 12, height: 12))
+            NSColor.gray.withAlphaComponent(0.35).setFill(); ring.fill()
+            let cross = NSBezierPath()
+            cross.move(to: NSPoint(x: 1, y: c)); cross.line(to: NSPoint(x: side - 1, y: c))
+            cross.move(to: NSPoint(x: c, y: 1)); cross.line(to: NSPoint(x: c, y: side - 1))
+            for (color, width) in [(NSColor.white, CGFloat(3)), (NSColor.black, CGFloat(1))] {
+                color.setStroke()
+                ring.lineWidth = width; ring.stroke()
+                cross.lineWidth = width; cross.stroke()
+            }
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: c, y: c))
+    }()
 
     /// A black camera with a white outline, so it shows on light and dark windows alike.
     static let cameraCursor: NSCursor = {
@@ -262,7 +284,7 @@ private final class SelectionView: NSView {
         handles(of: r).firstIndex { abs($0.x - p.x) <= Self.grab && abs($0.y - p.y) <= Self.grab }
     }
 
-    /// Resize arrows over the handles, an open hand inside the selection, the crosshair elsewhere.
+    /// Resize arrows over the handles, an open hand inside the selection, the target elsewhere.
     private func updateCursor(at p: NSPoint) {
         guard mode == .area, let r = adjusted, drag == nil else { return }
         if let i = handle(at: p, of: r) {
@@ -270,7 +292,7 @@ private final class SelectionView: NSView {
         } else if r.contains(p) {
             NSCursor.openHand.set()
         } else {
-            NSCursor.crosshair.set()
+            Self.targetCursor.set()
         }
     }
 
@@ -471,21 +493,23 @@ private final class SelectionView: NSView {
             NSGraphicsContext.current?.cgContext.draw(snap, in: bounds)
         }
         if mode == .window { drawWindowHighlight(); return }
-        let dim = NSColor.black.withAlphaComponent(0.35)
+        // The screen isn't dimmed: only the selection gets a translucent fill.
         let hole: NSRect? = selectionRect
-        let path = NSBezierPath(rect: bounds)
-        if let h = hole { path.append(NSBezierPath(rect: h)); path.windingRule = .evenOdd }
-        dim.setFill(); path.fill()
-        // While a selection waits to be adjusted, the crosshair and loupe only show while dragging it.
+        // While a selection waits to be adjusted, the loupe only shows while dragging it.
         let pointerAids = mode == .area && (adjusted == nil || drag != nil)
-        if pointerAids, let c = cursorPoint { drawCrosshair(at: c) }
         defer { if pointerAids, let c = cursorPoint { drawLoupe(at: c) } }
         if let hint, start == nil, adjusted == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
         guard let h = hole else { return }
-        NSColor.white.setStroke()
-        let b = NSBezierPath(rect: h); b.lineWidth = 1; b.stroke()
+        NSColor.gray.withAlphaComponent(0.25).setFill()
+        h.fill()
+        NSColor.black.withAlphaComponent(0.35).setStroke()
+        let b = NSBezierPath(rect: h.insetBy(dx: 0.5, dy: 0.5)); b.lineWidth = 1; b.stroke()
         // A new drag clears `adjusted`, so handles show only on a selection being adjusted.
         if adjusted != nil { drawHandles(around: h) }
+        if case .new? = drag, let c = current {
+            drawDragSize(of: h, at: c)
+            return
+        }
         do {
             let dims = "\(Int(h.width)) × \(Int(h.height))"
             let label = (adjusted != nil && drag == nil ? dims + "   ↩ Capture · Esc Cancel" : dims) as NSString
@@ -497,6 +521,27 @@ private final class SelectionView: NSView {
             NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
             label.draw(at: NSPoint(x: box.minX + 5, y: box.minY + 2), withAttributes: attrs)
         }
+    }
+
+    /// While dragging, the width over the height beside the pointer, macOS-style: below-left of it, or below-right
+    /// when the loupe sits on the left (near the right edge of the screen).
+    private func drawDragSize(of r: NSRect, at p: NSPoint) {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.white
+        shadow.shadowBlurRadius = 2
+        shadow.shadowOffset = .zero
+        let style = NSMutableParagraphStyle()
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+                                                    .foregroundColor: NSColor.black.withAlphaComponent(0.75),
+                                                    .shadow: shadow, .paragraphStyle: style]
+        let label = "\(Int(r.width))\n\(Int(r.height))" as NSString
+        let size = label.size(withAttributes: attrs)
+        let loupeOnLeft = p.x + Self.loupeGap + Self.loupeSide > bounds.maxX - 4
+        style.alignment = loupeOnLeft ? .left : .right
+        var origin = NSPoint(x: loupeOnLeft ? p.x + 10 : p.x - 10 - size.width, y: p.y - 10 - size.height)
+        origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - size.width - 2)
+        if origin.y < bounds.minY + 2 { origin.y = p.y + 10 }
+        label.draw(in: NSRect(origin: origin, size: size), withAttributes: attrs)
     }
 
     /// Window picking (#129): the screen stays as it is; the part of the window under the pointer that can be seen gets
@@ -533,21 +578,13 @@ private final class SelectionView: NSView {
         }
     }
 
-    private func drawCrosshair(at p: NSPoint) {
-        let x = floor(p.x) + 0.5, y = floor(p.y) + 0.5
-        for (color, width) in [(NSColor.black.withAlphaComponent(0.25), CGFloat(3)), (NSColor.white.withAlphaComponent(0.6), CGFloat(1))] {
-            color.setStroke()
-            let line = NSBezierPath(); line.lineWidth = width
-            line.move(to: NSPoint(x: bounds.minX, y: y)); line.line(to: NSPoint(x: bounds.maxX, y: y))
-            line.move(to: NSPoint(x: x, y: bounds.minY)); line.line(to: NSPoint(x: x, y: bounds.maxY))
-            line.stroke()
-        }
-    }
+    private static let loupeCells = 15, loupeZoom: CGFloat = 9, loupeGap: CGFloat = 26
+    private static var loupeSide: CGFloat { CGFloat(loupeCells) * loupeZoom }
 
     /// Pixel magnifier with the cursor's position (points, top-left origin) underneath.
     private func drawLoupe(at p: NSPoint) {
         guard let snap = snapshot, bounds.width > 0, bounds.height > 0 else { return }
-        let cells = 15, zoom: CGFloat = 9, side = CGFloat(cells) * zoom, labelH: CGFloat = 22, gap: CGFloat = 26
+        let cells = Self.loupeCells, zoom = Self.loupeZoom, side = Self.loupeSide, labelH: CGFloat = 22, gap = Self.loupeGap
         let sx = CGFloat(snap.width) / bounds.width, sy = CGFloat(snap.height) / bounds.height
         let ix = Int(floor(p.x * sx)), iy = Int(floor((bounds.height - p.y) * sy))
         // NSImage uses a bottom-left origin, so flip the row index.
