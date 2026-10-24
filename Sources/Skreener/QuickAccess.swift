@@ -20,6 +20,8 @@ import AVFoundation
     private static let gap: CGFloat = 12
 
     private let image: NSImage
+    /// The file the screenshot was saved to (Settings → After Capture), which dragging the preview out hands over.
+    private let saved: URL?
     /// The video or GIF file when this previews a recording; `image` is then its first frame.
     private let recording: URL?
     /// For a GIF recording, the temporary MP4 it was made from, kept for Trim; deleted when the preview goes away
@@ -33,9 +35,9 @@ import AVFoundation
     // The app's capture flows (not main-actor isolated themselves) call these on the main thread.
 
     /// Adds a preview of `image` to the bottom of the stack. `editor` is the editor the capture opened in, if any.
-    nonisolated static func show(_ image: NSImage, editor: EditorWindowController?) {
+    nonisolated static func show(_ image: NSImage, editor: EditorWindowController?, saved: URL? = nil) {
         MainActor.assumeIsolated {
-            let qa = QuickAccessController(image: image, editor: editor)
+            let qa = QuickAccessController(image: image, editor: editor, saved: saved)
             screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             live.append(qa)
             layout(animated: true)
@@ -104,8 +106,9 @@ import AVFoundation
         }
     }
 
-    private init(image: NSImage, editor: EditorWindowController? = nil, recording: URL? = nil) {
+    private init(image: NSImage, editor: EditorWindowController? = nil, recording: URL? = nil, saved: URL? = nil) {
         self.image = image
+        self.saved = saved
         self.editor = editor
         self.recording = recording
         let aspect = image.size.height / max(image.size.width, 1)
@@ -144,6 +147,13 @@ import AVFoundation
             guard let self else { return }
             if recording != nil { open() } else { edit() }
         }
+        // Dragging the preview out hands over the file: the recording, the saved screenshot, or a named temporary copy.
+        card.fileToDrag = {
+            recording ?? saved.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+                ?? Output.temporaryFile(image)
+        }
+        // Swiping it toward the screen edge dismisses it (#32).
+        card.onSwipeDismiss = { [weak self] in self?.close() }
         panel.contentView = card
     }
 
@@ -278,6 +288,30 @@ import AVFoundation
     }
 }
 
+/// What a drag on a Quick Access preview means (#32): toward the edge of the screen the previews sit on swipes it
+/// away; any other direction drags the file out.
+enum QuickAccessGesture {
+    enum Kind: Equatable { case swipe, fileDrag }
+
+    /// Movement below this many points is still a click.
+    static let slop: CGFloat = 4
+
+    /// `dx`/`dy` are the pointer's movement since the mouse went down; `onRight` is the corner the previews are in.
+    static func classify(dx: CGFloat, dy: CGFloat, onRight: Bool) -> Kind? {
+        guard hypot(dx, dy) > slop else { return nil }
+        let toward = onRight ? dx : -dx
+        return toward > 0 && abs(dx) > abs(dy) ? .swipe : .fileDrag
+    }
+
+    /// Whether letting go after a swipe of `dx` dismisses: far enough (40% of the width), or flicked (`velocity` in
+    /// points per second, positive to the right) after a short swipe.
+    static func shouldDismiss(dx: CGFloat, width: CGFloat, velocity: CGFloat, onRight: Bool) -> Bool {
+        let toward = onRight ? dx : -dx
+        let speed = onRight ? velocity : -velocity
+        return toward > width * 0.4 || (toward > 20 && speed > 600)
+    }
+}
+
 /// Quick Access previews (of screenshots and recordings) rest semi-transparent, so they don't hide what is under them,
 /// and turn opaque while the pointer is over them (#98).
 enum PreviewHover {
@@ -291,13 +325,22 @@ enum PreviewHover {
 }
 
 /// The preview's content: the thumbnail, and on hover a dark veil with the corner buttons and the middle pills.
-private final class QuickAccessCard: NSView {
+private final class QuickAccessCard: NSView, NSDraggingSource {
     enum Corner { case topLeft, topRight, bottomLeft, bottomRight }
 
     private let controls = NSView()
     private let thumb = NSImageView()
     /// A double-click anywhere but on a button.
     var onDoubleClick: (() -> Void)?
+    /// The file a drag out of the preview carries.
+    var fileToDrag: (() -> URL?)?
+    /// A swipe toward the screen edge that was let go far (or fast) enough.
+    var onSwipeDismiss: (() -> Void)?
+    private var gesture: QuickAccessGesture.Kind?
+    private var startMouse = NSPoint.zero
+    private var startOrigin = NSPoint.zero
+    private var lastSample: (x: CGFloat, time: TimeInterval)?
+    private var velocity: CGFloat = 0
     private var pointerInside = false { didSet { hovering = pointerInside || held } }
     /// Keeps the card opaque with its buttons showing whatever the pointer does, e.g. while its share sheet is open.
     var held = false { didSet { hovering = pointerInside || held } }
@@ -380,8 +423,71 @@ private final class QuickAccessCard: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 { onDoubleClick?() }
+        if event.clickCount == 2 { onDoubleClick?(); return }
+        gesture = nil
+        startMouse = NSEvent.mouseLocation
+        startOrigin = window?.frame.origin ?? .zero
+        lastSample = nil
+        velocity = 0
     }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let window else { return }
+        let mouse = NSEvent.mouseLocation
+        let dx = mouse.x - startMouse.x, dy = mouse.y - startMouse.y
+        let onRight = Preferences.quickAccessOnRight
+        if gesture == nil { gesture = QuickAccessGesture.classify(dx: dx, dy: dy, onRight: onRight) }
+        switch gesture {
+        case .fileDrag:
+            gesture = nil   // the drag session takes over the mouse; a later drag decides again
+            beginFileDrag(with: event)
+        case .swipe:
+            // Follows the pointer toward the edge (not away from it), fading as it goes.
+            let moved = onRight ? max(dx, 0) : min(dx, 0)
+            window.setFrameOrigin(NSPoint(x: startOrigin.x + moved, y: startOrigin.y))
+            window.alphaValue = max(1 - abs(moved) / window.frame.width, 0.2)
+            if let last = lastSample, event.timestamp > last.time {
+                velocity = (mouse.x - last.x) / (event.timestamp - last.time)
+            }
+            lastSample = (mouse.x, event.timestamp)
+        case nil:
+            break
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard gesture == .swipe, let window else { return }
+        gesture = nil
+        let onRight = Preferences.quickAccessOnRight
+        let dx = window.frame.origin.x - startOrigin.x
+        let dismiss = QuickAccessGesture.shouldDismiss(dx: dx, width: window.frame.width, velocity: velocity, onRight: onRight)
+        let off = NSPoint(x: startOrigin.x + (onRight ? 1 : -1) * (window.frame.width + 40), y: startOrigin.y)
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            window.animator().setFrameOrigin(dismiss ? off : startOrigin)
+            window.animator().alphaValue = dismiss ? 0 : 1
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard dismiss else { return }
+                self?.onSwipeDismiss?()
+                window.alphaValue = 1   // a panel kept alive (e.g. by a suspend/resume) shouldn't stay see-through
+            }
+        })
+    }
+
+    /// Starts dragging the capture out as a file, with the thumbnail under the pointer.
+    private func beginFileDrag(with event: NSEvent) {
+        guard let url = fileToDrag?(), let image = thumb.image else { return }
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        let width: CGFloat = 120
+        let size = NSSize(width: width, height: max((width * image.size.height / max(image.size.width, 1)).rounded(), 40))
+        let p = convert(event.locationInWindow, from: nil)
+        item.setDraggingFrame(NSRect(x: p.x - size.width / 2, y: p.y - size.height / 2, width: size.width, height: size.height),
+                              contents: image)
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
 
     override func mouseEntered(with event: NSEvent) { pointerInside = true }
     override func mouseExited(with event: NSEvent) { pointerInside = false }

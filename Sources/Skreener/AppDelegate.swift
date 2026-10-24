@@ -742,7 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             editor?.present(on: screen)
         }
         if actions.contains(.pin) { PinnedScreenshotController.pin(image) }
-        if actions.contains(.quickAccess) { QuickAccessController.show(image, editor: editor) }
+        if actions.contains(.quickAccess) { QuickAccessController.show(image, editor: editor, saved: saved) }
         // Nothing on screen shows the result, so say what happened (#113).
         guard actions.isDisjoint(with: [.edit, .pin, .quickAccess]) else { return }
         let copied = actions.contains(.copy)
