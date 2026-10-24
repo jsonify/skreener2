@@ -257,6 +257,7 @@ final class RecordAreaPicker: NSObject {
 
     private static func card(_ content: NSView) -> NSView {
         let card = CardView()
+        card.translatesAutoresizingMaskIntoConstraints = false
         card.material = .hudWindow
         card.state = .active
         card.wantsLayer = true
@@ -351,6 +352,7 @@ final class RecordAreaPicker: NSObject {
         row2.distribution = .equalSpacing
         row2.spacing = 0
         row2.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        TileButton.holdHeight(of: row2)
 
         let top = column([row2], spacing: 0)
 
@@ -437,6 +439,7 @@ final class RecordAreaPicker: NSObject {
         let row = NSStackView(views: buttons)
         row.spacing = 4
         row.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        TileButton.holdHeight(of: row)
         let modesCard = Self.card(row), sizeCard = Self.card(buildSizeControls())
         let bar = NSStackView(views: [modesCard, sizeCard])
         // Only once both cards are in the stack: a constraint between views with no common ancestor throws.
@@ -592,6 +595,14 @@ private final class TileButton: NSButton {
 
     override var isEnabled: Bool {
         didSet { alphaValue = isEnabled ? 1 : 0.4; applyColors() }
+    }
+
+    /// Makes a row of tiles exactly as tall as a tile plus its insets. A stack view doesn't hold its height to its
+    /// views' at a required priority, so the mode bar's card shrank to the size card beside it and its mask cut
+    /// off the tops of the symbols.
+    static func holdHeight(of row: NSStackView) {
+        row.setClippingResistancePriority(.required, for: .vertical)
+        row.heightAnchor.constraint(equalToConstant: height + row.edgeInsets.top + row.edgeInsets.bottom).isActive = true
     }
 
     init(symbol: String, title: String, width: CGFloat) {
