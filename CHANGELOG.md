@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/jsonify/skreener2/compare/v0.3.1...v0.3.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* **release:** leave the self-signed DMG unsigned so macOS opens it ([#151](https://github.com/jsonify/skreener2/issues/151)) ([fa893d0](https://github.com/jsonify/skreener2/commit/fa893d06b2be46a79b69e1094ddb9318dcff90ae))
+
 ## [0.3.1](https://github.com/jsonify/skreener2/compare/v0.3.0...v0.3.1) (2026-10-24)
 
 
