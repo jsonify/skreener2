@@ -234,10 +234,14 @@ short commit hash. The About panel shows all three, for example `0.2.0 (412, 48d
 - **Without a developer account.** Run `Scripts/release.sh --self-signed` to sign the app with the "Skreener Dev"
   certificate instead. macOS calls a browser download of such an app "damaged", so people install with
   `Scripts/install.sh` or the in-app updater, which don't mark the download as quarantined. The DMG stays unsigned,
-  because macOS refuses to open a disk image signed with a certificate Apple didn't issue. CI does this automatically when the Developer ID secrets are not set. To set it up for CI,
-  export **Skreener Dev** from Keychain Access as a `.p12`. Add it as the repository secret `SELF_SIGNED_P12_BASE64`
-  (base64-encoded) and its password as `SELF_SIGNED_P12_PASSWORD`, then delete the `.p12` file. Keep the certificate
-  itself: a new one would make every user grant Screen Recording again.
+  because macOS refuses to open a disk image signed with a certificate Apple didn't issue. CI does this automatically
+  when the Developer ID secrets are not set. To set it up for CI, export the **Skreener Dev** certificate that
+  `Scripts/make_dev_cert.sh` created from Keychain Access as a `.p12`. It is the one that expires 10 years out and lists
+  **Code Signing** under Extended Key Usage. A certificate made with Keychain Access's Certificate Assistant is for
+  e-mail unless you change its type, and macOS rejects apps signed with it; the release build refuses one. Add the
+  `.p12` as the repository secret `SELF_SIGNED_P12_BASE64` (base64-encoded) and its password as
+  `SELF_SIGNED_P12_PASSWORD`, then delete the `.p12` file. Keep the certificate itself: a new one would make every user
+  grant Screen Recording again.
 
 Merging a release PR or pushing a `v*` tag runs `.github/workflows/release.yml`. The secrets it needs are listed
 at the top of that file.

@@ -107,6 +107,17 @@ if [ "$SELF_SIGNED" = 1 ] && [ -n "$P12" ]; then
   [ -f "$P12" ] || die "SKREENER_SIGN_P12=\"$P12\" is not a file."
   [ -f "${SKREENER_SIGN_P12_PASSWORD_FILE:-}" ] || die "SKREENER_SIGN_P12_PASSWORD_FILE must name the file holding the .p12's password."
   command -v rcodesign >/dev/null || die "rcodesign not found (github.com/indygreg/apple-platform-rs); it signs from SKREENER_SIGN_P12."
+  # macOS only accepts a code signature from a certificate made for code signing. One made for e-mail (Keychain
+  # Access's Certificate Assistant defaults to S/MIME) signs without complaint, but macOS then rejects the app
+  # everywhere: Gatekeeper calls it damaged and Screen Recording never sticks (#151).
+  CERT=$( (openssl pkcs12 -in "$P12" -passin "file:$SKREENER_SIGN_P12_PASSWORD_FILE" -nokeys -clcerts 2>/dev/null \
+    || openssl pkcs12 -legacy -in "$P12" -passin "file:$SKREENER_SIGN_P12_PASSWORD_FILE" -nokeys -clcerts 2>/dev/null) \
+    | openssl x509 -noout -text 2>/dev/null || true)
+  [ -n "$CERT" ] || die "couldn't read the certificate in SKREENER_SIGN_P12 (wrong password?)."
+  printf '%s\n' "$CERT" | grep -A1 'Extended Key Usage' | grep -q 'Code Signing' \
+    || die "the certificate in SKREENER_SIGN_P12 isn't a code-signing certificate (its extended key usage is
+       \"$(printf '%s\n' "$CERT" | grep -A1 'Extended Key Usage' | tail -1 | xargs)\"), so macOS would reject the app.
+       Create one with Scripts/make_dev_cert.sh and export that as the .p12."
   IDENTITY="$(basename "$P12") (rcodesign)"
 elif [ "$SELF_SIGNED" = 1 ]; then
   # A self-signed certificate may not be trusted on this Mac, and then find-identity's code-signing policy leaves
@@ -228,14 +239,9 @@ else
   codesign --force "${SIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$APP"
 fi
-if [ -n "$P12" ]; then
-  # codesign --verify also checks the certificate against macOS's code-signing policy, which a self-signed
-  # certificate only passes where it's trusted (your Mac), not here ("Invalid Extended Key Usage for policy").
-  # Check the signature itself instead.
-  rcodesign verify "$APP/Contents/MacOS/Skreener"
-else
-  codesign --verify --deep --strict --verbose=2 "$APP"
-fi
+# What macOS itself checks before granting Screen Recording; a certificate not made for code signing fails here with
+# "Invalid Extended Key Usage for policy" (#151).
+codesign --verify --deep --strict --verbose=2 "$APP"
 codesign --display --verbose=2 "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|flags|Identifier)=' || true
 # What macOS keys the Screen Recording permission to: the same certificate in every release keeps it.
 codesign --display --requirements - "$APP" 2>&1 | grep designated || true
