@@ -43,6 +43,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Shell\Assets\tray.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
