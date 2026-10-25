@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0](https://github.com/jsonify/skreener2/compare/v0.8.0...v0.9.0) (2026-10-25)
+
+
+### Features
+
+* **editor:** resize text labels from either side and scale them from the corner ([#174](https://github.com/jsonify/skreener2/issues/174)) ([0b7fe6e](https://github.com/jsonify/skreener2/commit/0b7fe6e3b36e4c934bc3619ae25783b60bba5788))
+* **editor:** type a label at an arrow's tail right after drawing it ([#174](https://github.com/jsonify/skreener2/issues/174)) ([b1b09fc](https://github.com/jsonify/skreener2/commit/b1b09fc4a94926f037eb021923c54f4911dae35f))
+* **editor:** type a label at an arrow's tail right after drawing it ([#174](https://github.com/jsonify/skreener2/issues/174)) ([0460aa8](https://github.com/jsonify/skreener2/commit/0460aa89fd62f93874ba33c3ddf183c615fd87ce))
+
 ## [0.8.0](https://github.com/jsonify/skreener2/compare/v0.7.0...v0.8.0) (2026-10-25)
 
 
