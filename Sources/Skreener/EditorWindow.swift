@@ -261,6 +261,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let strokePopup = PillPopUp(pullsDown: false)
     private let fontPopup = PillPopUp(pullsDown: false)
     private let sizePopup = PillPopUp(pullsDown: false)
+    /// The font sizes the size popup offers.
+    static let fontSizes = [12, 14, 16, 18, 22, 28, 32, 40, 48, 64, 72]
     private let boldButton = PillButton(title: nil, symbol: "bold", style: .raised, height: pillHeight)
     private let pixelPopup = PillPopUp(pullsDown: false)
     private let cornerStylePopup = PillPopUp(pullsDown: false)
@@ -273,6 +275,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let tailButton = PillButton(title: "Tail", symbol: "bubble.left", style: .raised, height: pillHeight)
     private let handDrawnButton = PillButton(title: "Hand-Drawn", symbol: "scribble", style: .raised, height: pillHeight)
     private let shapeCorrectionButton = PillButton(title: "Shapes", symbol: "pencil.and.outline", style: .raised, height: pillHeight)
+    private let arrowLabelButton = PillButton(title: "Label", symbol: "text.bubble", style: .raised, height: pillHeight)
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
@@ -951,7 +954,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             for (title, tag) in choices { popup.addItem(withTitle: title); popup.lastItem?.tag = tag }
         }
         setUp(strokePopup, "Stroke width", [1, 2, 3, 5, 8, 12].map { ("\($0) pt", $0) }, #selector(strokePicked(_:)))
-        setUp(sizePopup, "Font size", [12, 14, 16, 18, 22, 28, 32, 40, 48, 64, 72].map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
+        setUp(sizePopup, "Font size", EditorWindowController.fontSizes.map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
         setUp(pixelPopup, "Strength", [("Light", 6), ("Medium", 10), ("Strong", 18), ("Heavy", 28)], #selector(pixelPicked(_:)))
         setUp(cornerStylePopup, "Corners", [("Sharp Corners", 0), ("Slightly Rounded", 2), ("Rounded", 8), ("Very Rounded", 16)],
               #selector(cornerPicked(_:)))
@@ -987,6 +990,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         handDrawnButton.target = self; handDrawnButton.action = #selector(handDrawnToggled(_:))
         shapeCorrectionButton.toolTip = "Shape correction: a stroke drawn as a line, circle or box becomes one. Shift keeps a stroke straight."
         shapeCorrectionButton.target = self; shapeCorrectionButton.action = #selector(shapeCorrectionToggled(_:))
+        arrowLabelButton.toolTip = "Label: type a note at the arrow's tail as soon as it is drawn, in the last text style. Esc without typing keeps just the arrow."
+        arrowLabelButton.target = self; arrowLabelButton.action = #selector(arrowLabelToggled(_:))
 
         arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
         arrangeButton.addItem(withTitle: "Arrange")
@@ -999,7 +1004,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             arrangeButton.lastItem?.target = canvas
         }
 
-        [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, handDrawnButton, shapeCorrectionButton, cornerStylePopup,
+        [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, arrowLabelButton, handDrawnButton, shapeCorrectionButton, cornerStylePopup,
          fontPopup, sizePopup, boldButton, textBoxPopup, tailButton, pixelPopup, textOnlyButton, magnificationPopup, lensShapePopup,
          arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
@@ -1201,11 +1206,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         [magnificationPopup, lensShapePopup].forEach { $0.isHidden = tool != .magnifier }
         cornerStylePopup.isHidden = !tool.hasCorners
         arrowStylePopup.isHidden = tool != .arrow
+        arrowLabelButton.isHidden = tool != .arrow
         arrangeButton.isHidden = !canvas.hasSelection
 
         colorWell.color = style.color
         strokePopup.selectItem(withTag: Int(style.lineWidth))
-        sizePopup.selectItem(withTag: Int(style.fontSize))
+        showSize(Int(style.fontSize.rounded()))
         pixelPopup.selectItem(withTag: Int(style.pixelSize))
         cornerStylePopup.selectItem(withTag: Int(style.cornerRadius))
         arrowStylePopup.selectItem(withTag: style.arrowStyle.rawValue)
@@ -1221,6 +1227,17 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         tailButton.isOn = style.tail && style.textBox != .plain
         handDrawnButton.isOn = style.handDrawn
         shapeCorrectionButton.isOn = style.shapeCorrection
+        arrowLabelButton.isOn = style.arrowLabel
+    }
+
+    /// The usual font sizes, plus `size` when a label's corner handle scaled it to another one.
+    private func showSize(_ size: Int) {
+        let sizes = Set(EditorWindowController.fontSizes + [size]).sorted()
+        if sizePopup.itemArray.map(\.tag) != sizes {
+            sizePopup.menu?.removeAllItems()
+            for s in sizes { sizePopup.addItem(withTitle: "\(s) pt"); sizePopup.lastItem?.tag = s }
+        }
+        sizePopup.selectItem(withTag: size)
     }
 
     @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
@@ -1267,6 +1284,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func shapeCorrectionToggled(_ b: PillButton) {
         b.isOn.toggle()
         canvas.updateStyle { $0.shapeCorrection = b.isOn }
+    }
+    @objc private func arrowLabelToggled(_ b: PillButton) {
+        b.isOn.toggle()
+        canvas.updateStyle { $0.arrowLabel = b.isOn }
     }
     @objc private func magnificationPicked(_ p: PillPopUp) {
         canvas.updateStyle { $0.magnification = CGFloat(p.selectedTag()) / 10 }
