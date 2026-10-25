@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Platform-neutral logic only: no Windows or UI references, so it builds and tests on any OS. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Skreener.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>
