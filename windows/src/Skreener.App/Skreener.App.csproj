@@ -33,6 +33,11 @@
     <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.106" PrivateAssets="all" />
   </ItemGroup>
 
+  <!-- CsWin32 only picks up NativeMethods.txt at the project root by default; feed it the per-folder lists. -->
+  <ItemGroup>
+    <AdditionalFiles Include="**\NativeMethods.txt" Exclude="bin\**;obj\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Skreener.Core\Skreener.Core.csproj" />
   </ItemGroup>
