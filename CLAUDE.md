@@ -27,4 +27,4 @@ Issues and specs live in this repo's GitHub Issues, managed with the `gh` CLI (R
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created as terms and decisions get settled. See `docs/agents/domain.md`.
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root, created as terms and decisions get settled. See `docs/agents/domain.md`.
