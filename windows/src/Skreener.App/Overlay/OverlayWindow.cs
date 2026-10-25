@@ -52,7 +52,7 @@ internal sealed unsafe class OverlayWindow
     /// <summary>Wheel movement not yet applied: the selection changes by whole pixels.</summary>
     private double _wheelRemainder;
 
-    public OverlayWindow(OverlaySession session, Display display, PixelBuffer frozen)
+    public OverlayWindow(OverlaySession session, Display display, BgraImage frozen)
     {
         _session = session;
         Display = display;
@@ -62,7 +62,7 @@ internal sealed unsafe class OverlayWindow
     }
 
     public Display Display { get; }
-    public PixelBuffer Frozen { get; }
+    public BgraImage Frozen { get; }
     public bool HasSelection => _adjusted is not null || _drag != DragKind.None;
     /// <summary>Space may switch modes: nothing is being dragged or adjusted here.</summary>
     public bool CanSwitchMode => _start is null && _adjusted is null;

@@ -15,12 +15,12 @@ internal abstract record OverlayResult;
 /// An area on one monitor. <see cref="ScreenRect"/>: physical pixels, virtual-desktop coordinates.
 /// <see cref="Frozen"/> is that monitor's still, to crop the capture from (the Mac's "freeze screen" behaviour).
 /// </summary>
-internal sealed record AreaPicked(Display Display, RectInt32 ScreenRect, PixelBuffer Frozen) : OverlayResult;
+internal sealed record AreaPicked(Display Display, RectInt32 ScreenRect, BgraImage Frozen) : OverlayResult;
 
 internal sealed record WindowPicked(PickableWindow Window) : OverlayResult;
 
 /// <summary>One monitor to cover and the still of it, grabbed before the overlay appears.</summary>
-internal sealed record OverlayScreen(Display Display, PixelBuffer Frozen);
+internal sealed record OverlayScreen(Display Display, BgraImage Frozen);
 
 /// <summary>
 /// The selection overlay: one borderless, topmost window per monitor, each showing that monitor frozen

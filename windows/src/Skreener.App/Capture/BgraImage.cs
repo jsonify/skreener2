@@ -7,12 +7,13 @@ using WinRT;
 namespace Skreener.App.Capture;
 
 /// <summary>
-/// A BGRA8 premultiplied image in managed memory, rows tightly packed (stride = width * 4), top row first. The overlay
-/// paints the frozen screen from it and area captures are cropped from it.
+/// A BGRA8 premultiplied image in managed memory, rows tightly packed (stride = width * 4), top row first: the raw
+/// capture buffer. The overlay paints the frozen screen from it and area captures are cropped from it. Not to be confused
+/// with Skreener.Core's PixelBuffer, the read-only RGBA view the editor's colour picker and ruler read pixels from.
 /// </summary>
-internal sealed class PixelBuffer
+internal sealed class BgraImage
 {
-    public PixelBuffer(int width, int height, byte[]? pixels = null)
+    public BgraImage(int width, int height, byte[]? pixels = null)
     {
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "An image needs at least one pixel.");
         Width = width;
@@ -30,19 +31,19 @@ internal sealed class PixelBuffer
     /// The part of this image inside <paramref name="rect"/> (pixels, this image's own top-left origin), clipped to the
     /// image. Null when nothing is left after clipping.
     /// </summary>
-    public PixelBuffer? Crop(RectInt32 rect)
+    public BgraImage? Crop(RectInt32 rect)
     {
         int x0 = Math.Max(rect.X, 0), y0 = Math.Max(rect.Y, 0);
         int x1 = Math.Min(rect.X + rect.Width, Width), y1 = Math.Min(rect.Y + rect.Height, Height);
         if (x1 <= x0 || y1 <= y0) return null;
-        var result = new PixelBuffer(x1 - x0, y1 - y0);
+        var result = new BgraImage(x1 - x0, y1 - y0);
         for (int y = y0; y < y1; y++)
             Buffer.BlockCopy(Pixels, y * Stride + x0 * 4, result.Pixels, (y - y0) * result.Stride, result.Stride);
         return result;
     }
 
     /// <summary>Copies <paramref name="source"/> into this image with its top-left at (x, y); parts outside are dropped.</summary>
-    public void Blit(PixelBuffer source, int x, int y)
+    public void Blit(BgraImage source, int x, int y)
     {
         int x0 = Math.Max(x, 0), y0 = Math.Max(y, 0);
         int x1 = Math.Min(x + source.Width, Width), y1 = Math.Min(y + source.Height, Height);
@@ -55,9 +56,9 @@ internal sealed class PixelBuffer
     /// A copy blended towards a solid colour (<paramref name="amount"/> 0..1), alpha kept. The overlay uses it for the
     /// translucent selection fill and the window-picking tint: blending once up front keeps painting a plain BitBlt.
     /// </summary>
-    public PixelBuffer Tinted(byte r, byte g, byte b, double amount)
+    public BgraImage Tinted(byte r, byte g, byte b, double amount)
     {
-        var result = new PixelBuffer(Width, Height);
+        var result = new BgraImage(Width, Height);
         int keep = (int)Math.Round((1 - amount) * 256), add = 256 - keep;
         int tb = b * add, tg = g * add, tr = r * add;
         var src = Pixels;
@@ -73,13 +74,13 @@ internal sealed class PixelBuffer
     }
 
     /// <summary>Copies the top-left <paramref name="width"/> x <paramref name="height"/> pixels of a BGRA8 bitmap.</summary>
-    public static unsafe PixelBuffer FromSoftwareBitmap(SoftwareBitmap bitmap, int width, int height)
+    public static unsafe BgraImage FromSoftwareBitmap(SoftwareBitmap bitmap, int width, int height)
     {
         if (bitmap.BitmapPixelFormat != BitmapPixelFormat.Bgra8)
             throw new NotSupportedException($"Expected a BGRA8 bitmap, got {bitmap.BitmapPixelFormat}.");
         width = Math.Min(width, bitmap.PixelWidth);
         height = Math.Min(height, bitmap.PixelHeight);
-        var result = new PixelBuffer(width, height);
+        var result = new BgraImage(width, height);
         using var locked = bitmap.LockBuffer(BitmapBufferAccessMode.Read);
         var plane = locked.GetPlaneDescription(0);
         using var reference = locked.CreateReference();
