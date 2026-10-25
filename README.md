@@ -64,6 +64,9 @@ the right pane.
 | Accessibility | Auto-Scroll in scrolling capture |
 | Microphone | Recordings with the microphone turned on (macOS asks the first time) |
 
+Permissions switched on but not working, or asked for again after every build? See
+[Resetting permissions](docs/resetting-permissions.md).
+
 ## Major features
 
 ### Screenshots
