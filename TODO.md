@@ -109,7 +109,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Settings window redesign (CleanShot-style): sidebar with colored icons (General, After Capture, Shortcuts, Screenshots, Screen Recording, Annotate, About), options in rounded groups with switches; 810 pt wide (fixed), 660 pt tall by default, height resizable — M (#87)
 - [~] Settings: About sits on its own at the bottom of the sidebar, below a divider — S (#136)
 - [~] Quick Access (CleanShot-style, #21): shown alongside the editor (own Settings toggle); stays until an action; hover shows corner buttons (close, edit, pin, share) and Copy / Save pills; previews stack upwards, newest at the bottom; they fade out while a new capture is taken and come back after its editor opens; Edit brings back the capture's editor tab if it is still open — M (#88)
-- [ ] Quick Access: drag-and-drop out, swipe to dismiss — M (#32)
+- [~] Quick Access drag-and-drop out and swipe to dismiss: drag a preview into Finder or another app as a named file (the saved screenshot, a temporary copy, or the recording itself); drag it toward the screen edge it sits on and let go past 40% of its width (or flick) to dismiss, otherwise it springs back (`QuickAccessGesture`, unit-tested) — M (#32)
 - [~] Quick Access position: Settings → After Capture → Quick Access position, Bottom Left (default) or Bottom Right; previews on screen move when it changes — S (#32)
 - [~] Double-click a Quick Access preview to open its editor (a recording opens in its player) — S (#127)
 - [~] Quick Access previews (screenshots and recordings) rest semi-transparent (65%) and turn opaque while hovered; a preview that appears under the pointer, or whose share sheet is open, is opaque — S (#98)
