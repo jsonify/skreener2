@@ -16,6 +16,7 @@ func drawHintBanner(_ text: String, centeredAt c: NSPoint) {
 enum Selection {
     case area(NSScreen, CGRect, frozen: CGImage?)   // global bottom-left coordinates; `frozen` = full-display still to crop from
     case window(SCWindow)
+    case scrolling(NSScreen, CGRect)   // an area to scroll and stitch (#171); global bottom-left coordinates
 }
 
 private final class OverlayPanel: NSPanel {
@@ -24,14 +25,23 @@ private final class OverlayPanel: NSPanel {
 
 /// Full-screen clear overlay (one per display) for picking an area or a window.
 final class SelectionOverlay {
-    enum Mode { case area, window }
+    /// `scrolling` picks an area like `area` does; the selection comes back as `.scrolling` (#171).
+    enum Mode: CaseIterable {
+        case area, window, scrolling
+
+        /// The mode Space switches to: the next of `available` in area → window → scrolling order, wrapping around.
+        func next(in available: Set<Mode>) -> Mode {
+            let all = Mode.allCases, i = all.firstIndex(of: self) ?? 0
+            return (1...all.count).lazy.map { all[(i + $0) % all.count] }.first(where: available.contains) ?? self
+        }
+    }
     private var panels: [OverlayPanel] = []
     private var completion: ((Selection?) -> Void)?
     private var windows: [SCWindow] = []
     private(set) var mode: Mode = .area
     private var cursorPushed = false
-    /// Banner text shown in the middle of every screen, per mode (nil = no banner). With both set, Space
-    /// (before a drag starts) switches between picking an area and picking a window.
+    /// Banner text shown in the middle of every screen, per mode (nil = no banner). With two or more set, Space
+    /// (before a drag starts) cycles through those modes.
     private var hints: [Mode: String] = [:]
     /// The selection stays adjustable after the drag; Return or a double-click takes it (#102).
     private var adjustable = false
@@ -46,7 +56,7 @@ final class SelectionOverlay {
         self.hints = hints
         self.adjustable = adjustable
         self.completion = completion
-        guard mode == .area, Preferences.showMagnifier || Preferences.freezeScreen else { show(snapshots: [:]); return }
+        guard mode != .window, Preferences.showMagnifier || Preferences.freezeScreen else { show(snapshots: [:]); return }
         // Grab a clean frame of every display first so the magnifier can show real pixels (not the dim overlay).
         Task { @MainActor [weak self] in
             var snaps: [ObjectIdentifier: CGImage] = [:]
@@ -77,13 +87,13 @@ final class SelectionOverlay {
             v.mode = mode
             v.windows = windows
             v.snapshot = snapshots[ObjectIdentifier(screen)]
-            v.frozen = mode == .area && Preferences.freezeScreen && v.snapshot != nil
+            v.frozen = mode != .window && Preferences.freezeScreen && v.snapshot != nil
             v.onFinish = { [weak self] sel in self?.finish(sel) }
             v.adjustable = adjustable
             v.onSelectionStarted = { [weak self, weak v] in self?.selectionStarted(in: v) }
             v.keyHeldElsewhere = { [weak self, weak v] in self?.isAdjusting(besides: v) ?? false }
             v.hint = hints[mode]
-            if hints.count == 2 { v.onToggleMode = { [weak self] in self?.toggleMode() } }
+            if hints.count >= 2 { v.onToggleMode = { [weak self] in self?.toggleMode() } }
             p.contentView = v
             p.makeKeyAndOrderFront(nil)
             p.makeFirstResponder(v)
@@ -119,9 +129,9 @@ final class SelectionOverlay {
         }
     }
 
-    /// Space: area ⇄ window. The window list is fetched the first time it's needed.
+    /// Space: the next mode with a hint (area → window → scrolling). The window list is fetched the first time it's needed.
     private func toggleMode() {
-        let next: Mode = mode == .area ? .window : .area
+        let next = mode.next(in: Set(hints.keys))
         mode = next
         if cursorPushed { NSCursor.pop(); SelectionView.cursor(for: next).push() }
         let apply = { [weak self] in
@@ -198,7 +208,7 @@ private final class SelectionView: NSView {
     var onFinish: ((Selection?) -> Void)?
     /// Centered instruction banner, hidden while dragging.
     var hint: String?
-    /// Set when Space (before a drag) switches between area and window picking.
+    /// Set when Space (before a drag) switches to the next mode.
     var onToggleMode: (() -> Void)?
 
     /// Keep the selection after the drag, adjustable, until Return or a double-click (#102).
@@ -273,7 +283,7 @@ private final class SelectionView: NSView {
     /// Resize arrows over the handles, an open hand inside the selection, the crosshair elsewhere. Set again on every
     /// move: Skreener is an accessory app, so another app's cursor rects can reset the pointer to an arrow (#161).
     private func updateCursor(at p: NSPoint) {
-        guard mode == .area, drag == nil else { return }
+        guard mode != .window, drag == nil else { return }
         guard let r = adjusted else { NSCursor.crosshair.set(); return }
         if let i = handle(at: p, of: r) {
             (i % 2 == 0 ? NSCursor.crosshair : (i == 1 || i == 5 ? NSCursor.resizeUpDown : NSCursor.resizeLeftRight)).set()
@@ -392,7 +402,7 @@ private final class SelectionView: NSView {
         let rect = selectionRect
         drag = nil; start = nil; current = nil
         needsDisplay = true
-        guard mode == .area, let r = rect, r.width > 3, r.height > 3 else { return }
+        guard mode != .window, let r = rect, r.width > 3, r.height > 3 else { return }
         if adjustable {
             adjusted = SelectionGeometry.rounded(r)
             updateCursor(at: convert(event.locationInWindow, from: nil))
@@ -408,7 +418,7 @@ private final class SelectionView: NSView {
 
     /// Wheel (or two-finger scroll) up grows every side of the selection being adjusted, down shrinks it.
     override func scrollWheel(with event: NSEvent) {
-        guard mode == .area, let r = adjusted, drag == nil else { return }
+        guard mode != .window, let r = adjusted, drag == nil else { return }
         // Shift turns a mouse wheel into horizontal scrolling. Natural scrolling flips the sign; undo that so
         // up always grows.
         var d = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
@@ -429,7 +439,8 @@ private final class SelectionView: NSView {
     }
 
     private func take(_ r: NSRect) {
-        onFinish?(.area(screen, r.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY), frozen: frozen ? snapshot : nil))
+        let global = r.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY)
+        onFinish?(mode == .scrolling ? .scrolling(screen, global) : .area(screen, global, frozen: frozen ? snapshot : nil))
     }
 
     override func keyDown(with event: NSEvent) {
@@ -467,7 +478,7 @@ private final class SelectionView: NSView {
 
     /// Arrow keys move the pointer (and the selection corner while dragging) one point at a time, ten with Shift.
     private func nudgePointer(dx: CGFloat, dy: CGFloat) {
-        guard mode == .area, let w = window else { return }
+        guard mode != .window, let w = window else { return }
         let from = cursorPoint ?? w.mouseLocationOutsideOfEventStream
         let p = NSPoint(x: min(max(from.x + dx, bounds.minX), bounds.maxX - 1),
                         y: min(max(from.y + dy, bounds.minY), bounds.maxY - 1))
@@ -488,7 +499,7 @@ private final class SelectionView: NSView {
         // The screen isn't dimmed: only the selection gets a translucent fill.
         let hole: NSRect? = selectionRect
         // While a selection waits to be adjusted, the loupe only shows while dragging it.
-        let pointerAids = mode == .area && Preferences.showMagnifier && (adjusted == nil || drag != nil)
+        let pointerAids = mode != .window && Preferences.showMagnifier && (adjusted == nil || drag != nil)
         defer { if pointerAids, let c = cursorPoint { drawLoupe(at: c) } }
         if let hint, start == nil, adjusted == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
         guard let h = hole else { return }
