@@ -97,6 +97,8 @@ struct Style: Equatable {
     var handDrawn = false
     /// Pen: a stroke that is nearly a straight line, an ellipse or a rectangle becomes that shape when let go.
     var shapeCorrection = false
+    /// Arrows: a text label opens at the arrow's tail once it is drawn, ready for typing (#174).
+    var arrowLabel = true
 
     /// Every size scaled by `k`, for an image resized by that factor (#122).
     mutating func scale(by k: CGFloat) {
@@ -136,7 +138,7 @@ extension Style {
             "fontName": fontName, "bold": bold, "pixelSize": Double(pixelSize), "cornerRadius": Double(cornerRadius),
             "arrowStyle": arrowStyle.rawValue, "textOnly": textOnly, "magnification": Double(magnification),
             "lensShape": lensShape.rawValue, "fill": fill.rawValue, "textBox": textBox.rawValue, "tail": tail,
-            "handDrawn": handDrawn, "shapeCorrection": shapeCorrection,
+            "handDrawn": handDrawn, "shapeCorrection": shapeCorrection, "arrowLabel": arrowLabel,
         ]
     }
 
@@ -161,6 +163,7 @@ extension Style {
         tail = d["tail"] as? Bool ?? tail
         handDrawn = d["handDrawn"] as? Bool ?? handDrawn
         shapeCorrection = d["shapeCorrection"] as? Bool ?? shapeCorrection
+        arrowLabel = d["arrowLabel"] as? Bool ?? arrowLabel
     }
 }
 
@@ -385,6 +388,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private var textEditor: InlineTextView?
     private var editingID: UUID?
+    /// The arrow whose label is being typed: the label stays beside its tail as it grows (#174).
+    private var labeledArrow: (tail: NSPoint, head: NSPoint)?
     private lazy var beforeEditing = snapshot
 
     init(image: NSImage) {
@@ -593,6 +598,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             selectedID = a.id
         }
         recordUndo(from: beforeDrag)
+        // The label is its own undo step after the arrow's; left empty, it is dropped and the arrow stays (#174).
+        if case .draw = d, let a = draft, a.tool == .arrow, a.style.arrowLabel, items.last?.id == a.id { addLabel(to: a) }
         draft = nil; drag = nil
         needsDisplay = true
     }
@@ -1597,6 +1604,21 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         startEditor(for: a)
     }
 
+    /// A label for an arrow just drawn, beside its tail, in the current text style (#174).
+    private func addLabel(to arrow: Annotation) {
+        labeledArrow = (arrow.start, arrow.end)
+        addText(at: arrow.start)
+    }
+
+    /// Moves the label being typed for an arrow so its box sits just past the arrow's tail.
+    private func placeArrowLabel() {
+        guard let arrow = labeledArrow, let i = index(of: editingID) else { return }
+        let a = items[i], pad = a.style.textBoxPadding
+        let box = ArrowLabel.frame(size: textBoxRect(a).size, tail: arrow.tail, head: arrow.head,
+                                   gap: max(6, a.style.lineWidth * 2))
+        items[i].start = NSPoint(x: box.minX + pad, y: box.maxY - pad)
+    }
+
     private func beginTextEditing(at i: Int) {
         beforeEditing = snapshot
         selectedID = items[i].id
@@ -1646,6 +1668,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     /// Sizes the text box to its content, keeping the top-left corner fixed, and frames it like a selection.
     private func layoutEditor() {
+        placeArrowLabel()
         guard let tv = textEditor, let i = index(of: editingID),
               let lm = tv.layoutManager, let tc = tv.textContainer else { return }
         lm.ensureLayout(for: tc)
@@ -1671,6 +1694,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     func finishTextEditing() {
         guard let tv = textEditor else { return }
         textEditor = nil
+        labeledArrow = nil
         tv.delegate = nil
         tv.removeFromSuperview()
         if let i = index(of: editingID) {

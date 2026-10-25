@@ -273,6 +273,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let tailButton = PillButton(title: "Tail", symbol: "bubble.left", style: .raised, height: pillHeight)
     private let handDrawnButton = PillButton(title: "Hand-Drawn", symbol: "scribble", style: .raised, height: pillHeight)
     private let shapeCorrectionButton = PillButton(title: "Shapes", symbol: "pencil.and.outline", style: .raised, height: pillHeight)
+    private let arrowLabelButton = PillButton(title: "Label", symbol: "text.bubble", style: .raised, height: pillHeight)
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
@@ -987,6 +988,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         handDrawnButton.target = self; handDrawnButton.action = #selector(handDrawnToggled(_:))
         shapeCorrectionButton.toolTip = "Shape correction: a stroke drawn as a line, circle or box becomes one. Shift keeps a stroke straight."
         shapeCorrectionButton.target = self; shapeCorrectionButton.action = #selector(shapeCorrectionToggled(_:))
+        arrowLabelButton.toolTip = "Label: type a note at the arrow's tail as soon as it is drawn, in the last text style. Esc without typing keeps just the arrow."
+        arrowLabelButton.target = self; arrowLabelButton.action = #selector(arrowLabelToggled(_:))
 
         arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
         arrangeButton.addItem(withTitle: "Arrange")
@@ -999,7 +1002,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             arrangeButton.lastItem?.target = canvas
         }
 
-        [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, handDrawnButton, shapeCorrectionButton, cornerStylePopup,
+        [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, arrowLabelButton, handDrawnButton, shapeCorrectionButton, cornerStylePopup,
          fontPopup, sizePopup, boldButton, textBoxPopup, tailButton, pixelPopup, textOnlyButton, magnificationPopup, lensShapePopup,
          arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
@@ -1201,6 +1204,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         [magnificationPopup, lensShapePopup].forEach { $0.isHidden = tool != .magnifier }
         cornerStylePopup.isHidden = !tool.hasCorners
         arrowStylePopup.isHidden = tool != .arrow
+        arrowLabelButton.isHidden = tool != .arrow
         arrangeButton.isHidden = !canvas.hasSelection
 
         colorWell.color = style.color
@@ -1221,6 +1225,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         tailButton.isOn = style.tail && style.textBox != .plain
         handDrawnButton.isOn = style.handDrawn
         shapeCorrectionButton.isOn = style.shapeCorrection
+        arrowLabelButton.isOn = style.arrowLabel
     }
 
     @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
@@ -1267,6 +1272,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func shapeCorrectionToggled(_ b: PillButton) {
         b.isOn.toggle()
         canvas.updateStyle { $0.shapeCorrection = b.isOn }
+    }
+    @objc private func arrowLabelToggled(_ b: PillButton) {
+        b.isOn.toggle()
+        canvas.updateStyle { $0.arrowLabel = b.isOn }
     }
     @objc private func magnificationPicked(_ p: PillPopUp) {
         canvas.updateStyle { $0.magnification = CGFloat(p.selectedTag()) / 10 }
