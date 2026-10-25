@@ -12,6 +12,11 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 
+  <!-- The overlay's adapter over Core's y-up selection geometry is pure, so it is tested here (the app needs Windows). -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Skreener.App\Overlay\ScreenSelection.cs" Link="Overlay\ScreenSelection.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Skreener.Core\Skreener.Core.csproj" />
   </ItemGroup>

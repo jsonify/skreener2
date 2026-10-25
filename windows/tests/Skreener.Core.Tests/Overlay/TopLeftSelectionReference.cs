@@ -1,10 +1,8 @@
-namespace Skreener.App.Overlay;
+namespace Skreener.Core.Tests.Overlay;
 
-// TODO(core): replace with Skreener.Core.SelectionGeometry once the Core port lands (branch claude/windows-core-logic).
-// This is the minimal subset the overlay needs, ported from Sources/Skreener/SelectionGeometry.swift.
-//
-// Coordinates: physical pixels in an overlay's client area, top-left origin, y grows DOWN (the Mac code is y-up).
-// The functions are written for y-down, so "up"/"down" keys and "top"/"bottom" edges mean what they look like on screen.
+// The overlay's temporary top-left selection geometry from the capture branch (before Skreener.Core's port landed), kept
+// verbatim apart from names as the reference for ScreenSelectionTests: the overlay's adapter over Core must behave the
+// same on screen. Coordinates: top-left origin, y grows down.
 
 /// A rect in overlay client pixels (double so drags and wheel steps can be fractional before rounding).
 internal readonly record struct SelRect(double X, double Y, double Width, double Height)
@@ -32,9 +30,9 @@ internal readonly record struct SelRect(double X, double Y, double Width, double
     }
 }
 
-internal enum SelectionKey { Left, Right, Up, Down }
+internal enum RefKey { Left, Right, Up, Down }
 
-internal static class SelectionGeometry
+internal static class TopLeftSelection
 {
     /// <summary>Smallest selection the keys and the scroll wheel shrink to.</summary>
     public const double MinSide = 1;
@@ -43,21 +41,21 @@ internal static class SelectionGeometry
     /// Arrows move the selection; Ctrl + arrows move its right or bottom edge (Right / Down grow, Left / Up shrink).
     /// One pixel per press, ten with Shift. The result stays inside <paramref name="bounds"/>. (Cmd on the Mac.)
     /// </summary>
-    public static SelRect Apply(SelectionKey key, bool control, bool shift, SelRect rect, SelRect bounds)
+    public static SelRect Apply(RefKey key, bool control, bool shift, SelRect rect, SelRect bounds)
     {
         double step = shift ? 10 : 1;
         double x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height;
         switch (key, control)
         {
-            case (SelectionKey.Left, false): x -= step; break;
-            case (SelectionKey.Right, false): x += step; break;
-            case (SelectionKey.Up, false): y -= step; break;
-            case (SelectionKey.Down, false): y += step; break;
-            case (SelectionKey.Right, true): w = Math.Min(w + step, bounds.MaxX - x); break;
-            case (SelectionKey.Left, true): w = Math.Max(w - step, MinSide); break;
+            case (RefKey.Left, false): x -= step; break;
+            case (RefKey.Right, false): x += step; break;
+            case (RefKey.Up, false): y -= step; break;
+            case (RefKey.Down, false): y += step; break;
+            case (RefKey.Right, true): w = Math.Min(w + step, bounds.MaxX - x); break;
+            case (RefKey.Left, true): w = Math.Max(w - step, MinSide); break;
             // The top edge stays put; the bottom one moves.
-            case (SelectionKey.Down, true): h = Math.Min(h + step, bounds.MaxY - y); break;
-            case (SelectionKey.Up, true): h = Math.Max(h - step, MinSide); break;
+            case (RefKey.Down, true): h = Math.Min(h + step, bounds.MaxY - y); break;
+            case (RefKey.Up, true): h = Math.Max(h - step, MinSide); break;
         }
         // A move slides the whole rect back inside the bounds.
         x = Math.Min(Math.Max(x, bounds.MinX), bounds.MaxX - w);

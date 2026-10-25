@@ -1,4 +1,5 @@
 using Skreener.App.Capture;
+using Skreener.Core.Geometry;
 using Windows.Graphics;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -41,12 +42,12 @@ internal sealed unsafe class OverlayWindow
     private DragKind _drag;
     private (double X, double Y) _moveOffset;
     private int _resizeHandle;
-    private SelRect _resizeFrom;
+    private RectD _resizeFrom;
     private (double X, double Y)? _start;
     private (double X, double Y)? _current;
     private (double X, double Y)? _cursor;
     /// <summary>The selection once the drag has ended, while it is being adjusted.</summary>
-    private SelRect? _adjusted;
+    private RectD? _adjusted;
     private bool _spaceDown;
     /// <summary>Wheel movement not yet applied: the selection changes by whole pixels.</summary>
     private double _wheelRemainder;
@@ -68,7 +69,7 @@ internal sealed unsafe class OverlayWindow
 
     private int Width => Display.Bounds.Width;
     private int Height => Display.Bounds.Height;
-    private SelRect Bounds => new(0, 0, Width, Height);
+    private RectD Bounds => new(0, 0, Width, Height);
 
     // ---- Window lifetime -------------------------------------------------------------------------------------------
 
@@ -262,17 +263,17 @@ internal sealed unsafe class OverlayWindow
     private static bool IsDown(VIRTUAL_KEY key) => PInvoke.GetKeyState((int)key) < 0;
 
     /// <summary>The rect being dragged out (Shift: square, Alt: from the center), or the one being adjusted.</summary>
-    private SelRect? SelectionRect()
+    private RectD? SelectionRect()
     {
         if (_drag == DragKind.New && _start is { } s && _current is { } c)
-            return SelectionGeometry.DragRect(s, c, IsDown(VIRTUAL_KEY.VK_SHIFT), IsDown(VIRTUAL_KEY.VK_MENU), Bounds);
+            return ScreenSelection.DragRect(new PointD(s.X, s.Y), new PointD(c.X, c.Y), IsDown(VIRTUAL_KEY.VK_SHIFT), IsDown(VIRTUAL_KEY.VK_MENU), Bounds);
         return _adjusted;
     }
 
-    private int? HandleAt((double X, double Y) p, SelRect r)
+    private int? HandleAt((double X, double Y) p, RectD r)
     {
         double grab = GrabDistance * _scale;
-        var handles = SelectionGeometry.Handles(r);
+        var handles = ScreenSelection.Handles(r);
         for (int i = 0; i < handles.Length; i++)
         {
             if (Math.Abs(handles[i].X - p.X) <= grab && Math.Abs(handles[i].Y - p.Y) <= grab) return i;
@@ -293,11 +294,12 @@ internal sealed unsafe class OverlayWindow
         if (_adjusted is { } r && _cursor is { } p)
         {
             if (HandleAt(p, r) is { } i) return HandleCursor(i);
-            if (r.Contains(p.X, p.Y)) return PInvoke.IDC_SIZEALL;
+            if (ScreenSelection.Contains(r, new PointD(p.X, p.Y))) return PInvoke.IDC_SIZEALL;
         }
         return PInvoke.IDC_CROSS;
     }
 
+    /// <summary>Screen handle order (<see cref="ScreenSelection.Handles"/>): 0 top-left, clockwise.</summary>
     private static PCWSTR HandleCursor(int i) => i switch
     {
         0 or 4 => PInvoke.IDC_SIZENWSE,
@@ -316,10 +318,10 @@ internal sealed unsafe class OverlayWindow
         {
             case DragKind.Move when _adjusted is { } r:
                 // Whole-pixel origin, same size.
-                _adjusted = SelectionGeometry.Move(r, (Math.Round(p.Item1 - _moveOffset.X), Math.Round(p.Item2 - _moveOffset.Y)), Bounds);
+                _adjusted = ScreenSelection.Move(r, new PointD(Math.Round(p.Item1 - _moveOffset.X), Math.Round(p.Item2 - _moveOffset.Y)), Bounds);
                 break;
             case DragKind.Resize:
-                var e = SelectionGeometry.Rounded(SelectionGeometry.Resize(_resizeFrom, _resizeHandle, p, Bounds));
+                var e = ScreenSelection.Rounded(ScreenSelection.Resize(_resizeFrom, _resizeHandle, new PointD(p.Item1, p.Item2), Bounds));
                 if (e.Width >= 1 && e.Height >= 1) _adjusted = e;
                 break;
             case DragKind.New:
@@ -349,9 +351,9 @@ internal sealed unsafe class OverlayWindow
         PInvoke.SetCapture(_hwnd);
         if (_adjusted is { } r)
         {
-            if (doubleClick && r.Contains(p.Item1, p.Item2)) { Take(r); return; }
+            if (doubleClick && ScreenSelection.Contains(r, new PointD(p.Item1, p.Item2))) { Take(r); return; }
             if (HandleAt(p, r) is { } i) { _drag = DragKind.Resize; _resizeHandle = i; _resizeFrom = r; return; }
-            if (r.Contains(p.Item1, p.Item2)) { _drag = DragKind.Move; _moveOffset = (p.Item1 - r.X, p.Item2 - r.Y); return; }
+            if (ScreenSelection.Contains(r, new PointD(p.Item1, p.Item2))) { _drag = DragKind.Move; _moveOffset = (p.Item1 - r.MinX, p.Item2 - r.MinY); return; }
         }
         // Outside any selection: drag out a new one.
         _adjusted = null;
@@ -374,7 +376,7 @@ internal sealed unsafe class OverlayWindow
         Invalidate();
         // A click without a real drag does nothing (the Mac needs more than 3 points each way).
         if (rect is not { } r || r.Width <= 3 || r.Height <= 3) return;
-        if (_session.Adjustable) _adjusted = SelectionGeometry.Rounded(r);
+        if (_session.Adjustable) _adjusted = ScreenSelection.Rounded(r);
         else Take(r);
     }
 
@@ -387,7 +389,7 @@ internal sealed unsafe class OverlayWindow
         double step = Math.Truncate(_wheelRemainder);
         if (step == 0) return;
         _wheelRemainder -= step;
-        _adjusted = SelectionGeometry.Rounded(SelectionGeometry.ResizeAllSides(r, step, Bounds));
+        _adjusted = ScreenSelection.Rounded(ScreenSelection.ResizeAllSides(r, step, Bounds));
         Invalidate();
     }
 
@@ -404,9 +406,9 @@ internal sealed unsafe class OverlayWindow
         if (_adjusted is { } r && _drag == DragKind.None)
         {
             if (key == VIRTUAL_KEY.VK_RETURN) { Take(r); return; }
-            if (ArrowKey(key) is { } k)
+            if (ScreenSelection.KeyFor((ushort)key) is { } k)
             {
-                _adjusted = SelectionGeometry.Apply(k, IsDown(VIRTUAL_KEY.VK_CONTROL), IsDown(VIRTUAL_KEY.VK_SHIFT), r, Bounds);
+                _adjusted = ScreenSelection.Apply(k, IsDown(VIRTUAL_KEY.VK_CONTROL), IsDown(VIRTUAL_KEY.VK_SHIFT), r, Bounds);
                 Invalidate();
             }
             return;
@@ -428,15 +430,6 @@ internal sealed unsafe class OverlayWindow
         else if (key is VIRTUAL_KEY.VK_SHIFT or VIRTUAL_KEY.VK_MENU && _drag == DragKind.New) Invalidate();
     }
 
-    private static SelectionKey? ArrowKey(VIRTUAL_KEY key) => key switch
-    {
-        VIRTUAL_KEY.VK_LEFT => SelectionKey.Left,
-        VIRTUAL_KEY.VK_RIGHT => SelectionKey.Right,
-        VIRTUAL_KEY.VK_UP => SelectionKey.Up,
-        VIRTUAL_KEY.VK_DOWN => SelectionKey.Down,
-        _ => null,
-    };
-
     /// <summary>Arrow keys move the pointer (and the selection corner while dragging) one pixel at a time, ten with Shift.</summary>
     private void NudgePointer(double dx, double dy)
     {
@@ -449,11 +442,11 @@ internal sealed unsafe class OverlayWindow
         Invalidate();
     }
 
-    private void Take(SelRect r)
+    private void Take(RectD r)
     {
         if (PInvoke.GetCapture() == _hwnd) PInvoke.ReleaseCapture();
-        var e = SelectionGeometry.Rounded(r);
-        _session.TakeArea(this, Rects.Make((int)e.X, (int)e.Y, (int)e.Width, (int)e.Height));
+        var e = ScreenSelection.Rounded(r);
+        _session.TakeArea(this, Rects.Make((int)e.MinX, (int)e.MinY, (int)e.Width, (int)e.Height));
     }
 
     // ---- Painting -----------------------------------------------------------------------------------------------------
@@ -494,8 +487,8 @@ internal sealed unsafe class OverlayWindow
             if (_start is null && _adjusted is null) PaintHint(dc);
             return;
         }
-        var e = SelectionGeometry.Rounded(sel.Value);
-        int x = (int)e.X, y = (int)e.Y, w = (int)e.Width, h = (int)e.Height;
+        var e = ScreenSelection.Rounded(sel.Value);
+        int x = (int)e.MinX, y = (int)e.MinY, w = (int)e.Width, h = (int)e.Height;
         _areaTint ??= GdiSurface.FromPixels(Frozen.Tinted(AreaFill.R, AreaFill.G, AreaFill.B, 0.25));
         PInvoke.BitBlt(dc, x, y, w, h, _areaTint.Dc, x, y, ROP_CODE.SRCCOPY);
         FrameRect(dc, x, y, w, h, Rgb(64, 64, 64));
@@ -574,13 +567,13 @@ internal sealed unsafe class OverlayWindow
     }
 
     /// <summary>Small square handles on the corners and edge midpoints of the selection being adjusted.</summary>
-    private void PaintHandles(HDC dc, SelRect r)
+    private void PaintHandles(HDC dc, RectD r)
     {
         int half = Math.Max(Px(3.5), 3), side = half * 2 + 1;
         var white = PInvoke.CreateSolidBrush(Rgb(255, 255, 255));
         try
         {
-            foreach (var (hx, hy) in SelectionGeometry.Handles(r))
+            foreach (var (hx, hy) in ScreenSelection.Handles(r))
             {
                 var box = new RECT((int)hx - half, (int)hy - half, (int)hx - half + side, (int)hy - half + side);
                 PInvoke.FillRect(dc, &box, white);
