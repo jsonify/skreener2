@@ -3,7 +3,13 @@ name: Build
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'windows/**'
+      - '.github/workflows/windows.yml'
   pull_request:
+    paths-ignore:
+      - 'windows/**'
+      - '.github/workflows/windows.yml'
   workflow_dispatch:
 
 # A newer run for the same branch replaces any older one still queued or running.
