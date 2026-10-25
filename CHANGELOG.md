@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/jsonify/skreener2/compare/v0.7.0...v0.8.0) (2026-10-25)
+
+
+### Features
+
+* **capture:** Space cycles Area → Window → Scrolling Area while picking ([#171](https://github.com/jsonify/skreener2/issues/171)) ([24a3c34](https://github.com/jsonify/skreener2/commit/24a3c3491bd1ed6cee6bbce9e7cd4f9cee012bfd))
+* **capture:** Space cycles Area → Window → Scrolling Area while picking ([#171](https://github.com/jsonify/skreener2/issues/171)) ([4c62270](https://github.com/jsonify/skreener2/commit/4c622702dbba77e69483620ab65cf95a84508e00))
+
 ## [0.7.0](https://github.com/jsonify/skreener2/compare/v0.6.0...v0.7.0) (2026-10-25)
 
 
