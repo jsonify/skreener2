@@ -418,15 +418,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func captureScrolling() {
         if scrollCapture.isRunning { scrollCapture.finish(); return }
         prepareCapture { [weak self] in
-            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
-                guard let self, case .area(let screen, let rect, _)? = sel else { self?.endCapture(); return }
-                scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
-                    guard let self else { return }
-                    let actions = linkActions
-                    endCapture()
-                    if let image { finish(image, actions: actions, screen: screen) }
-                }
-            }
+            self?.overlay.begin(mode: .scrolling, windows: [], hints: Self.captureHints) { [weak self] sel in self?.handle(sel) }
+        }
+    }
+
+    private func startScrollCapture(_ screen: NSScreen, _ rect: CGRect) {
+        scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
+            guard let self else { return }
+            let actions = linkActions
+            endCapture()
+            if let image { finish(image, actions: actions, screen: screen) }
         }
     }
 
@@ -470,7 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.overlay.begin(mode: mode, windows: windows, hints: hints, adjustable: false) { [weak self] sel in
                 guard let self else { return }
                 switch sel {
-                case .area(let screen, let rect, _)?:
+                case .area(let screen, let rect, _)?, .scrolling(let screen, let rect)?:
                     showRecordPicker(screen, rect)
                 case .window(let w)?:
                     let rect = Self.globalFrame(of: w)
@@ -510,12 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
             }, cancelled: { [weak self] in self?.endCapture() })
         case .scrolling(let screen, let rect)?:
-            scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
-                guard let self else { return }
-                let actions = linkActions
-                endCapture()
-                if let image { finish(image, actions: actions, screen: screen) }
-            }
+            startScrollCapture(screen, rect)
         case .fullscreenShot?:
             captureFullscreen()
         case .window?:
@@ -616,9 +612,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func captureArea() {
         prepareCapture { [weak self] in
-            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in self?.handle(sel) }
+            self?.overlay.begin(mode: .area, windows: [], hints: Self.captureHints) { [weak self] sel in self?.handle(sel) }
         }
     }
+
+    /// Capture Area, Capture Window and Capture Scrolling: Space before a drag cycles area → window → scrolling (#171).
+    private static let captureHints: [SelectionOverlay.Mode: String] = [
+        .area: "Drag to capture an area. Press Space to pick a window.",
+        .window: "Click a window to capture it. Press Space for a scrolling capture.",
+        .scrolling: "Drag over the content to scroll and capture. Press Space for an area.",
+    ]
 
     @objc func captureWindow() {
         prepareCapture { [weak self] in
@@ -636,7 +639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Notifier.problem("No windows are present", detail: "Try a fullscreen screenshot instead.")
             return
         }
-        overlay.begin(mode: .window, windows: windows) { [weak self] sel in self?.handle(sel) }
+        overlay.begin(mode: .window, windows: windows, hints: Self.captureHints) { [weak self] sel in self?.handle(sel) }
     }
 
     /// Captures the front window of the app in front, without picking it (#110). Choosing this from Skreener's menu
@@ -674,6 +677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lastArea = (screen, rect)
             run(screen: screen, areaCapture(screen, rect, frozen))
         case .window(let w): run(screen: Self.screen(for: w)) { try await CaptureService.captureWindow(w) }
+        case .scrolling(let screen, let rect): startScrollCapture(screen, rect)
         }
     }
 
