@@ -6,4 +6,8 @@
     <RootNamespace>Skreener.Core</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Skreener.Core.Tests" />
+  </ItemGroup>
+
 </Project>
