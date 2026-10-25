@@ -77,6 +77,11 @@ enum Preferences {
         get { d.bool(forKey: "freezeScreen") }
         set { d.set(newValue, forKey: "freezeScreen") }
     }
+    /// The magnifier beside the pointer while picking an area (#161).
+    static var showMagnifier: Bool {
+        get { d.object(forKey: "showMagnifier") as? Bool ?? true }
+        set { d.set(newValue, forKey: "showMagnifier") }
+    }
     /// Keep the area selection on screen after the drag, adjustable, until Return or a double-click captures it (#102).
     static var adjustAreaBeforeCapture: Bool {
         get { d.object(forKey: "adjustAreaBeforeCapture") as? Bool ?? true }

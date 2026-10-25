@@ -26,6 +26,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Hotkey for Capture Previous Area (⌃⇧1); Pin from Clipboard; Capture Area & Pin (⌃⇧6) — S (#47)
 - [~] Freeze screen during area selection (menu toggle; crops from the frozen frame) — S (#48)
 - [~] Target pointer, no dimming, translucent selection, magnifier + pixel/size readout, arrow-key nudge (Shift = 10 pt), Space to move selection — M (#49)
+- [~] Capture Area keeps the crosshair cursor (re-applied on every move, so another app can't turn it back into an arrow); Settings → General → "Show magnifier while selecting" turns the loupe off (also skips the screen grab when Freeze Screen is off too) — S (#161)
 - [~] Adjustable area selection: after the drag it stays with handles (move, resize, drag a new one, also on another screen); Return or double-click captures, Esc cancels; Settings → General toggle, on by default (Record Screen keeps its own picker) — M (#102)
 - [~] Area selection keys: Shift-drag = square, ⌥-drag = from the center; on the adjustable selection arrows move 1/10 pt, ⌘ + arrows resize the right/bottom edge, scroll wheel up/down grows/shrinks every side; middle button does nothing; moving no longer grows it (math in `SelectionGeometry`, unit-tested) — S (#103)
 - [~] Window capture options: transparent background, shadow toggle, padding (menu → Window Capture) — M (#50)
