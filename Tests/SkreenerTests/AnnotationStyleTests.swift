@@ -52,6 +52,15 @@ final class AnnotationStyleTests: XCTestCase {
         XCTAssertEqual(plain.bounds.height, 40, accuracy: 0.01)
     }
 
+    // MARK: Scaling text with its corner handle
+
+    func testScaledFontSizeIsWholePointsWithinLimits() {
+        XCTAssertEqual(Style.fontSize(22, scaledBy: 1.5), 33)
+        XCTAssertEqual(Style.fontSize(22, scaledBy: 0.52), 11)
+        XCTAssertEqual(Style.fontSize(22, scaledBy: 0.01), 6)
+        XCTAssertEqual(Style.fontSize(22, scaledBy: 100), 288)
+    }
+
     // MARK: Arrow labels (#174)
 
     func testArrowLabelIsOnByDefault() {

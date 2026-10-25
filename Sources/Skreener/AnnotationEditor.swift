@@ -127,6 +127,9 @@ struct Style: Equatable {
     var highlighterWidth: CGFloat { max(12, lineWidth * 5) }
     /// Counter badges scale with the font size.
     var counterRadius: CGFloat { max(10, fontSize * 0.75) }
+
+    /// A font size scaled by `k`, as a text label's corner handle sets it: whole points, not too small or large to use.
+    static func fontSize(_ size: CGFloat, scaledBy k: CGFloat) -> CGFloat { min(max((size * k).rounded(), 6), 288) }
 }
 
 // Saving (the editor starts with the last style used)
@@ -330,9 +333,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case moveLens(last: NSPoint)
         case resizeCorner(anchor: NSPoint)
         case resizeEnd(isStart: Bool)
-        /// A text label's wrap width (its right-hand handle) or its tail's tip (#120).
-        case textWidth
+        /// A text label's wrap width: its right-hand handle, or its left-hand one, which keeps the right side in place
+        /// (#120). Then its tail's tip.
+        case textWidth(left: Bool)
         case textTail
+        /// A text label's bottom-right corner, which makes its text larger or smaller: the font size and wrap width it
+        /// had, and how far the corner was from its top-left, when the drag began.
+        case textScale(fontSize: CGFloat, wrapWidth: CGFloat?, reach: CGFloat)
         /// An arrow's or line's middle handle, which bends it (#119).
         case bend
         case cropCorner(anchor: NSPoint)
@@ -525,10 +532,22 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .resizeEnd(let isStart)?:
             guard let i = selectedIndex else { return }
             if isStart { items[i].start = p } else { items[i].end = p }
-        case .textWidth?:
+        case .textWidth(let left)?:
             guard let i = selectedIndex else { return }
+            let a = items[i], minWidth = a.style.fontSize * 1.5
+            if left {
+                let right = textRect(a).maxX
+                items[i].start.x = min(p.x + a.style.textBoxPadding, right - minWidth)
+                items[i].wrapWidth = right - items[i].start.x
+            } else {
+                items[i].wrapWidth = max(minWidth, p.x - a.style.textBoxPadding - a.start.x).rounded()
+            }
+        case .textScale(let size, let wrap, let reach)?:
+            guard let i = selectedIndex, reach > 0 else { return }
             let a = items[i]
-            items[i].wrapWidth = max(a.style.fontSize * 1.5, p.x - a.style.textBoxPadding - a.start.x).rounded()
+            let newSize = Style.fontSize(size, scaledBy: hypot(p.x - a.start.x, p.y - a.start.y) / reach)
+            items[i].style.fontSize = newSize
+            items[i].wrapWidth = wrap.map { ($0 * newSize / size).rounded() }
         case .textTail?:
             guard let i = selectedIndex else { return }
             items[i].tail = p
@@ -598,6 +617,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             selectedID = a.id
         }
         recordUndo(from: beforeDrag)
+        // New text starts at the size a label was last scaled to, like a size picked in the attributes bar.
+        if case .textScale = d, let i = selectedIndex {
+            style.fontSize = items[i].style.fontSize
+            Preferences.editorStyle = style
+            notifyContext()
+        }
         // The label is its own undo step after the arrow's; left empty, it is dropped and the arrow stays (#174).
         if case .draw = d, let a = draft, a.tool == .arrow, a.style.arrowLabel, items.last?.id == a.id { addLabel(to: a) }
         draft = nil; drag = nil
@@ -1897,18 +1922,28 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .line, .arrow: return [a.start, a.end, bendHandle(a)]
         case .ruler: return [a.start, a.end]
         case .text:
-            // The wrap width on the right-hand side, then the tail's tip.
+            // The wrap width on either side, the corner that scales the text, then the tail's tip.
             let box = textBoxRect(a)
-            return [NSPoint(x: box.maxX, y: box.midY)] + (tailTip(a).map { [$0] } ?? [])
+            return [NSPoint(x: box.maxX, y: box.midY), NSPoint(x: box.minX, y: box.midY), NSPoint(x: box.maxX, y: box.minY)]
+                + (tailTip(a).map { [$0] } ?? [])
         case .pen, .highlighter, .counter, .select: return []
         }
     }
 
     private func handleDrag(for a: Annotation, at p: NSPoint) -> Drag? {
         let hs = handles(a), radius = 8 / zoom
-        guard let h = hs.indices.first(where: { hypot(hs[$0].x - p.x, hs[$0].y - p.y) <= radius }) else { return nil }
+        func distance(_ h: Int) -> CGFloat { hypot(hs[h].x - p.x, hs[h].y - p.y) }
+        // The nearest one, as a small label's handles are close together.
+        guard let h = hs.indices.filter({ distance($0) <= radius }).min(by: { distance($0) < distance($1) }) else { return nil }
         if a.tool == .line || a.tool == .arrow || a.tool == .ruler { return h == 2 ? .bend : .resizeEnd(isStart: h == 0) }
-        if a.tool == .text { return h == 0 ? .textWidth : .textTail }
+        if a.tool == .text {
+            switch h {
+            case 0, 1: return .textWidth(left: h == 1)
+            case 2: return .textScale(fontSize: a.style.fontSize, wrapWidth: a.wrapWidth,
+                                      reach: hypot(hs[2].x - a.start.x, hs[2].y - a.start.y))
+            default: return .textTail
+            }
+        }
         return .resizeCorner(anchor: hs[3 - h])   // the diagonally opposite corner stays put
     }
 
@@ -2211,8 +2246,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         box.lineWidth = px
         box.setLineDash([4 * px, 3 * px], count: 2, phase: 0)
         NSColor.controlAccentColor.setStroke(); box.stroke()
-        for h in handles(a) {
-            let r = 5 * px
+        for (i, h) in handles(a).enumerated() {
+            // A text label's corner handle, which scales its text, is the smaller one.
+            let r = (a.tool == .text && i == 2 ? 3.5 : 5) * px
             let dot = NSBezierPath(ovalIn: NSRect(x: h.x - r, y: h.y - r, width: r * 2, height: r * 2))
             NSColor.white.setFill(); dot.fill()
             dot.lineWidth = 1.5 * px; NSColor.controlAccentColor.setStroke(); dot.stroke()

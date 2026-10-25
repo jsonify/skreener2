@@ -261,6 +261,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let strokePopup = PillPopUp(pullsDown: false)
     private let fontPopup = PillPopUp(pullsDown: false)
     private let sizePopup = PillPopUp(pullsDown: false)
+    /// The font sizes the size popup offers.
+    static let fontSizes = [12, 14, 16, 18, 22, 28, 32, 40, 48, 64, 72]
     private let boldButton = PillButton(title: nil, symbol: "bold", style: .raised, height: pillHeight)
     private let pixelPopup = PillPopUp(pullsDown: false)
     private let cornerStylePopup = PillPopUp(pullsDown: false)
@@ -952,7 +954,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             for (title, tag) in choices { popup.addItem(withTitle: title); popup.lastItem?.tag = tag }
         }
         setUp(strokePopup, "Stroke width", [1, 2, 3, 5, 8, 12].map { ("\($0) pt", $0) }, #selector(strokePicked(_:)))
-        setUp(sizePopup, "Font size", [12, 14, 16, 18, 22, 28, 32, 40, 48, 64, 72].map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
+        setUp(sizePopup, "Font size", EditorWindowController.fontSizes.map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
         setUp(pixelPopup, "Strength", [("Light", 6), ("Medium", 10), ("Strong", 18), ("Heavy", 28)], #selector(pixelPicked(_:)))
         setUp(cornerStylePopup, "Corners", [("Sharp Corners", 0), ("Slightly Rounded", 2), ("Rounded", 8), ("Very Rounded", 16)],
               #selector(cornerPicked(_:)))
@@ -1209,7 +1211,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
         colorWell.color = style.color
         strokePopup.selectItem(withTag: Int(style.lineWidth))
-        sizePopup.selectItem(withTag: Int(style.fontSize))
+        showSize(Int(style.fontSize.rounded()))
         pixelPopup.selectItem(withTag: Int(style.pixelSize))
         cornerStylePopup.selectItem(withTag: Int(style.cornerRadius))
         arrowStylePopup.selectItem(withTag: style.arrowStyle.rawValue)
@@ -1226,6 +1228,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         handDrawnButton.isOn = style.handDrawn
         shapeCorrectionButton.isOn = style.shapeCorrection
         arrowLabelButton.isOn = style.arrowLabel
+    }
+
+    /// The usual font sizes, plus `size` when a label's corner handle scaled it to another one.
+    private func showSize(_ size: Int) {
+        let sizes = Set(EditorWindowController.fontSizes + [size]).sorted()
+        if sizePopup.itemArray.map(\.tag) != sizes {
+            sizePopup.menu?.removeAllItems()
+            for s in sizes { sizePopup.addItem(withTitle: "\(s) pt"); sizePopup.lastItem?.tag = s }
+        }
+        sizePopup.selectItem(withTag: size)
     }
 
     @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
