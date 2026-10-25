@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/jsonify/skreener2/compare/v0.6.0...v0.7.0) (2026-10-25)
+
+
+### Features
+
+* **quick-access:** drag a preview out as a file, swipe it away to dismiss ([#32](https://github.com/jsonify/skreener2/issues/32)) ([753391d](https://github.com/jsonify/skreener2/commit/753391d1babb1aaf090ec77ecd581ecfa347b450))
+
+
+### Bug Fixes
+
+* **capture:** show the crosshair cursor while selecting an area ([#161](https://github.com/jsonify/skreener2/issues/161)) ([171682e](https://github.com/jsonify/skreener2/commit/171682e95fd8d68fa5de71b618dd2b6fe21cb4f7))
+
 ## [0.6.0](https://github.com/jsonify/skreener2/compare/v0.5.0...v0.6.0) (2026-10-24)
 
 
