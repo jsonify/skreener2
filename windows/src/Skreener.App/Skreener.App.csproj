@@ -44,8 +44,6 @@
 
   <ItemGroup>
     <None Update="Shell\Assets\tray.ico" CopyToOutputDirectory="PreserveNewest" />
-    <!-- CsWin32 only reads NativeMethods.txt from the project root unless the files are listed explicitly. -->
-    <AdditionalFiles Include="Shell\NativeMethods.txt" />
   </ItemGroup>
 
   <ItemGroup>
