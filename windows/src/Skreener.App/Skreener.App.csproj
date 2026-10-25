@@ -42,7 +42,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ManifestInclude="$(ApplicationManifest)" />
+    <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
 </Project>
