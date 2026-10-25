@@ -8,7 +8,12 @@
   "packages": {
     ".": {
       "package-name": "Skreener",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "exclude-paths": [
+        "windows",
+        "docs/windows-port",
+        ".github/workflows/windows.yml"
+      ]
     }
   }
 }

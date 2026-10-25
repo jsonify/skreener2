@@ -6,6 +6,9 @@ name: Release Please
 # GitHub release, and runs release.yml to build and sign the app (Developer ID and notarised, or self-signed when
 # those secrets aren't set) and attach it to the release.
 #
+# Commits that only touch the Windows port (windows/, docs/windows-port/, windows.yml) are left out of the Mac
+# release: release-please-config.json lists those paths under exclude-paths.
+#
 # Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
 on:
   push:
