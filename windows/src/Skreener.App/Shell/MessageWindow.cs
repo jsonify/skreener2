@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Diagnostics;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -37,7 +38,7 @@ internal sealed unsafe class MessageWindow : IDisposable
         {
             var wc = new WNDCLASSEXW
             {
-                cbSize = (uint)sizeof(WNDCLASSEXW),
+                cbSize = (uint)Marshal.SizeOf<WNDCLASSEXW>(),
                 lpfnWndProc = s_proc,
                 hInstance = instance,
                 lpszClassName = className,
@@ -45,8 +46,12 @@ internal sealed unsafe class MessageWindow : IDisposable
             if (PInvoke.RegisterClassEx(in wc) == 0) throw new Win32Exception();
         }
 
-        Handle = PInvoke.CreateWindowEx(0, ClassName, "Skreener", WINDOW_STYLE.WS_POPUP, 0, 0, 0, 0,
-            HWND.Null, HMENU.Null, instance, null);
+        fixed (char* className = ClassName)
+        fixed (char* title = "Skreener")
+        {
+            Handle = PInvoke.CreateWindowEx(0, className, title, WINDOW_STYLE.WS_POPUP, 0, 0, 0, 0,
+                HWND.Null, HMENU.Null, instance, null);
+        }
         if (Handle == HWND.Null) throw new Win32Exception();
     }
 

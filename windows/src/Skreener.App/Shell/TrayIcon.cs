@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.Shell;
@@ -17,6 +18,7 @@ internal sealed unsafe class TrayIcon : IDisposable
 {
     private const uint IconId = 1;
     private const uint WmNull = 0;
+    private const uint TpmRightButton = 0x2, TpmBottomAlign = 0x20, TpmReturnCmd = 0x100;
     private const int SmCxSmIcon = 49; // SM_CXSMICON
 
     private readonly HWND _window;
@@ -29,7 +31,11 @@ internal sealed unsafe class TrayIcon : IDisposable
         _window = window;
         _tooltip = tooltip;
         var size = PInvoke.GetSystemMetrics((SYSTEM_METRICS_INDEX)SmCxSmIcon);
-        var handle = PInvoke.LoadImage(default, iconPath, GDI_IMAGE_TYPE.IMAGE_ICON, size, size, IMAGE_FLAGS.LR_LOADFROMFILE);
+        HANDLE handle;
+        fixed (char* path = iconPath)
+        {
+            handle = PInvoke.LoadImage(default, path, GDI_IMAGE_TYPE.IMAGE_ICON, size, size, IMAGE_FLAGS.LR_LOADFROMFILE);
+        }
         _icon = new HICON(handle.Value);
         if (_icon.IsNull) throw new Win32Exception();
     }
@@ -45,7 +51,7 @@ internal sealed unsafe class TrayIcon : IDisposable
     {
         var data = new NOTIFYICONDATAW
         {
-            cbSize = (uint)sizeof(NOTIFYICONDATAW),
+            cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATAW>(),
             hWnd = _window,
             uID = IconId,
             uFlags = NOTIFY_ICON_DATA_FLAGS.NIF_ICON | NOTIFY_ICON_DATA_FLAGS.NIF_MESSAGE | NOTIFY_ICON_DATA_FLAGS.NIF_TIP,
@@ -66,19 +72,22 @@ internal sealed unsafe class TrayIcon : IDisposable
             {
                 if (item.Text is null)
                 {
-                    PInvoke.AppendMenu(menu, MENU_ITEM_FLAGS.MF_SEPARATOR, 0, (string?)null);
+                    PInvoke.AppendMenu(menu, MENU_ITEM_FLAGS.MF_SEPARATOR, 0, default(PCWSTR));
                     continue;
                 }
                 var flags = MENU_ITEM_FLAGS.MF_STRING | (item.Checked ? MENU_ITEM_FLAGS.MF_CHECKED : MENU_ITEM_FLAGS.MF_UNCHECKED);
-                PInvoke.AppendMenu(menu, flags, (nuint)item.Id, item.Text);
+                fixed (char* text = item.Text)
+                {
+                    PInvoke.AppendMenu(menu, flags, (nuint)item.Id, text);
+                }
             }
 
             PInvoke.GetCursorPos(out var cursor);
             // Without this the menu would not close when the user clicks elsewhere.
             PInvoke.SetForegroundWindow(_window);
             var chosen = PInvoke.TrackPopupMenuEx(menu,
-                (uint)(TRACK_POPUP_MENU_FLAGS.TPM_RETURNCMD | TRACK_POPUP_MENU_FLAGS.TPM_RIGHTBUTTON | TRACK_POPUP_MENU_FLAGS.TPM_BOTTOMALIGN),
-                cursor.x, cursor.y, _window, null);
+                TpmReturnCmd | TpmRightButton | TpmBottomAlign,
+                cursor.X, cursor.Y, _window, null);
             PInvoke.PostMessage(_window, WmNull, 0, 0);
             return chosen.Value;
         }
