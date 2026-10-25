@@ -14,6 +14,11 @@ internal sealed class ShellController : IDisposable
     private const int CmdArea = 1, CmdWindow = 2, CmdFullscreen = 3, CmdPreviousArea = 4, CmdOpenFolder = 5, CmdLaunchAtLogin = 6, CmdQuit = 7;
     private const string IconRelativePath = "Shell/Assets/tray.ico";
 
+    /// <summary>Time for the tray menu (and its selection fade) to leave the screen before a capture freezes it. [verify]</summary>
+    private static readonly TimeSpan MenuSettleDelay = TimeSpan.FromMilliseconds(200);
+    /// <summary>Time for a hidden toast banner, or a closed Quick Access window, to animate off the screen. [verify]</summary>
+    private static readonly TimeSpan ClearScreenDelay = TimeSpan.FromMilliseconds(300);
+
     private readonly ICaptureService _capture;
     private readonly Notifier _notifier;
     private readonly OutputService _output = new();
@@ -78,10 +83,10 @@ internal sealed class ShellController : IDisposable
         };
         switch (_tray.ShowMenu(items))
         {
-            case CmdArea: _ = RunCaptureAsync(CaptureKind.Area); break;
-            case CmdWindow: _ = RunCaptureAsync(CaptureKind.Window); break;
-            case CmdFullscreen: _ = RunCaptureAsync(CaptureKind.Fullscreen); break;
-            case CmdPreviousArea: _ = RunCaptureAsync(CaptureKind.PreviousArea); break;
+            case CmdArea: _ = RunCaptureAsync(CaptureKind.Area, fromMenu: true); break;
+            case CmdWindow: _ = RunCaptureAsync(CaptureKind.Window, fromMenu: true); break;
+            case CmdFullscreen: _ = RunCaptureAsync(CaptureKind.Fullscreen, fromMenu: true); break;
+            case CmdPreviousArea: _ = RunCaptureAsync(CaptureKind.PreviousArea, fromMenu: true); break;
             case CmdOpenFolder: OpenScreenshotsFolder(); break;
             case CmdLaunchAtLogin: ToggleLaunchAtLogin(); break;
             case CmdQuit: Quit(); break;
@@ -113,14 +118,26 @@ internal sealed class ShellController : IDisposable
         }
     }
 
-    private async Task RunCaptureAsync(CaptureKind kind)
+    /// <summary>
+    /// The whole flow on the UI thread: hotkeys and tray clicks arrive from <see cref="MessageWindow"/>'s window procedure
+    /// on the UI thread, and every await below resumes there (WinUI's synchronization context), which the overlay
+    /// windows, the clipboard and the Quick Access window all need.
+    /// </summary>
+    private async Task RunCaptureAsync(CaptureKind kind, bool fromMenu = false)
     {
         if (_capturing) return;
         _capturing = true;
         try
         {
+            await ClearScreenAsync(fromMenu);
             var result = await _capture.CaptureAsync(kind);
             if (result is not null) await FinishAsync(result);
+            else if (kind == CaptureKind.PreviousArea)
+            {
+                // Null here means no area yet, or its monitor is gone (the Mac says the same for both).
+                _notifier.Show("No area to repeat",
+                    "Capture Previous Area captures the area you captured last. Capture an area first.");
+            }
         }
         catch (Exception e)
         {
@@ -131,6 +148,25 @@ internal sealed class ShellController : IDisposable
         {
             _capturing = false;
         }
+    }
+
+    /// <summary>
+    /// Makes sure nothing of Skreener's own shows in the capture about to start (on the Mac, ScreenCaptureKit leaves the
+    /// app's windows out). Area and window captures freeze the screen right away, so this waits for anything it hides.
+    /// The overlay windows exclude themselves (WDA_EXCLUDEFROMCAPTURE).
+    /// </summary>
+    private async Task ClearScreenAsync(bool fromMenu)
+    {
+        var wait = fromMenu ? MenuSettleDelay : TimeSpan.Zero;
+        // Quick Access is excluded from capture where Windows supports it (10 2004+) and stays up, like the Mac's
+        // previews; elsewhere it would be in the shot, so it goes.
+        if (_quickAccess is { ExcludedFromCapture: false } preview)
+        {
+            preview.Close();
+            wait = ClearScreenDelay;
+        }
+        if (await _notifier.HideRecentAsync()) wait = ClearScreenDelay;
+        if (wait > TimeSpan.Zero) await Task.Delay(wait);
     }
 
     /// <summary>After-capture actions from Settings: copy, save (with toast) and Quick Access.</summary>

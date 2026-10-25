@@ -23,6 +23,7 @@ internal sealed class QuickAccessWindow : Window
 {
     private const double ThumbnailWidth = 220; // DIPs, like the Mac preview
     private const double Margin = 16;
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
 
     private readonly SoftwareBitmap _bitmap;
     private readonly Func<SoftwareBitmap, Task> _copy;
@@ -30,6 +31,12 @@ internal sealed class QuickAccessWindow : Window
     private readonly DispatcherQueueTimer _timer;
     private readonly StackPanel _buttons;
     private bool _closed;
+
+    /// <summary>
+    /// Whether Windows leaves this window out of screen captures (WDA_EXCLUDEFROMCAPTURE, Windows 10 2004+), so a new
+    /// capture can start while it is on screen. False on older builds: the shell then closes it before capturing.
+    /// </summary>
+    public bool ExcludedFromCapture { get; private set; }
 
     public QuickAccessWindow(SoftwareBitmap bitmap, int seconds, Func<SoftwareBitmap, Task> copy, Func<SoftwareBitmap, Task> save)
     {
@@ -97,6 +104,9 @@ internal sealed class QuickAccessWindow : Window
         AppWindow.IsShownInSwitchers = false;
 
         var hwnd = new HWND(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        // Like the Mac, which leaves its own windows out of every capture: the preview must not show up in the next one.
+        ExcludedFromCapture = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041)
+            && PInvoke.SetWindowDisplayAffinity(hwnd, (Windows.Win32.UI.WindowsAndMessaging.WINDOW_DISPLAY_AFFINITY)WDA_EXCLUDEFROMCAPTURE);
         var scale = Math.Max(PInvoke.GetDpiForWindow(hwnd), 96u) / 96.0;
         var aspect = (double)_bitmap.PixelHeight / Math.Max(_bitmap.PixelWidth, 1);
         var width = (int)Math.Round(ThumbnailWidth * scale);

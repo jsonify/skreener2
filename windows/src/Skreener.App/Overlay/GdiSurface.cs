@@ -26,19 +26,19 @@ internal sealed unsafe class GdiSurface : IDisposable
     public int Height { get; }
 
     /// <summary>A top-down 32-bit DIB section holding a copy of <paramref name="pixels"/>.</summary>
-    public static GdiSurface FromPixels(PixelBuffer pixels)
+    public static GdiSurface FromPixels(BgraImage pixels)
     {
         var info = new BITMAPINFO();
         info.bmiHeader.biSize = (uint)sizeof(BITMAPINFOHEADER);
         info.bmiHeader.biWidth = pixels.Width;
-        info.bmiHeader.biHeight = -pixels.Height;   // negative: rows top to bottom, like PixelBuffer
+        info.bmiHeader.biHeight = -pixels.Height;   // negative: rows top to bottom, like BgraImage
         info.bmiHeader.biPlanes = 1;
         info.bmiHeader.biBitCount = 32;
         info.bmiHeader.biCompression = 0;           // BI_RGB
         void* bits;
         var bitmap = PInvoke.CreateDIBSection(default, &info, DIB_USAGE.DIB_RGB_COLORS, &bits, default, 0);
         if (bitmap.IsNull || bits == null) throw new InvalidOperationException("Could not create a bitmap for the overlay.");
-        // 32-bit rows are already DWORD aligned, so the DIB's stride is width * 4, the same as PixelBuffer's.
+        // 32-bit rows are already DWORD aligned, so the DIB's stride is width * 4, the same as BgraImage's.
         Marshal.Copy(pixels.Pixels, 0, (IntPtr)bits, pixels.Pixels.Length);
         var dc = PInvoke.CreateCompatibleDC(default);
         return new GdiSurface(dc, bitmap, pixels.Width, pixels.Height);

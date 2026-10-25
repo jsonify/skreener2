@@ -34,8 +34,9 @@ public partial class App : Application
         notifier.Register();
         var settings = SettingsStore.Load();
 
-        // Composition root: swapped for CaptureService when the capture branch merges.
-        ICaptureService capture = new PlaceholderCaptureService(notifier);
+        // Composition root. CaptureService creates its overlay windows on the calling thread, so the shell must call it
+        // from the UI thread (it does: hotkeys and tray clicks arrive through the UI thread's message loop).
+        ICaptureService capture = new CaptureService();
 
         _shell = new ShellController(capture, notifier, settings);
         _shell.Start();
