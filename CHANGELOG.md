@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/jsonify/skreener2/compare/v0.9.0...v0.10.0) (2026-10-25)
+
+
+### Features
+
+* **windows:** capture areas, windows and the full screen ([#179](https://github.com/jsonify/skreener2/issues/179)) ([7d0d8f6](https://github.com/jsonify/skreener2/commit/7d0d8f679f7d4fc942121d79e0848ece480b7492))
+* **windows:** port the platform-neutral logic to Skreener.Core ([#178](https://github.com/jsonify/skreener2/issues/178)) ([e8753ac](https://github.com/jsonify/skreener2/commit/e8753ac64575844fc821b211e832ad95bc297e1c))
+
 ## [0.9.0](https://github.com/jsonify/skreener2/compare/v0.8.0...v0.9.0) (2026-10-25)
 
 
