@@ -18,3 +18,13 @@ macOS menu-bar screenshot app (Swift/AppKit, SwiftPM). See README.md for feature
 - Commit subjects use Conventional Commits (`fix(editor): …`, `feat(capture): …`, `docs: …`, `ci: …`): release-please
   picks the next version from them (fix → patch, feat → minor, `!` → major) and CI rejects PRs whose commits don't
   match. Keep the issue reference, e.g. `fix(capture): keep window corners transparent (#138)`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in this repo's GitHub Issues, managed with the `gh` CLI (REST fallback for cloud sessions). See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created as terms and decisions get settled. See `docs/agents/domain.md`.
