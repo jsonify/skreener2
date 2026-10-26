@@ -15,6 +15,7 @@ text, blur, crop, zoom, recording and the rest of the Mac features are still to 
 | `src/Skreener.Core/Editor` | The editor's model: annotations, hit testing and handles, and `EditorSession` (pointer handling, selection, undo/redo). No drawing. |
 | `src/Skreener.App` | WinUI 3 app, `net8.0-windows10.0.19041.0`, unpackaged and self-contained, x64 and ARM64. References Core. |
 | `src/Skreener.App/Shell` | Tray icon and menu, global hotkeys, settings file, clipboard/save, toasts, Quick Access. `ShellController` runs a capture through `ICaptureService` and handles the result. |
+| `src/Skreener.App/Settings` | The Settings window and its shortcut recorder. The rules behind them (shortcut checks, reserved combinations, file-name preview, clamping) are in Core's `Output/HotkeyRules.cs` and `SettingsRules.cs`. |
 | `src/Skreener.App/Capture` | `CaptureService` (area, window, fullscreen, previous area) with Windows.Graphics.Capture; `BgraImage` is the raw capture buffer. |
 | `src/Skreener.App/Editor` | The editor window and its Win2D renderer, which draws the annotations on screen and into the bitmap Copy and Save hand on. |
 | `src/Skreener.App/Ocr` | Capture Text: `TextRecognizer` (Windows.Media.Ocr) and the scratch pad window. Line joining and OCR image sizing live in Core (`Text/`). |
@@ -55,10 +56,13 @@ copying. No text found shows a toast. Hover the Quick Access thumbnail and click
 | Ctrl+C, Ctrl+S | Copy, save (with the shapes drawn in) |
 | Esc | Cancel the drag, then deselect |
 
-Closing an editor with changes that were neither copied nor saved asks first. A capture is copied to the clipboard, saved to `Pictures\Skreener` and shown in Quick
-Access (bottom-right); change that, the folder, format and hotkeys in `%APPDATA%\Skreener\settings.json` (read on each
-capture; hotkeys on the next launch). Skreener's own overlay, Quick Access (Windows 10 2004+) and toasts are kept out
-of captures.
+Closing an editor with changes that were neither copied nor saved asks first. A capture is copied to the clipboard,
+saved to `Pictures\Skreener` and shown in Quick Access (bottom-right). Change that, the save folder, format, file name
+template, Quick Access time, Launch at Login and the hotkeys in the **Settings** window (tray menu, **Settings…**).
+Changes save at once and apply without a restart, hotkeys included; a shortcut another app already owns is refused with
+"In use by another app". The settings live in `%APPDATA%\Skreener\settings.json`, which can still be edited by hand (read
+on each capture; the Settings window re-reads it before each change). Skreener's own overlay, Quick Access (Windows 10
+2004+) and toasts are kept out of captures.
 
 ## Build and run (Windows 10 1809+ / 11)
 

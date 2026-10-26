@@ -60,7 +60,7 @@ internal sealed partial class ShellController : IDisposable
         if (failed.Count > 0)
         {
             _notifier.Show("Some shortcuts are unavailable",
-                "Another app already uses: " + string.Join(", ", failed) + ". Change them in " + SettingsStore.FilePath + ".");
+                "Another app already uses: " + string.Join(", ", failed) + ". Change them in Settings (tray menu > Settings…).");
         }
     }
 
