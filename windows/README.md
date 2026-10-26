@@ -2,8 +2,8 @@
 
 Windows port of Skreener: C# / .NET 8 with WinUI 3 (Windows App SDK). Milestone 1 is the capture core:
 tray icon, global hotkeys, area/window/fullscreen capture, copy/save and the quick-access thumbnail. That
-path works end to end. The editor has its first tools (select, arrow, rectangle, ellipse, line, pen, pixelate);
-text, blur, crop, zoom, recording and the rest of the Mac features are still to come.
+path works end to end. The editor has select, arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter,
+text, counter, pixelate and blur, plus crop and zoom; recording and the rest of the Mac features are still to come.
 
 ## Layout
 
@@ -12,11 +12,11 @@ text, blur, crop, zoom, recording and the rest of the Mac features are still to 
 | `Skreener.sln` | Solution (Any CPU, x64, ARM64). |
 | `Directory.Build.props` | Shared settings: nullable on, latest C#, warnings are errors (same policy as the macOS app). |
 | `src/Skreener.Core` | `net8.0` class library with no Windows dependencies: ported pure logic (selection geometry, pixel buffer, scroll matching, color formats, URL commands, settings and file naming in `Output/`). Builds and tests on any OS. Faithful to the Swift code, so its geometry is y-up, except `Editor/`, which is new code in top-left image pixels. |
-| `src/Skreener.Core/Editor` | The editor's model: annotations, hit testing and handles, and `EditorSession` (pointer handling, selection, undo/redo). No drawing. |
+| `src/Skreener.Core/Editor` | The editor's model: annotations, hit testing and handles, `EditorSession` (pointer handling, selection, text typing, crop, undo/redo), `CropGeometry` (crop handles and drags) and `EditorViewport` (zoom, scroll, pan). No drawing. |
 | `src/Skreener.App` | WinUI 3 app, `net8.0-windows10.0.19041.0`, unpackaged and self-contained, x64 and ARM64. References Core. |
 | `src/Skreener.App/Shell` | Tray icon and menu, global hotkeys, settings file, clipboard/save, toasts, Quick Access. `ShellController` runs a capture through `ICaptureService` and handles the result. |
 | `src/Skreener.App/Capture` | `CaptureService` (area, window, fullscreen, previous area) with Windows.Graphics.Capture; `BgraImage` is the raw capture buffer. |
-| `src/Skreener.App/Editor` | The editor window and its Win2D renderer, which draws the annotations on screen and into the bitmap Copy and Save hand on. |
+| `src/Skreener.App/Editor` | The editor window, its style bar, zoom menu and in-place text box, and its Win2D renderer, which draws the annotations on screen and into the bitmap Copy and Save hand on. |
 | `src/Skreener.App/Overlay` | The per-monitor Win32 selection overlay. `ScreenSelection` is its only bridge to Core's y-up `SelectionGeometry` (top-left pixels mirrored in and out). |
 | `tests/Skreener.Core.Tests` | xUnit tests for Core, plus `ScreenSelection` (compiled in by path, since it is pure). |
 
@@ -39,14 +39,19 @@ Esc or right-click cancels. Hover the Quick Access thumbnail and click **Edit** 
 
 | Key | In the editor |
 | --- | --- |
-| V A R O L P X | Select, Arrow, Rectangle, Ellipse, Line, Pen, Pixelate |
+| V A R F O L P H | Select, Arrow, Rectangle, Filled rectangle, Ellipse, Line, Pen, Highlighter |
+| T N X B | Text, Counter, Pixelate, Blur |
+| C | Crop: drag the handles, sides or inside; Enter applies, Esc cancels (Copy/Save then export only that part) |
 | Drag on a shape (any tool) | Move it; drag a handle to resize |
-| Shift while drawing with the pen | Straight stroke |
+| Shift while drawing with the pen or highlighter | Straight stroke |
+| Click with Text; double-click a label (or Enter on a selected one) | Type in place; Esc, Ctrl+Enter or a click outside finishes |
 | Arrow keys (Shift = 10 px) | Move the selection |
 | Delete / Backspace | Delete the selection |
 | Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z) | Undo, redo |
 | Ctrl+C, Ctrl+S | Copy, save (with the shapes drawn in) |
-| Esc | Cancel the drag, then deselect |
+| Ctrl+wheel, Ctrl+= / Ctrl+-, Ctrl+0, Ctrl+1 | Zoom around the pointer, zoom in / out, fit, 100 % |
+| Wheel, Shift+wheel, middle-button drag | Scroll down/up, sideways, pan (when zoomed past fit) |
+| Esc | End typing or crop mode, cancel the drag, then deselect |
 
 Closing an editor with changes that were neither copied nor saved asks first. A capture is copied to the clipboard, saved to `Pictures\Skreener` and shown in Quick
 Access (bottom-right); change that, the folder, format and hotkeys in `%APPDATA%\Skreener\settings.json` (read on each
