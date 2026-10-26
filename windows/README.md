@@ -17,6 +17,7 @@ text, blur, crop, zoom, recording and the rest of the Mac features are still to 
 | `src/Skreener.App/Shell` | Tray icon and menu, global hotkeys, settings file, clipboard/save, toasts, Quick Access. `ShellController` runs a capture through `ICaptureService` and handles the result. |
 | `src/Skreener.App/Capture` | `CaptureService` (area, window, fullscreen, previous area) with Windows.Graphics.Capture; `BgraImage` is the raw capture buffer. |
 | `src/Skreener.App/Editor` | The editor window and its Win2D renderer, which draws the annotations on screen and into the bitmap Copy and Save hand on. |
+| `src/Skreener.App/Ocr` | Capture Text: `TextRecognizer` (Windows.Media.Ocr) and the scratch pad window. Line joining and OCR image sizing live in Core (`Text/`). |
 | `src/Skreener.App/Overlay` | The per-monitor Win32 selection overlay. `ScreenSelection` is its only bridge to Core's y-up `SelectionGeometry` (top-left pixels mirrored in and out). |
 | `tests/Skreener.Core.Tests` | xUnit tests for Core, plus `ScreenSelection` (compiled in by path, since it is pure). |
 
@@ -34,9 +35,14 @@ Skreener has no window: it lives in the tray. Left-click the tray icon to captur
 | Ctrl+Alt+5 | Capture window (Space in the overlay switches between area and window) |
 | Ctrl+Alt+3 | Capture the monitor under the pointer |
 | Ctrl+Alt+1 | Capture the previous area again |
-| Ctrl+Alt+2 | Capture Text (placeholder: says it is coming; the OCR lands in its own PR) |
+| Ctrl+Alt+2 | Capture Text: select an area, read its text with Windows OCR and edit it in a scratch pad |
 
-Esc or right-click cancels. Hover the Quick Access thumbnail and click **Edit** to annotate the capture:
+Esc or right-click cancels. **Capture Text** (tray menu or Ctrl+Alt+2) runs the same area selection, then recognizes the
+text in it with the Windows OCR engine (`Windows.Media.Ocr`, your profile languages; add more under Settings > Time &
+Language > Language & region). The capture itself is not saved, copied or shown in Quick Access. The text opens in an
+always-on-top **Captured Text** window: **Join Lines** merges the selected lines (or all) into one line and mends words
+hyphenated across lines, **Copy to Clipboard** (Ctrl+Enter) copies it as plain text and closes, Esc closes without
+copying. No text found shows a toast. Hover the Quick Access thumbnail and click **Edit** to annotate the capture:
 
 | Key | In the editor |
 | --- | --- |

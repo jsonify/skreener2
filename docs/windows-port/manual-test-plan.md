@@ -248,6 +248,29 @@ Cases are numbered E1, E2, … so the numbers of the cases after this section st
 | E21 | Capture a window with **Ctrl+Alt+5** and open it in the editor. Open two editors at once from two captures. | Both editors work on their own. | [ ] / [ ] |
 | E22 | At 150 % display scaling (see 1.5), repeat E1, E2 and E16. | The image is sharp at 100 % (one capture pixel per screen pixel). The pasted image has the full capture size. | [ ] / [ ] |
 
+### Capture Text
+
+Capture Text is **Ctrl+Alt+2** or the tray menu's **Capture Text**. It needs a Windows OCR language: English is installed on most PCs (Settings > Time & Language > Language & region). Prepare a Notepad window with a few lines of large, plain text, for example "Skreener reads this line" on one line and "and this one too" on the next, at normal zoom. Cases T1 to T16.
+
+| # | Steps | Expected result | Pass/Fail |
+|---|---|---|---|
+| T1 | Press **Ctrl+Alt+2**. | The area selection overlay appears, the same as for Ctrl+Alt+4. | [ ] / [ ] |
+| T2 | Right-click the tray icon. Click **Capture Text**. | The tray menu closes, then the area selection overlay appears. The menu is not in the way of what you select. | [ ] / [ ] |
+| T3 | Press **Ctrl+Alt+2**. Press **Esc**. Open `Pictures\Skreener`. | The overlay closes. No window and no toast appear. No new file in the folder. | [ ] / [ ] |
+| T4 | Press **Ctrl+Alt+2**. Drag a rectangle around the text in Notepad. Press **Enter**. | A window titled **Captured Text** opens in the middle of the display the pointer is on, in front of other windows. It holds the text you selected, one recognized line per line, all selected. At the bottom: **Join Lines**, a line and character count, and **Copy to Clipboard**. | [ ] / [ ] |
+| T5 | After T4, look at `Pictures\Skreener` and the bottom-right corner. Open Paint and press **Ctrl+V**. | No new screenshot file, no Quick Access thumbnail, and no image on the clipboard: Capture Text does not save, copy or show the capture. | [ ] / [ ] |
+| T6 | Click on the Notepad window, then press **Ctrl+Alt+2** and select an empty (blank) part of the screen, such as an empty part of the desktop or a plain white area. Press **Enter**. | A **No text found** toast appears. No window opens. | [ ] / [ ] |
+| T7 | Setup: in Notepad type "The screen-" on one line and "shot tool works. Jean-" on the next, then "Paul agrees" on a third (use a large font). Capture that text with **Ctrl+Alt+2**. In the **Captured Text** window click **Join Lines**. | The three lines become one: "The screenshot tool works. Jean- Paul agrees". "screen-" and "shot" are mended into "screenshot". "Jean-" and "Paul" keep their hyphen (capital letter after it). | [ ] / [ ] |
+| T8 | In the Captured Text window, select only the first two lines with the mouse. Click **Join Lines**. | Only the selected lines are merged. The lines after them stay as they were. | [ ] / [ ] |
+| T9 | Type a few extra words in the text box. Click **Copy to Clipboard**. Open Notepad, click in it and press **Ctrl+V**. | The pad closes. A toast says "Copied N lines of text". Notepad receives the exact text from the pad, as plain text, with your extra words. | [ ] / [ ] |
+| T10 | Capture text again. In the pad, press **Ctrl+Enter**. Paste in Notepad. | Same as T9: the text is copied, the pad closes, and the toast appears. | [ ] / [ ] |
+| T11 | Capture text again. Press **Esc** in the pad. Paste in Notepad (after copying something else first, for example the word "marker"). | The pad closes. The clipboard still holds "marker". No toast. | [ ] / [ ] |
+| T12 | Capture text and leave the pad open. Press **Ctrl+Alt+2** again and capture different text. | The same pad window takes the new text (no second window opens). Pressing the close button of the pad closes it without copying. | [ ] / [ ] |
+| T13 | Open a long web page or document so that text fills a tall area. Press **Ctrl+Alt+2** and select a tall area (the full height of the screen, or taller by nudging the selection). Press **Enter**. | The text of the whole area is recognized, from top to bottom, with no error toast. (Images over 10,000 px per side are scaled down to fit the OCR engine, so only extreme areas lose accuracy.) | [ ] / [ ] |
+| T14 | Set the display to **150 %** (see 1.5). Repeat T4. | The text is recognized as in T4. The pad opens fully on screen and its text and buttons are sharp and not cut off. | [ ] / [ ] |
+| T15 | **Needs another OCR language.** Add a language in Settings > Time & Language > Language & region (for example Japanese or German; its optional "Optical character recognition" feature must install). Show text in that language and capture it with **Ctrl+Alt+2**. | The text is recognized when that language is in your language list. For Chinese or Japanese the words come out without stray spaces between characters. | [ ] / [ ] |
+| T16 | **Needs a PC with no OCR language** (remove the OCR feature of every language under Settings > Time & Language > Language & region > the language's options; this is rare). Capture text. | A toast "No OCR language installed" says to add one in Settings > Time & Language > Language & region. No crash. | [ ] / [ ] |
+
 ### Settings
 
 Before starting, quit Skreener from the tray (see Quit) if it is running, then reopen it.
