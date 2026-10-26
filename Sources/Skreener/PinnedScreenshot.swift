@@ -6,7 +6,9 @@ private final class PinnedPanel: NSPanel {
 
 /// A borderless always-on-top window showing a screenshot. Drag to move, scroll to change opacity,
 /// pinch/⌘+scroll to zoom, double-click or Esc to close. Hovering shows a toolbar (close, drag out as a file, edit,
-/// copy, zoom); right-click for 50/100/200%, copy, edit, save, share, semi-transparent and close (#116).
+/// copy, zoom); right-click for 50/100/200%, copy, edit, save, share, blend mode, click-through and close (#116).
+/// Tracing (#244): Onion Skin shows the pin at half opacity, Difference lights up every pixel that differs from what is
+/// under it, Click-Through lets clicks reach the app below, and the arrow keys nudge the pin 1 pt (Shift: 10 pt).
 final class PinnedScreenshotController: NSObject {
     private static var live: [PinnedScreenshotController] = []
     private var panel: PinnedPanel?
@@ -52,7 +54,21 @@ final class PinnedScreenshotController: NSObject {
         panel = p
     }
 
+    /// The click-through hotkey and menu item: turns click-through off on every pin that has it, or else on for the pin
+    /// under the pointer (the newest pin when none is). Beeps when nothing is pinned.
+    static func toggleClickThrough() {
+        let views = live.compactMap { $0.panel?.contentView as? PinnedView }
+        let mouse = NSEvent.mouseLocation
+        let under = views.lastIndex { $0.window?.frame.contains(mouse) == true }
+        guard let plan = PinClickThrough.plan(states: views.map(\.clickThrough), underPointer: under) else {
+            NSSound.beep()
+            return
+        }
+        for i in plan.pins { views[i].setClickThrough(plan.on) }
+    }
+
     private func close() {
+        (panel?.contentView as? PinnedView)?.stopTracing()
         panel?.orderOut(nil)
         panel = nil
         PinnedScreenshotController.live.removeAll { $0 === self }
@@ -62,6 +78,12 @@ final class PinnedScreenshotController: NSObject {
 private final class PinnedView: NSView {
     let image: NSImage
     var onClose: (() -> Void)?
+
+    /// Difference blending: the pin shows how far each of its pixels is from what is under it.
+    private var difference = false
+    /// What is under the pin (Skreener's own windows left out), grabbed again a few times a second while `difference`.
+    private var underlay: CGImage?
+    private var differenceLoop: Task<Void, Never>?
 
     private let toolbar = PinToolbar()
     private let zoomLabel = NSTextField(labelWithString: "100%")
@@ -78,7 +100,12 @@ private final class PinnedView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        image.draw(in: bounds)
+        if difference, let underlay, let cg = NSGraphicsContext.current?.cgContext {
+            cg.draw(underlay, in: bounds)
+            image.draw(in: bounds, from: .zero, operation: .difference, fraction: 1)
+        } else {
+            image.draw(in: bounds)
+        }
         NSColor.white.withAlphaComponent(0.6).setStroke()
         let b = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5)); b.lineWidth = 1; b.stroke()
     }
@@ -88,7 +115,14 @@ private final class PinnedView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { onClose?() } else { super.keyDown(with: event) }
+        if event.keyCode == 53 {
+            onClose?()
+        } else if let step = PinNudge.offset(keyCode: Int(event.keyCode), shift: event.modifierFlags.contains(.shift)),
+                  let w = window {
+            w.setFrameOrigin(NSPoint(x: w.frame.minX + step.dx, y: w.frame.minY + step.dy))
+        } else {
+            super.keyDown(with: event)
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -225,10 +259,19 @@ private final class PinnedView: NSView {
             m.addItem(i)
         }
         m.addItem(.separator())
-        let translucent = NSMenuItem(title: "Semi-transparent", action: #selector(translucentToggled), keyEquivalent: "")
-        translucent.target = self
-        translucent.state = (window?.alphaValue ?? 1) < 1 ? .on : .off
-        m.addItem(translucent)
+        let mode = blend
+        for b in PinBlend.allCases {
+            let i = NSMenuItem(title: b.title, action: #selector(blendPicked(_:)), keyEquivalent: "")
+            i.target = self; i.representedObject = b.rawValue
+            i.state = b == mode ? .on : .off
+            m.addItem(i)
+        }
+        let through = NSMenuItem(title: "Click-Through", action: #selector(clickThroughPicked), keyEquivalent: "")
+        through.target = self
+        if let combo = ShortcutStore.combo(for: .pinClickThrough) {
+            through.toolTip = "Clicks go to the app under the pin; \(combo.displayString) turns it off again"
+        }
+        m.addItem(through)
         m.addItem(.separator())
         let close = NSMenuItem(title: "Close", action: #selector(closeItem), keyEquivalent: "")
         close.target = self
@@ -247,8 +290,78 @@ private final class PinnedView: NSView {
         Output.saveAs(image)
     }
     @objc private func shareItem() { Output.share(image, from: self) }
-    @objc private func translucentToggled() { window?.alphaValue = (window?.alphaValue ?? 1) < 1 ? 1 : 0.5 }
+    @objc private func blendPicked(_ item: NSMenuItem) {
+        guard let raw = item.representedObject as? String, let b = PinBlend(rawValue: raw) else { return }
+        setBlend(b)
+    }
+    @objc private func clickThroughPicked() { setClickThrough(true) }
     @objc private func closeItem() { onClose?() }
+
+    // MARK: Tracing (#244)
+
+    /// Onion Skin is any opacity below 100% (scrolling still changes it); Difference is always shown opaque.
+    private var blend: PinBlend {
+        if difference { return .difference }
+        return (window?.alphaValue ?? 1) < 1 ? .onionSkin : .normal
+    }
+
+    private func setBlend(_ b: PinBlend) {
+        window?.alphaValue = b == .onionSkin ? 0.5 : 1
+        difference = b == .difference
+        differenceLoop?.cancel()
+        differenceLoop = nil
+        underlay = nil
+        if difference { startDifferenceLoop() }
+        needsDisplay = true
+    }
+
+    /// Grabs what is under the pin about five times a second, so the difference follows the app as it changes.
+    private func startDifferenceLoop() {
+        differenceLoop = Task { @MainActor [weak self] in
+            var grabber: CaptureService.AreaGrabber?
+            var grabbedRect = CGRect.null
+            while !Task.isCancelled {
+                guard let self, let w = self.window, w.isVisible, let screen = w.screen else { return }
+                if grabber == nil || w.frame != grabbedRect {
+                    grabbedRect = w.frame
+                    grabber = try? await CaptureService.AreaGrabber(screen: screen, globalRect: grabbedRect)
+                }
+                if let frame = try? await grabber?.grab() {
+                    guard !Task.isCancelled else { return }
+                    self.underlay = frame
+                    self.needsDisplay = true
+                } else {
+                    grabber = nil   // set up again next time (the display may have changed)
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+    }
+
+    /// Ends the Difference grabs when the pin closes.
+    func stopTracing() {
+        differenceLoop?.cancel()
+        differenceLoop = nil
+    }
+
+    var clickThrough: Bool { window?.ignoresMouseEvents ?? false }
+
+    /// A click-through pin takes no clicks, scrolls or keys: the global shortcut or the menu bar item turns it off.
+    func setClickThrough(_ on: Bool) {
+        guard let w = window, w.ignoresMouseEvents != on else { return }
+        w.ignoresMouseEvents = on
+        if on {
+            hideToolbar?.cancel()
+            toolbar.alphaValue = 0
+            let combo = ShortcutStore.combo(for: .pinClickThrough)?.displayString
+            Notifier.confirm("Pin is click-through",
+                             detail: combo.map { "Press \($0) to turn it off." }
+                                 ?? "Turn it off from the menu bar: Pin Click-Through On / Off.")
+        } else {
+            w.makeKeyAndOrderFront(nil)
+            w.makeFirstResponder(self)
+        }
+    }
 
     // MARK: Actions
 
@@ -337,4 +450,43 @@ private final class PinDragHandle: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+}
+
+/// A pin's blend mode (#244).
+enum PinBlend: String, CaseIterable {
+    case normal, onionSkin, difference
+
+    var title: String {
+        switch self {
+        case .normal: return "Normal"
+        case .onionSkin: return "Onion Skin"
+        case .difference: return "Difference"
+        }
+    }
+}
+
+/// Arrow keys move a pin 1 pt, or 10 pt with Shift.
+enum PinNudge {
+    static func offset(keyCode: Int, shift: Bool) -> CGVector? {
+        let step: CGFloat = shift ? 10 : 1
+        switch keyCode {
+        case 123: return CGVector(dx: -step, dy: 0)   // ←
+        case 124: return CGVector(dx: step, dy: 0)    // →
+        case 125: return CGVector(dx: 0, dy: -step)   // ↓ (screen coordinates go up)
+        case 126: return CGVector(dx: 0, dy: step)    // ↑
+        default: return nil
+        }
+    }
+}
+
+/// What the click-through shortcut does to the pins, given whether each one is click-through now (oldest first) and
+/// which one is under the pointer: off on every click-through pin, or else on for the pin under the pointer, or the
+/// newest. nil when nothing is pinned.
+enum PinClickThrough {
+    static func plan(states: [Bool], underPointer: Int?) -> (pins: [Int], on: Bool)? {
+        guard !states.isEmpty else { return nil }
+        let on = states.indices.filter { states[$0] }
+        if !on.isEmpty { return (on, false) }
+        return ([underPointer ?? states.count - 1], true)
+    }
 }

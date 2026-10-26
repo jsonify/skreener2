@@ -155,7 +155,7 @@ enum HotKeyAction: String, CaseIterable {
     case captureArea, allInOne, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureActiveWindow,
          captureScrolling, captureText, timedArea, timedWindow, timedFullscreen
     case recordScreen
-    case showHistory, toggleDesktopIcons, openFile, openClipboard, pinFile, pinClipboard
+    case showHistory, toggleDesktopIcons, openFile, openClipboard, pinFile, pinClipboard, pinClickThrough
 
     /// The groups of Settings → Shortcuts.
     enum Section: CaseIterable {
@@ -175,7 +175,7 @@ enum HotKeyAction: String, CaseIterable {
         case .captureArea, .allInOne, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow,
              .captureActiveWindow, .captureScrolling, .captureText, .timedArea, .timedWindow, .timedFullscreen: return .screenshots
         case .recordScreen: return .recording
-        case .showHistory, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile, .pinClipboard: return .other
+        case .showHistory, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile, .pinClipboard, .pinClickThrough: return .other
         }
     }
 
@@ -200,6 +200,7 @@ enum HotKeyAction: String, CaseIterable {
         case .openClipboard: return "Open from Clipboard"
         case .pinFile: return "Pin to the Screen…"
         case .pinClipboard: return "Pin from Clipboard"
+        case .pinClickThrough: return "Pin Click-Through On / Off"
         }
     }
 
@@ -210,11 +211,13 @@ enum HotKeyAction: String, CaseIterable {
         case .captureScrolling: return "Press again to finish."
         case .recordScreen: return "Press again to stop recording."
         case .showHistory: return "Opens and closes the history panel."
+        case .pinClickThrough: return "Off on every pin, or on for the pin under the pointer."
         default: return nil
         }
     }
 
-    /// The shortcuts Skreener has always had (⌃⇧ + a key); the rest start without one.
+    /// The shortcuts Skreener has always had (⌃⇧ + a key), plus ⌃⇧0 for pin click-through, since a click-through pin
+    /// takes no clicks or keys of its own; the rest start without one.
     var defaultCombo: KeyCombo? {
         let mods = controlKey | shiftKey
         switch self {
@@ -228,6 +231,7 @@ enum HotKeyAction: String, CaseIterable {
         case .recordScreen: return KeyCombo(keyCode: kVK_ANSI_7, modifiers: mods)
         case .allInOne: return KeyCombo(keyCode: kVK_ANSI_9, modifiers: mods)
         case .showHistory: return KeyCombo(keyCode: kVK_ANSI_H, modifiers: mods)
+        case .pinClickThrough: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: mods)
         case .captureActiveWindow, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
              .openClipboard, .pinFile, .pinClipboard: return nil
         }

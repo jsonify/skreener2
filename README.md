@@ -131,6 +131,10 @@ Permissions switched on but not working, or asked for again after every build? S
 - **Quick Access preview.** A thumbnail appears in the corner with buttons to copy, save, edit, pin, share or close.
   Later captures stack above it.
 - **Pins.** Float any screenshot above other windows. You can scroll to change opacity and pinch to zoom.
+  To check a build against a mockup, pin the mockup over the app and right-click it. **Onion Skin** makes it
+  see-through, and **Difference** lights up every pixel that doesn't match the app underneath. **Click-Through**
+  lets your clicks reach the app; Control-Shift-0 turns it off again. The arrow keys nudge a pin by 1 pt, or 10 pt
+  with Shift.
 - **Capture History.** Recent captures slide down from the top of the screen. The **Saved Files** view searches
   everything in your export folder by file name, app, or the text inside the screenshots.
 - You choose what happens to each capture: copy, save, open the editor, or show the preview. You can also play a
@@ -172,6 +176,7 @@ Shift-Command-4 over to Skreener.
 | Record Screen (press again to stop) | Control-Shift-7 |
 | Capture Scrolling | Control-Shift-8 |
 | Capture History | Control-Shift-H |
+| Pin Click-Through On / Off | Control-Shift-0 |
 
 ## Building from source
 
