@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/jsonify/skreener2/compare/v0.9.0...v0.10.0) (2026-10-26)
+
+
+### Features
+
+* **capture:** add later Capture Text results at the scratch pad's cursor ([#261](https://github.com/jsonify/skreener2/issues/261)) ([#262](https://github.com/jsonify/skreener2/issues/262)) ([8b368df](https://github.com/jsonify/skreener2/commit/8b368dfd29667338403bc299640bd16ce6d8968a))
+* **pins:** trace a mockup with click-through, onion-skin and difference pins ([#244](https://github.com/jsonify/skreener2/issues/244)) ([#263](https://github.com/jsonify/skreener2/issues/263)) ([31c792b](https://github.com/jsonify/skreener2/commit/31c792bc32a0b4040627b18d5532f04ce25fc24b))
+
 ## [0.9.0](https://github.com/jsonify/skreener2/compare/v0.8.0...v0.9.0) (2026-10-25)
 
 
