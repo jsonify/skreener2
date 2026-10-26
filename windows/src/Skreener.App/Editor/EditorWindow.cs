@@ -124,7 +124,7 @@ internal sealed class EditorWindow : Window
 
     // MARK: Toolbar
 
-    private UIElement BuildToolbar()
+    private FrameworkElement BuildToolbar()
     {
         var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         foreach (var tool in EditorTools.All)
