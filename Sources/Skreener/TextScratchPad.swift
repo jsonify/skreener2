@@ -2,17 +2,22 @@ import AppKit
 
 /// Capture Text's scratch pad (#134): a small floating window with the recognized text, to fix it up before copying.
 /// Copy to Clipboard (⌘Return) copies the whole text and closes it; Esc or the close button closes it without copying.
-/// Closing forgets the text: the next Capture Text starts a fresh one.
+/// Closing forgets the text: the next Capture Text starts a fresh one. While it is open, another Capture Text adds its
+/// text on its own line at the cursor (#261); the cursor starts at the end, so by default each capture adds a new line.
 final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate {
     @MainActor private static var current: TextScratchPad?
 
-    /// Shows `text` in the scratch pad, centered on `screen`; a pad that is already open takes the new text.
+    /// Shows `text` in the scratch pad, centered on `screen`; a pad that is already open adds it at the cursor.
     @MainActor static func show(_ text: String, on screen: NSScreen?) {
         let pad = current ?? TextScratchPad()
         current = pad
-        pad.textView.string = text
-        pad.textView.undoManager?.removeAllActions()
-        pad.textView.selectAll(nil)
+        if pad.window?.isVisible == true, !pad.textView.string.isEmpty {
+            pad.insert(text)
+        } else {
+            pad.textView.string = text
+            pad.textView.undoManager?.removeAllActions()
+            pad.textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+        }
         pad.updateCount()
         if pad.window?.isVisible != true, let window = pad.window {
             let area = (screen ?? NSScreen.main)?.visibleFrame ?? .zero
@@ -104,6 +109,31 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         textView.replaceCharacters(in: range, with: joined)
         textView.didChangeText()
         textView.setSelectedRange(NSRange(location: range.location, length: (joined as NSString).length))
+    }
+
+    /// Adds a later capture at the cursor (replacing any selection), through the text view so it can be undone.
+    private func insert(_ text: String) {
+        let range = textView.selectedRange()
+        let piece = TextScratchPad.lineInsertion(text, into: textView.string, replacing: range)
+        guard textView.shouldChangeText(in: range, replacementString: piece) else { return }
+        textView.replaceCharacters(in: range, with: piece)
+        textView.didChangeText()
+        // The cursor goes after the new text, so the next capture follows it.
+        let end = range.location + (piece as NSString).length
+        textView.setSelectedRange(NSRange(location: end, length: 0))
+        textView.scrollRangeToVisible(NSRange(location: end, length: 0))
+    }
+
+    /// `new` padded with line breaks so it sits on its own line(s) when it replaces `range` of `text`.
+    nonisolated static func lineInsertion(_ new: String, into text: String, replacing range: NSRange) -> String {
+        let ns = text as NSString
+        let before = range.location > 0 ? ns.character(at: range.location - 1) : nil
+        let after = NSMaxRange(range) < ns.length ? ns.character(at: NSMaxRange(range)) : nil
+        let newline = UInt16(UInt8(ascii: "\n"))
+        var piece = new
+        if let before, before != newline { piece = "\n" + piece }
+        if let after, after != newline { piece += "\n" }
+        return piece
     }
 
     /// `text` on one line: line breaks become single spaces, and a word hyphenated across a line break is mended.
