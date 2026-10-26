@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .openClipboard: { [weak self] in self?.openClipboard() },
             .pinFile: { [weak self] in self?.pinFile() },
             .pinClipboard: { [weak self] in self?.pinClipboard() },
+            .pinClickThrough: { [weak self] in self?.pinClickThrough() },
         ]
         shortcuts.onChange = { [weak self] in self?.updateMenuShortcuts() }
         shortcuts.register()
@@ -149,7 +150,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for (title, sel, shortcut) in [("Open…", #selector(openFile), HotKeyAction.openFile),
                                        ("Open from Clipboard", #selector(openClipboard), HotKeyAction.openClipboard),
                                        ("Pin to the Screen…", #selector(pinFile), HotKeyAction.pinFile),
-                                       ("Pin from Clipboard", #selector(pinClipboard), HotKeyAction.pinClipboard)] {
+                                       ("Pin from Clipboard", #selector(pinClipboard), HotKeyAction.pinClipboard),
+                                       ("Pin Click-Through On / Off", #selector(pinClickThrough),
+                                        HotKeyAction.pinClickThrough)] {
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; m.addItem(i)
             shortcutItems[shortcut] = i
         }
@@ -352,6 +355,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let img = ImageSource.fromClipboard() else { noClipboardImage(); return }
         PinnedScreenshotController.pin(img)
     }
+
+    @objc private func pinClickThrough() { PinnedScreenshotController.toggleClickThrough() }
 
     private func noClipboardImage() {
         Notifier.problem("No image on the clipboard", detail: "Copy an image or a screenshot first.")
