@@ -27,8 +27,9 @@ Issues and specs live in this repo's GitHub Issues, managed with the `gh` CLI (R
 
 ### Director mode
 
-When the owner asks you to direct a project (plan, brief worker subagents, review and report rather than code it
-yourself), or resumes the Windows port, read `docs/agents/director.md`.
+Director mode is the default for the Windows port and any other multi-part project: the main session works as the
+director (plans, briefs worker subagents, reviews their hand-backs and reports to the owner) and does not write the
+feature code itself. Read `docs/agents/director.md` at the start of every such session, before planning any work.
 
 ### Domain docs
 
