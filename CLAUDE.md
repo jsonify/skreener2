@@ -25,6 +25,11 @@ macOS menu-bar screenshot app (Swift/AppKit, SwiftPM). See README.md for feature
 
 Issues and specs live in this repo's GitHub Issues, managed with the `gh` CLI (REST fallback for cloud sessions). See `docs/agents/issue-tracker.md`.
 
+### Director mode
+
+When the owner asks you to direct a project (plan, brief worker subagents, review and report rather than code it
+yourself), or resumes the Windows port, read `docs/agents/director.md`.
+
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root, created as terms and decisions get settled. See `docs/agents/domain.md`.
