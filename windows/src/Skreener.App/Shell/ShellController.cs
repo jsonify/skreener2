@@ -1,13 +1,14 @@
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Skreener.App.Capture;
+using Skreener.App.Editor;
 using Skreener.Core.Output;
 
 namespace Skreener.App.Shell;
 
 /// <summary>
 /// Everything around the capture itself: tray icon and menu, global hotkeys, and what happens to a finished capture
-/// (clipboard, file, toast, Quick Access). Talks to the capture code only through <see cref="ICaptureService"/>.
+/// (clipboard, file, toast, Quick Access, the editor). Talks to the capture code only through <see cref="ICaptureService"/>.
 /// </summary>
 internal sealed class ShellController : IDisposable
 {
@@ -27,6 +28,8 @@ internal sealed class ShellController : IDisposable
     private TrayIcon? _tray;
     private HotkeyManager? _hotkeys;
     private QuickAccessWindow? _quickAccess;
+    /// <summary>Open editors, held until they close.</summary>
+    private readonly HashSet<EditorWindow> _editors = new();
     private bool _capturing;
 
     public ShellController(ICaptureService capture, Notifier notifier, AppSettings settings)
@@ -182,8 +185,9 @@ internal sealed class ShellController : IDisposable
             {
                 _quickAccess?.Close();
                 var copy = Windows.Graphics.Imaging.SoftwareBitmap.Copy(bitmap);
+                var source = result.ScreenRect;
                 var window = new QuickAccessWindow(copy, _settings.QuickAccessSeconds,
-                    b => _output.CopyAsync(b), b => SaveAndNotifyAsync(b));
+                    b => _output.CopyAsync(b), b => SaveAndNotifyAsync(b), b => OpenEditor(b, source));
                 _quickAccess = window;
                 window.Closed += (_, _) => { if (ReferenceEquals(_quickAccess, window)) _quickAccess = null; };
                 window.ShowInCorner();
@@ -194,6 +198,16 @@ internal sealed class ShellController : IDisposable
             // Quick Access works on its own copy, so the capture's bitmap is always ours to release.
             bitmap.Dispose();
         }
+    }
+
+    /// <summary>Opens an editor on a copy of <paramref name="bitmap"/>, on the display it was captured from.</summary>
+    private void OpenEditor(Windows.Graphics.Imaging.SoftwareBitmap bitmap, Windows.Graphics.RectInt32 source)
+    {
+        var image = BgraImage.FromSoftwareBitmap(bitmap, bitmap.PixelWidth, bitmap.PixelHeight);
+        var editor = new EditorWindow(image, source, b => _output.CopyAsync(b), b => SaveAndNotifyAsync(b));
+        _editors.Add(editor);
+        editor.Closed += (_, _) => _editors.Remove(editor);
+        editor.ShowNearSource();
     }
 
     private async Task SaveAndNotifyAsync(Windows.Graphics.Imaging.SoftwareBitmap bitmap)
@@ -229,5 +243,6 @@ internal sealed class ShellController : IDisposable
         _window = null;
         _quickAccess?.Close();
         _quickAccess = null;
+        _editors.Clear();
     }
 }

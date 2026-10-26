@@ -211,13 +211,42 @@ Start each case with **Ctrl+Alt+4**.
 |---|---|---|---|
 | 36 | Capture with **Ctrl+Alt+3**. Look at the bottom-right of the screen. | A thumbnail of the capture appears in the bottom-right corner. | [ ] / [ ] |
 | 37 | Open **Notepad** and click in it. Type a few words. Capture with **Ctrl+Alt+3** while typing. | The thumbnail appears but does not take focus. Typing continues in Notepad. Notepad stays the active window. | [ ] / [ ] |
-| 38 | When the thumbnail is showing, move the mouse over it. | **Copy**, **Save** and **Close** buttons appear on the thumbnail. | [ ] / [ ] |
+| 38 | When the thumbnail is showing, move the mouse over it. | **Copy**, **Save**, **Edit** and **Close** buttons appear on the thumbnail. | [ ] / [ ] |
 | 39 | Keep the mouse over the thumbnail for at least 15 seconds. | The thumbnail stays open while the mouse is over it. | [ ] / [ ] |
 | 40 | Move the mouse away from the thumbnail. Do not touch it. Count to 10. | The thumbnail closes after about 6 seconds. | [ ] / [ ] |
 | 41 | Capture. Hover the thumbnail, click **Copy**. Open Paint, press **Ctrl+V**. | The captured image is pasted. | [ ] / [ ] |
 | 42 | Capture. Hover the thumbnail, click **Save**. Open `Pictures\Skreener` in File Explorer. | A new `Skreener ...png` file is there for this capture. | [ ] / [ ] |
 | 43 | Capture. Hover the thumbnail, click **Close**. | The thumbnail closes immediately. | [ ] / [ ] |
 | 44 | Capture with **Ctrl+Alt+3** (thumbnail appears). Before it closes, capture again with **Ctrl+Alt+3**. Open the second capture in Paint. | The second capture does not contain a Quick Access thumbnail. | [ ] / [ ] |
+
+### Editor
+
+Cases are numbered E1, E2, … so the numbers of the cases after this section stay the same.
+
+| # | Steps | Expected result | Pass/Fail |
+|---|---|---|---|
+| E1 | Press **Ctrl+Alt+4** and drag over part of a window with text. Release, press **Enter**. Hover the thumbnail and click **Edit**. | The thumbnail closes. A **Skreener Editor** window opens in the middle of the screen the capture came from, showing the capture at 100 % (or shrunk to fit if it is big), on a dark grey background. **Arrow** is highlighted in the toolbar. | [ ] / [ ] |
+| E2 | Drag across the image. | A red arrow follows the pointer while you drag: a line with a filled head at the point where you release. After release it has a white dot with a blue ring at each end. | [ ] / [ ] |
+| E3 | Click **Rect**, drag a box. Click **Ellipse**, drag another. Click **Line**, drag. | Each tool draws its shape in red while you drag. The tool you clicked is highlighted. Rectangles and ellipses get four corner dots when finished. | [ ] / [ ] |
+| E4 | Click **Pen** and scribble. Then draw a second stroke holding **Shift**. | The first stroke follows the pointer freely. The Shift stroke is a straight line from where you pressed to where you released. A finished pen stroke shows a dashed blue frame instead of dots. | [ ] / [ ] |
+| E5 | Click **Pixelate** and drag over some text. | The text inside the box turns into coarse blocks. The color dots and the width box are replaced by a **Blocks 10 px** box. | [ ] / [ ] |
+| E6 | With the pixelate box selected, choose **Blocks 24 px**. | The blocks in the selected box get bigger. | [ ] / [ ] |
+| E7 | Click **Select**. Click on the line of a rectangle and drag it. Then drag one of its corner dots. | The rectangle moves with the pointer. Dragging a corner resizes it while the opposite corner stays put. | [ ] / [ ] |
+| E8 | Click **Arrow**. Press on the middle of an existing arrow's line and drag. | The arrow moves; no new arrow is drawn (a press on a shape grabs it with any tool). | [ ] / [ ] |
+| E9 | Click inside a rectangle (not on its line) with **Rect** selected, and drag. | A new rectangle is drawn inside it. The first rectangle doesn't move. | [ ] / [ ] |
+| E10 | Select a shape (click its line). Click the blue color dot, then choose **12 px** in the width box. | The selected shape turns blue and gets thicker. The blue dot has a ring around it. The next shape you draw is blue and 12 px too. | [ ] / [ ] |
+| E11 | Select a shape. Press the **arrow keys**, then **Shift+arrow keys**. | It moves 1 pixel per press, 10 pixels with Shift. | [ ] / [ ] |
+| E12 | Select a shape and press **Delete**. | It disappears. | [ ] / [ ] |
+| E13 | Press **Ctrl+Z** several times, then **Ctrl+Y** several times. Also try the **Undo** and **Redo** buttons. | Each Ctrl+Z takes back one step (a drawn shape, a move, a delete, a color change); Ctrl+Y redoes it. A whole drag is one step. Undo is greyed out when there is nothing left to undo, Redo when there is nothing to redo. | [ ] / [ ] |
+| E14 | Press **V**, **A**, **R**, **O**, **L**, **P**, **X** one at a time. | The highlighted tool changes to Select, Arrow, Rect, Ellipse, Line, Pen, Pixelate in turn. | [ ] / [ ] |
+| E15 | Start dragging a new rectangle and press **Esc** before releasing. Then select a shape and press **Esc**. | The rectangle being drawn disappears. The second Esc deselects the shape (its dots go away). | [ ] / [ ] |
+| E16 | Click **Copy** (or press **Ctrl+C**). Open Paint and press **Ctrl+V**. | The screenshot is pasted with all the shapes drawn in, at the full capture size, with no selection dots. | [ ] / [ ] |
+| E17 | Click **Save** (or press **Ctrl+S**). Open `Pictures\Skreener`. | A new file with the shapes drawn in is there, and a "Screenshot saved" toast appears. | [ ] / [ ] |
+| E18 | Draw a new shape. Close the editor with the **X** button. | A dialog asks **Save your changes?** with **Save**, **Don't Save** and **Cancel**. **Cancel** keeps the editor open. **Don't Save** closes it. **Save** saves a file (as E17) and closes it. | [ ] / [ ] |
+| E19 | Open an editor, Copy or Save, then close it without drawing anything more. | It closes without asking. | [ ] / [ ] |
+| E20 | Make the editor window smaller and bigger by dragging its edge. | The image shrinks to fit and grows back, never past 100 %. Shapes stay on the same spot of the image. Drawing still lands exactly under the pointer. | [ ] / [ ] |
+| E21 | Capture a window with **Ctrl+Alt+5** and open it in the editor. Open two editors at once from two captures. | Both editors work on their own. | [ ] / [ ] |
+| E22 | At 150 % display scaling (see 1.5), repeat E1, E2 and E16. | The image is sharp at 100 % (one capture pixel per screen pixel). The pasted image has the full capture size. | [ ] / [ ] |
 
 ### Settings
 

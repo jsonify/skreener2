@@ -16,7 +16,7 @@ namespace Skreener.App.Shell;
 
 /// <summary>
 /// Small borderless topmost thumbnail in the bottom-right corner of the work area after a capture (port of
-/// QuickAccess.swift, simplified: one preview at a time, Copy / Save / Close). Closes itself after a few seconds
+/// QuickAccess.swift, simplified: one preview at a time, Copy / Save / Edit / Close). Closes itself after a few seconds
 /// unless the pointer is over it. Owns (and disposes) the bitmap it is given.
 /// </summary>
 internal sealed class QuickAccessWindow : Window
@@ -28,6 +28,7 @@ internal sealed class QuickAccessWindow : Window
     private readonly SoftwareBitmap _bitmap;
     private readonly Func<SoftwareBitmap, Task> _copy;
     private readonly Func<SoftwareBitmap, Task> _save;
+    private readonly Action<SoftwareBitmap> _edit;
     private readonly DispatcherQueueTimer _timer;
     private readonly StackPanel _buttons;
     private bool _closed;
@@ -38,31 +39,38 @@ internal sealed class QuickAccessWindow : Window
     /// </summary>
     public bool ExcludedFromCapture { get; private set; }
 
-    public QuickAccessWindow(SoftwareBitmap bitmap, int seconds, Func<SoftwareBitmap, Task> copy, Func<SoftwareBitmap, Task> save)
+    /// <param name="edit">Opens the editor on the bitmap. It must copy what it needs: the preview closes (and disposes the bitmap) right after.</param>
+    public QuickAccessWindow(SoftwareBitmap bitmap, int seconds, Func<SoftwareBitmap, Task> copy, Func<SoftwareBitmap, Task> save,
+        Action<SoftwareBitmap> edit)
     {
         _bitmap = bitmap;
         _copy = copy;
         _save = save;
+        _edit = edit;
         Title = "Skreener Quick Access";
 
         var image = new Image { Stretch = Stretch.Uniform };
         var copyButton = new Button { Content = "Copy" };
         var saveButton = new Button { Content = "Save" };
+        var editButton = new Button { Content = "Edit" };
         var closeButton = new Button { Content = "Close" };
         copyButton.Click += async (_, _) => await RunAction(copyButton, _copy, "Copied");
         saveButton.Click += async (_, _) => await RunAction(saveButton, _save, "Saved");
+        editButton.Click += (_, _) => Edit();
         closeButton.Click += (_, _) => Close();
 
         _buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = 4,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Bottom,
             Margin = new Thickness(0, 0, 0, 8),
             Visibility = Visibility.Collapsed,
-            Children = { copyButton, saveButton, closeButton },
+            Children = { copyButton, saveButton, editButton, closeButton },
         };
+        // Four buttons across the 220-DIP preview: tighter than the default padding.
+        foreach (var child in _buttons.Children) ((Button)child).Padding = new Thickness(8, 3, 8, 3);
         var root = new Grid { Background = new SolidColorBrush(Colors.Black), Children = { image, _buttons } };
         root.PointerEntered += OnPointerEntered;
         root.PointerExited += OnPointerExited;
@@ -128,6 +136,17 @@ internal sealed class QuickAccessWindow : Window
     {
         _buttons.Visibility = Visibility.Collapsed;
         if (!_closed) _timer.Start();
+    }
+
+    private void Edit()
+    {
+        try { _edit(_bitmap); }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Skreener: opening the editor failed: {e}");
+            return;
+        }
+        Close();
     }
 
     private async Task RunAction(Button button, Func<SoftwareBitmap, Task> action, string done)
