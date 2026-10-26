@@ -57,6 +57,6 @@ internal static class TextRecognizer
             InterpolationMode = BitmapInterpolationMode.Fant,
         };
         return await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform,
-            ExifOrientationMode.IgnoreExif, ColorManagementMode.DoNotColorManage);
+            ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
     }
 }
