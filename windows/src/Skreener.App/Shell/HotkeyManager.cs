@@ -15,12 +15,16 @@ internal sealed class HotkeyManager : IDisposable
 
     public HotkeyManager(HWND window) => _window = window;
 
+    /// <summary>The actions the last <see cref="RegisterAll"/> could not register because another app owns the combination.</summary>
+    public IReadOnlyList<HotkeyAction> FailedActions { get; private set; } = Array.Empty<HotkeyAction>();
+
     public static HotkeyAction ActionFor(int id) => (HotkeyAction)(id - 1);
 
     /// <summary>Registers every action; returns a readable line for each combination another app already owns.</summary>
     public IReadOnlyList<string> RegisterAll(AppSettings settings)
     {
         var failures = new List<string>();
+        var failedActions = new List<HotkeyAction>();
         foreach (var action in Enum.GetValues<HotkeyAction>())
         {
             var binding = settings.GetHotkey(action);
@@ -28,8 +32,13 @@ internal sealed class HotkeyManager : IDisposable
             var modifiers = (HOT_KEY_MODIFIERS)((uint)binding.Modifiers | ModNoRepeat);
             bool ok = PInvoke.RegisterHotKey(_window, id, modifiers, binding.VirtualKey);
             if (ok) _registered.Add(id);
-            else failures.Add($"{binding} ({Describe(action)})");
+            else
+            {
+                failures.Add($"{binding} ({Describe(action)})");
+                failedActions.Add(action);
+            }
         }
+        FailedActions = failedActions;
         return failures;
     }
 
@@ -39,6 +48,7 @@ internal sealed class HotkeyManager : IDisposable
         HotkeyAction.CaptureWindow => "Capture Window",
         HotkeyAction.CaptureFullscreen => "Capture Fullscreen",
         HotkeyAction.CapturePreviousArea => "Capture Previous Area",
+        HotkeyAction.CaptureText => "Capture Text",
         _ => action.ToString(),
     };
 

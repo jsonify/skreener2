@@ -15,8 +15,10 @@ text, counter, pixelate and blur, plus crop and zoom; recording and the rest of 
 | `src/Skreener.Core/Editor` | The editor's model: annotations, hit testing and handles, `EditorSession` (pointer handling, selection, text typing, crop, undo/redo), `CropGeometry` (crop handles and drags) and `EditorViewport` (zoom, scroll, pan). No drawing. |
 | `src/Skreener.App` | WinUI 3 app, `net8.0-windows10.0.19041.0`, unpackaged and self-contained, x64 and ARM64. References Core. |
 | `src/Skreener.App/Shell` | Tray icon and menu, global hotkeys, settings file, clipboard/save, toasts, Quick Access. `ShellController` runs a capture through `ICaptureService` and handles the result. |
+| `src/Skreener.App/Settings` | The Settings window and its shortcut recorder. The rules behind them (shortcut checks, reserved combinations, file-name preview, clamping) are in Core's `Output/HotkeyRules.cs` and `SettingsRules.cs`. |
 | `src/Skreener.App/Capture` | `CaptureService` (area, window, fullscreen, previous area) with Windows.Graphics.Capture; `BgraImage` is the raw capture buffer. |
 | `src/Skreener.App/Editor` | The editor window, its style bar, zoom menu and in-place text box, and its Win2D renderer, which draws the annotations on screen and into the bitmap Copy and Save hand on. |
+| `src/Skreener.App/Ocr` | Capture Text: `TextRecognizer` (Windows.Media.Ocr) and the scratch pad window. Line joining and OCR image sizing live in Core (`Text/`). |
 | `src/Skreener.App/Overlay` | The per-monitor Win32 selection overlay. `ScreenSelection` is its only bridge to Core's y-up `SelectionGeometry` (top-left pixels mirrored in and out). |
 | `tests/Skreener.Core.Tests` | xUnit tests for Core, plus `ScreenSelection` (compiled in by path, since it is pure). |
 
@@ -26,7 +28,7 @@ Win32 APIs come from CsWin32: each feature folder lists what it uses in its own 
 ## Using it
 
 Skreener has no window: it lives in the tray. Left-click the tray icon to capture an area; right-click for the menu
-(captures, Open Screenshots Folder, Launch at Login, Quit). Default hotkeys:
+(captures, Capture Text, Open Screenshots Folder, Launch at Login, Settings…, Quit). Default hotkeys:
 
 | Hotkey | Action |
 | --- | --- |
@@ -34,8 +36,14 @@ Skreener has no window: it lives in the tray. Left-click the tray icon to captur
 | Ctrl+Alt+5 | Capture window (Space in the overlay switches between area and window) |
 | Ctrl+Alt+3 | Capture the monitor under the pointer |
 | Ctrl+Alt+1 | Capture the previous area again |
+| Ctrl+Alt+2 | Capture Text: select an area, read its text with Windows OCR and edit it in a scratch pad |
 
-Esc or right-click cancels. Hover the Quick Access thumbnail and click **Edit** to annotate the capture:
+Esc or right-click cancels. **Capture Text** (tray menu or Ctrl+Alt+2) runs the same area selection, then recognizes the
+text in it with the Windows OCR engine (`Windows.Media.Ocr`, your profile languages; add more under Settings > Time &
+Language > Language & region). The capture itself is not saved, copied or shown in Quick Access. The text opens in an
+always-on-top **Captured Text** window: **Join Lines** merges the selected lines (or all) into one line and mends words
+hyphenated across lines, **Copy to Clipboard** (Ctrl+Enter) copies it as plain text and closes, Esc closes without
+copying. No text found shows a toast. Hover the Quick Access thumbnail and click **Edit** to annotate the capture:
 
 | Key | In the editor |
 | --- | --- |
@@ -53,10 +61,13 @@ Esc or right-click cancels. Hover the Quick Access thumbnail and click **Edit** 
 | Wheel, Shift+wheel, middle-button drag | Scroll down/up, sideways, pan (when zoomed past fit) |
 | Esc | End typing or crop mode, cancel the drag, then deselect |
 
-Closing an editor with changes that were neither copied nor saved asks first. A capture is copied to the clipboard, saved to `Pictures\Skreener` and shown in Quick
-Access (bottom-right); change that, the folder, format and hotkeys in `%APPDATA%\Skreener\settings.json` (read on each
-capture; hotkeys on the next launch). Skreener's own overlay, Quick Access (Windows 10 2004+) and toasts are kept out
-of captures.
+Closing an editor with changes that were neither copied nor saved asks first. A capture is copied to the clipboard,
+saved to `Pictures\Skreener` and shown in Quick Access (bottom-right). Change that, the save folder, format, file name
+template, Quick Access time, Launch at Login and the hotkeys in the **Settings** window (tray menu, **Settings…**).
+Changes save at once and apply without a restart, hotkeys included; a shortcut another app already owns is refused with
+"In use by another app". The settings live in `%APPDATA%\Skreener\settings.json`, which can still be edited by hand (read
+on each capture; the Settings window re-reads it before each change). Skreener's own overlay, Quick Access (Windows 10
+2004+) and toasts are kept out of captures.
 
 ## Build and run (Windows 10 1809+ / 11)
 

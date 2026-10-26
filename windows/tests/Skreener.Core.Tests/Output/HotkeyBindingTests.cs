@@ -8,8 +8,8 @@ public class HotkeyBindingTests
     [Fact]
     public void DefaultsAreDistinctAndAvoidShellCombos()
     {
-        Assert.Equal(4, HotkeyBinding.Defaults.Count);
-        Assert.Equal(4, HotkeyBinding.Defaults.Values.Distinct().Count());
+        Assert.Equal(Enum.GetValues<HotkeyAction>().Length, HotkeyBinding.Defaults.Count);
+        Assert.Equal(HotkeyBinding.Defaults.Count, HotkeyBinding.Defaults.Values.Distinct().Count());
         foreach (var b in HotkeyBinding.Defaults.Values)
         {
             Assert.False(b.Modifiers.HasFlag(HotkeyModifiers.Win));
