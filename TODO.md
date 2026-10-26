@@ -12,7 +12,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 
 ## Batch 1 — in this branch (needs a build + manual test on macOS)
 - [~] Capture Text / OCR (⌃⇧2, Vision) — S (#39)
-- [~] Capture Text scratch pad: the text opens in a floating window to edit (Join Lines mends hyphenated words), Copy to Clipboard / ⌘Return copies and closes, Esc closes; closing forgets it; Settings → After Capture → Capture Text toggle, on by default — S (#134)
+- [~] Capture Text scratch pad: the text opens in a floating window to edit (Join Lines mends hyphenated words), Copy to Clipboard / ⌘Return copies and closes, Esc closes; closing forgets it; Settings → After Capture → Capture Text toggle, on by default — S (#134); while open, another Capture Text adds its text on its own line at the cursor (#261)
 - [~] Self-timer fullscreen capture (3/5/10 s) — S (#40)
 - [~] Pinned screenshots (floating, opacity, zoom) — S (#41)
 
