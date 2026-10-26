@@ -13,7 +13,7 @@ public enum HotkeyModifiers
     Win = 0x8,
 }
 
-public enum HotkeyAction { CaptureArea, CaptureWindow, CaptureFullscreen, CapturePreviousArea }
+public enum HotkeyAction { CaptureArea, CaptureWindow, CaptureFullscreen, CapturePreviousArea, CaptureText }
 
 /// <summary>A key combination as stored in settings, e.g. <c>Ctrl+Alt+4</c>. <see cref="VirtualKey"/> is a Win32 VK_* code.</summary>
 public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, uint VirtualKey)
@@ -28,6 +28,7 @@ public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, uint Virt
         [HotkeyAction.CaptureFullscreen] = new(HotkeyModifiers.Control | HotkeyModifiers.Alt, '3'),
         [HotkeyAction.CaptureWindow] = new(HotkeyModifiers.Control | HotkeyModifiers.Alt, '5'),
         [HotkeyAction.CapturePreviousArea] = new(HotkeyModifiers.Control | HotkeyModifiers.Alt, '1'),
+        [HotkeyAction.CaptureText] = new(HotkeyModifiers.Control | HotkeyModifiers.Alt, '2'),
     };
 
     public override string ToString()

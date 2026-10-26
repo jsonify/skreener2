@@ -39,6 +39,7 @@ internal sealed class HotkeyManager : IDisposable
         HotkeyAction.CaptureWindow => "Capture Window",
         HotkeyAction.CaptureFullscreen => "Capture Fullscreen",
         HotkeyAction.CapturePreviousArea => "Capture Previous Area",
+        HotkeyAction.CaptureText => "Capture Text",
         _ => action.ToString(),
     };
 
