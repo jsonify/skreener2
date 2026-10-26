@@ -150,6 +150,82 @@ public class AnnotationGeometryTests
         Assert.False(Make(AnnotationKind.Pen, P(0, 0), P(0, 0), 4, P(0, 0)).IsDrawable);
     }
 
+    [Fact]
+    public void TextAndCountersAreAlwaysDrawable()
+    {
+        Assert.True(Make(AnnotationKind.Text, P(0, 0), P(0, 0)).IsDrawable);
+        Assert.True(Make(AnnotationKind.Counter, P(5, 5), P(5, 5)).IsDrawable);
+        Assert.False(Make(AnnotationKind.Highlighter, P(0, 0), P(0, 0), 4, P(0, 0)).IsDrawable);
+    }
+
+    [Theory]
+    [InlineData(AnnotationKind.FilledRectangle)]
+    [InlineData(AnnotationKind.Blur)]
+    [InlineData(AnnotationKind.Text)]
+    public void SolidKindsAreHitAnywhereInside(AnnotationKind kind)
+    {
+        var a = Make(kind, P(0, 0), P(100, 50));
+        Assert.True(AnnotationGeometry.Hits(a, P(50, 25), 5));
+        Assert.True(AnnotationGeometry.Hits(a, P(103, 25), 5)); // within the slop
+        Assert.False(AnnotationGeometry.Hits(a, P(110, 25), 5));
+        Assert.Equal(0, AnnotationGeometry.InkOutset(a));
+    }
+
+    [Fact]
+    public void ACounterIsACircleAroundItsCenterSizedByTheFont()
+    {
+        var c = new Annotation(1, AnnotationKind.Counter, P(50, 50), P(50, 50), Array.Empty<PointD>(),
+            AnnotationStyle.Default with { FontSize = 20 });
+        Assert.Equal(15, c.Style.CounterRadius);
+        Assert.Equal(new RectD(35, 35, 30, 30), c.Bounds);
+        Assert.True(AnnotationGeometry.Hits(c, P(60, 60), 0));
+        Assert.False(AnnotationGeometry.Hits(c, P(70, 50), 2));
+        Assert.Empty(AnnotationGeometry.Handles(c));
+        // Small fonts keep a counter big enough to read.
+        Assert.Equal(10, (AnnotationStyle.Default with { FontSize = 8 }).CounterRadius);
+    }
+
+    [Fact]
+    public void TheHighlighterIsHitAcrossItsWideStroke()
+    {
+        var h = Make(AnnotationKind.Highlighter, P(0, 0), P(100, 0), 4, P(0, 0), P(100, 0));
+        Assert.Equal(20, h.Style.HighlighterWidth); // max(12, 4 x 5)
+        Assert.True(AnnotationGeometry.Hits(h, P(50, 14), 5)); // 10 + 5 reach
+        Assert.False(AnnotationGeometry.Hits(h, P(50, 16), 5));
+        Assert.Equal(new RectD(0, 0, 100, 0), h.Bounds);
+        Assert.Equal(10, AnnotationGeometry.InkOutset(h));
+        Assert.Empty(AnnotationGeometry.Handles(h));
+        Assert.Equal(12, (AnnotationStyle.Default with { LineWidth = 1 }).HighlighterWidth);
+    }
+
+    [Fact]
+    public void CounterNumbersFollowIdsAmongCountersOnly()
+    {
+        Annotation C(int id) => new(id, AnnotationKind.Counter, P(id, id), P(id, id), Array.Empty<PointD>(), AnnotationStyle.Default);
+        var items = new[] { C(5), Make(AnnotationKind.Rectangle, P(0, 0), P(9, 9)) with { Id = 2 }, C(3), C(9) };
+        Assert.Equal(2, AnnotationGeometry.CounterNumber(items, items[0]));
+        Assert.Equal(1, AnnotationGeometry.CounterNumber(items, items[2]));
+        Assert.Equal(3, AnnotationGeometry.CounterNumber(items, items[3]));
+        Assert.Equal(0, AnnotationGeometry.CounterNumber(items, items[1]));
+    }
+
+    [Fact]
+    public void LightCountersGetDarkNumbers()
+    {
+        Assert.True(AnnotationGeometry.CounterUsesDarkText(RgbColor.FromBytes(255, 255, 255)));
+        Assert.False(AnnotationGeometry.CounterUsesDarkText(RgbColor.FromBytes(255, 204, 0))); // saturated yellow: white
+        Assert.False(AnnotationGeometry.CounterUsesDarkText(RgbColor.FromBytes(255, 59, 48)));
+        Assert.False(AnnotationGeometry.CounterUsesDarkText(RgbColor.FromBytes(0, 0, 0)));
+    }
+
+    [Fact]
+    public void TheTextEstimateCountsTheLongestLineAndEveryLine()
+    {
+        var style = AnnotationStyle.Default with { FontSize = 10 };
+        Assert.Equal(new SizeD(18, 25), AnnotationGeometry.EstimateTextSize("abc\nde", style));
+        Assert.Equal(new SizeD(5, 12.5), AnnotationGeometry.EstimateTextSize("", style));
+    }
+
     private static byte[] RgbaBytes(PixelBuffer buffer, int width, int height)
     {
         var bytes = new byte[width * height * 4];
