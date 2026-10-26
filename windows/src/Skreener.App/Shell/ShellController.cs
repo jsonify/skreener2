@@ -9,10 +9,13 @@ namespace Skreener.App.Shell;
 /// <summary>
 /// Everything around the capture itself: tray icon and menu, global hotkeys, and what happens to a finished capture
 /// (clipboard, file, toast, Quick Access, the editor). Talks to the capture code only through <see cref="ICaptureService"/>.
+/// Features with their own menu item and hotkey live in their own partial files (ShellController.CaptureText.cs,
+/// ShellController.Settings.cs).
 /// </summary>
-internal sealed class ShellController : IDisposable
+internal sealed partial class ShellController : IDisposable
 {
-    private const int CmdArea = 1, CmdWindow = 2, CmdFullscreen = 3, CmdPreviousArea = 4, CmdOpenFolder = 5, CmdLaunchAtLogin = 6, CmdQuit = 7;
+    private const int CmdArea = 1, CmdWindow = 2, CmdFullscreen = 3, CmdPreviousArea = 4, CmdOpenFolder = 5, CmdLaunchAtLogin = 6, CmdQuit = 7,
+        CmdCaptureText = 8, CmdSettings = 9;
     private const string IconRelativePath = "Shell/Assets/tray.ico";
 
     /// <summary>Time for the tray menu (and its selection fade) to leave the screen before a capture freezes it. [verify]</summary>
@@ -43,7 +46,7 @@ internal sealed class ShellController : IDisposable
     public void Start()
     {
         _window = new MessageWindow();
-        _window.HotkeyPressed += id => _ = RunCaptureAsync(KindFor(HotkeyManager.ActionFor(id)));
+        _window.HotkeyPressed += id => OnHotkey(HotkeyManager.ActionFor(id));
         _window.TrayLeftClick += () => _ = RunCaptureAsync(CaptureKind.Area);
         _window.TrayRightClick += ShowMenu;
 
@@ -61,13 +64,17 @@ internal sealed class ShellController : IDisposable
         }
     }
 
-    private static CaptureKind KindFor(HotkeyAction action) => action switch
+    private void OnHotkey(HotkeyAction action)
     {
-        HotkeyAction.CaptureArea => CaptureKind.Area,
-        HotkeyAction.CaptureWindow => CaptureKind.Window,
-        HotkeyAction.CaptureFullscreen => CaptureKind.Fullscreen,
-        _ => CaptureKind.PreviousArea,
-    };
+        switch (action)
+        {
+            case HotkeyAction.CaptureArea: _ = RunCaptureAsync(CaptureKind.Area); break;
+            case HotkeyAction.CaptureWindow: _ = RunCaptureAsync(CaptureKind.Window); break;
+            case HotkeyAction.CaptureFullscreen: _ = RunCaptureAsync(CaptureKind.Fullscreen); break;
+            case HotkeyAction.CapturePreviousArea: _ = RunCaptureAsync(CaptureKind.PreviousArea); break;
+            case HotkeyAction.CaptureText: _ = CaptureTextAsync(); break;
+        }
+    }
 
     private void ShowMenu()
     {
@@ -78,9 +85,11 @@ internal sealed class ShellController : IDisposable
             new TrayMenuItem(CmdWindow, Label("Capture Window", HotkeyAction.CaptureWindow)),
             new TrayMenuItem(CmdFullscreen, Label("Capture Fullscreen", HotkeyAction.CaptureFullscreen)),
             new TrayMenuItem(CmdPreviousArea, Label("Capture Previous Area", HotkeyAction.CapturePreviousArea)),
+            new TrayMenuItem(CmdCaptureText, Label("Capture Text", HotkeyAction.CaptureText)),
             TrayMenuItem.Separator,
             new TrayMenuItem(CmdOpenFolder, "Open Screenshots Folder"),
             new TrayMenuItem(CmdLaunchAtLogin, "Launch at Login", LaunchAtLogin.IsEnabled),
+            new TrayMenuItem(CmdSettings, "Settings…"),
             TrayMenuItem.Separator,
             new TrayMenuItem(CmdQuit, "Quit"),
         };
@@ -90,6 +99,8 @@ internal sealed class ShellController : IDisposable
             case CmdWindow: _ = RunCaptureAsync(CaptureKind.Window, fromMenu: true); break;
             case CmdFullscreen: _ = RunCaptureAsync(CaptureKind.Fullscreen, fromMenu: true); break;
             case CmdPreviousArea: _ = RunCaptureAsync(CaptureKind.PreviousArea, fromMenu: true); break;
+            case CmdCaptureText: _ = CaptureTextAsync(fromMenu: true); break;
+            case CmdSettings: OpenSettings(); break;
             case CmdOpenFolder: OpenScreenshotsFolder(); break;
             case CmdLaunchAtLogin: ToggleLaunchAtLogin(); break;
             case CmdQuit: Quit(); break;

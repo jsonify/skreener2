@@ -26,7 +26,7 @@ Win32 APIs come from CsWin32: each feature folder lists what it uses in its own 
 ## Using it
 
 Skreener has no window: it lives in the tray. Left-click the tray icon to capture an area; right-click for the menu
-(captures, Open Screenshots Folder, Launch at Login, Quit). Default hotkeys:
+(captures, Capture Text, Open Screenshots Folder, Launch at Login, Settings…, Quit). Default hotkeys:
 
 | Hotkey | Action |
 | --- | --- |
@@ -34,6 +34,7 @@ Skreener has no window: it lives in the tray. Left-click the tray icon to captur
 | Ctrl+Alt+5 | Capture window (Space in the overlay switches between area and window) |
 | Ctrl+Alt+3 | Capture the monitor under the pointer |
 | Ctrl+Alt+1 | Capture the previous area again |
+| Ctrl+Alt+2 | Capture Text (placeholder: says it is coming; the OCR lands in its own PR) |
 
 Esc or right-click cancels. Hover the Quick Access thumbnail and click **Edit** to annotate the capture:
 
