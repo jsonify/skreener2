@@ -125,6 +125,9 @@ Permissions switched on but not working, or asked for again after every build? S
 - **Measure and pick colors.** Measure runs of color under the pointer, and copy colors in HEX, CSS, RGB,
   UIColor, Android, OKLCH and more. **Check Contrast** shows the WCAG 2 ratio or APCA value.
 - **Export.** Save, Save As, copy, or drag a small preview straight into another app.
+- **Ask Claude.** The sparkles button sends the screenshot to Claude to explain an error, summarize a chart, write
+  alt text, or answer your own question, and shows the answer to copy. It uses your own Anthropic API key (Settings →
+  Ask Claude, kept in the Keychain), and nothing is sent until you press Ask.
 
 ### After capture
 
