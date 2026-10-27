@@ -122,10 +122,18 @@ enum PNGQuantizer {
 
     // MARK: Reading pixels
 
-    /// The pixels of `image` as straight RGBA, drawn in the image's own RGB color space (so no color conversion).
+    /// The RGB color space the pixels of `image` are in: its own, or for a palette image (ImageIO decodes an opaque
+    /// palette PNG as indexed) the space the palette colors are in. Nil for gray, CMYK and the like.
+    static func rgbSpace(of image: CGImage) -> CGColorSpace? {
+        guard var space = image.colorSpace else { return nil }
+        if space.model == .indexed, let base = space.baseColorSpace { space = base }
+        return space.model == .rgb ? space : nil
+    }
+
+    /// The pixels of `image` as straight RGBA, drawn in its RGB color space (so no color conversion).
     /// Nil for non-RGB images, or a color space that can't be drawn into 8 bits per channel.
     static func rgba(of image: CGImage) -> [UInt8]? {
-        guard let space = image.colorSpace, space.model == .rgb else { return nil }
+        guard let space = rgbSpace(of: image) else { return nil }
         let w = image.width, h = image.height
         var bytes = [UInt8](repeating: 0, count: w * h * 4)
         let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
@@ -150,7 +158,7 @@ enum PNGQuantizer {
     static func compressed(png: Data, maxError: Double = defaultMaxError) -> Data? {
         guard let source = CGImageSourceCreateWithData(png as CFData, nil), CGImageSourceGetCount(source) == 1,
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-              let space = image.colorSpace, let pixels = rgba(of: image),
+              let space = rgbSpace(of: image), let pixels = rgba(of: image),
               let q = quantize(rgba: pixels), q.meanError <= maxError else { return nil }
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         var dpi: (Double, Double)?
