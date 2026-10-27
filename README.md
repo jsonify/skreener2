@@ -124,6 +124,8 @@ Permissions switched on but not working, or asked for again after every build? S
   movable images. Pick them from the editor tabs or the history.
 - **Backgrounds.** Gradients, solid colors, your wallpaper or a picture of your own. There are presets for
   common aspect ratios and social media sizes, plus padding, corner radius and shadow.
+- **Frames.** Wrap a screenshot in a macOS window, a browser (with an address you can edit), a MacBook, an iPhone
+  or an iPad, light or dark. It sits inside the background and is saved with the capture.
 - **Measure and pick colors.** Measure runs of color under the pointer, and copy colors in HEX, CSS, RGB,
   UIColor, Android, OKLCH and more. **Check Contrast** shows the WCAG 2 ratio or APCA value.
 - **Export.** Save, Save As, copy, or drag a small preview straight into another app.

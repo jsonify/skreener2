@@ -92,6 +92,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Side dock instead of the tab row: thumbnails of the window's screenshots beside the canvas (from 2 screenshots; updated shortly after edits); click switches, × on hover or middle-click closes, right-click: close others, move to new window; its header button, the footer's dock button or ⌃⌘S (Window menu) hides/shows it with a slide, remembered; Settings → Annotate: left or right — M (#140)
 - [~] No zoom-in animation when an editor window appears, a screenshot is picked in the dock, or the area / window / Record Screen overlays come up; Settings → Annotate → Editor Window → "Zoom, zoom" brings it back — S
 - [~] Copy (⌘C), cut (⌘X), paste (⌘V) and duplicate (⌘D) annotations, also into another tab or editor; they stay editable; ⌘C with nothing selected copies the image; pasting an image still works (`AnnotationClipboard`, unit-tested) — S (#125)
+- [~] Device and browser frames (editor toolbar, next to Background): macOS window, browser with an editable address, MacBook, iPhone, iPad, light or dark, drawn as vectors inside the background; saved with the editor document (`DeviceFrame`, unit-tested) — M (#271)
 - [~] Combine Screenshots: 2 to 9 captures (tabs or history, or ⌘-click several in the history panel) in a row, column or grid with gutter, alignment and margin, as movable image layers on a new tab (`CombineLayout`, unit-tested) — M (#273)
 
 ## Batch 5 — capture modes
