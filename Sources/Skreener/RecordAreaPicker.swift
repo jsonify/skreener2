@@ -542,6 +542,7 @@ final class RecordAreaPicker: NSObject {
         header("Cursor")
         row("Show cursor", { Preferences.recordShowsCursor }) { Preferences.recordShowsCursor = $0 }
         row("Highlight clicks", { Preferences.recordHighlightClicks }, options: clickOptions()) { Preferences.recordHighlightClicks = $0 }
+        row("Cursor spotlight", { Preferences.recordSpotlight }, options: spotlightOptions()) { Preferences.recordSpotlight = $0 }
         header("Keystrokes")
         row("Show keystrokes", { Preferences.recordShowKeystrokes }, options: keystrokeOptions()) { [weak self] in self?.setKeystrokes($0) }
         header("Video")
@@ -579,6 +580,18 @@ final class RecordAreaPicker: NSObject {
         m.addItem(.separator())
         for (name, size) in [("Small", 32), ("Medium", 48), ("Large", 64)] {
             m.addItem(menuItem(name, checked: Preferences.clickHighlightSize == size) { Preferences.clickHighlightSize = size })
+        }
+        return m
+    }
+
+    private func spotlightOptions() -> NSMenu {
+        let m = NSMenu()
+        for (name, r) in Spotlight.radii {
+            m.addItem(menuItem(name + " Circle", checked: Preferences.spotlightRadius == r) { Preferences.spotlightRadius = r })
+        }
+        m.addItem(.separator())
+        for (name, pct) in Spotlight.dims {
+            m.addItem(menuItem(name + " Dim", checked: Preferences.spotlightDim == pct) { Preferences.spotlightDim = pct })
         }
         return m
     }

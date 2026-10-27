@@ -154,7 +154,7 @@ struct KeyCombo: Hashable {
 enum HotKeyAction: String, CaseIterable {
     case captureArea, allInOne, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureActiveWindow,
          captureScrolling, captureText, timedArea, timedWindow, timedFullscreen
-    case recordScreen, presenter
+    case recordScreen, presenter, spotlight
     case showHistory, toggleDesktopIcons, openFile, openClipboard, pinFile, pinClipboard, pinClickThrough
 
     /// The groups of Settings → Shortcuts.
@@ -174,7 +174,7 @@ enum HotKeyAction: String, CaseIterable {
         switch self {
         case .captureArea, .allInOne, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow,
              .captureActiveWindow, .captureScrolling, .captureText, .timedArea, .timedWindow, .timedFullscreen: return .screenshots
-        case .recordScreen, .presenter: return .recording
+        case .recordScreen, .presenter, .spotlight: return .recording
         case .showHistory, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile, .pinClipboard, .pinClickThrough: return .other
         }
     }
@@ -195,6 +195,7 @@ enum HotKeyAction: String, CaseIterable {
         case .timedFullscreen: return "Self-Timer: Fullscreen"
         case .recordScreen: return "Record Screen"
         case .presenter: return "Zoom & Draw on Screen"
+        case .spotlight: return "Cursor Spotlight"
         case .showHistory: return "Capture History"
         case .toggleDesktopIcons: return "Show / Hide Desktop Icons"
         case .openFile: return "Open…"
@@ -212,6 +213,7 @@ enum HotKeyAction: String, CaseIterable {
         case .captureScrolling: return "Press again to finish."
         case .recordScreen: return "Press again to stop recording."
         case .presenter: return "Press again, or Esc twice, to leave."
+        case .spotlight: return "While recording: dims all but a circle around the pointer. Press again to turn off."
         case .showHistory: return "Opens and closes the history panel."
         case .pinClickThrough: return "Off on every pin, or on for the pin under the pointer."
         default: return nil
@@ -219,7 +221,7 @@ enum HotKeyAction: String, CaseIterable {
     }
 
     /// The shortcuts Skreener has always had (⌃⇧ + a key), plus ⌃⇧0 for pin click-through, since a click-through pin
-    /// takes no clicks or keys of its own, and ⌃⇧Z for presenter mode, used mid-call; the rest start without one.
+    /// takes no clicks or keys of its own, ⌃⇧Z for presenter mode, used mid-call, and ⌃⇧S for the recording spotlight; the rest start without one.
     var defaultCombo: KeyCombo? {
         let mods = controlKey | shiftKey
         switch self {
@@ -235,6 +237,7 @@ enum HotKeyAction: String, CaseIterable {
         case .showHistory: return KeyCombo(keyCode: kVK_ANSI_H, modifiers: mods)
         case .pinClickThrough: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: mods)
         case .presenter: return KeyCombo(keyCode: kVK_ANSI_Z, modifiers: mods)
+        case .spotlight: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: mods)
         case .captureActiveWindow, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
              .openClipboard, .pinFile, .pinClipboard: return nil
         }

@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .timedFullscreen: { [weak self] in self?.timedFullscreen() },
             .recordScreen: { [weak self] in self?.recordScreen() },
             .presenter: { [weak self] in self?.togglePresenter() },
+            .spotlight: { [weak self] in self?.recording.toggleSpotlight() },
             .showHistory: { [weak self] in self?.showHistory() },
             .toggleDesktopIcons: { [weak self] in self?.toggleDesktopIcons() },
             .openFile: { [weak self] in self?.openFile() },
