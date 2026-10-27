@@ -21,12 +21,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private static let sidebarWidth: CGFloat = 200
 
     private enum Pane: Int, CaseIterable {
-        case general, afterCapture, shortcuts, screenshots, recording, annotate, askClaude, about
+        case general, afterCapture, sendTo, shortcuts, screenshots, recording, annotate, askClaude, about
 
         var title: String {
             switch self {
             case .general: return "General"
             case .afterCapture: return "After Capture"
+            case .sendTo: return "Send To"
             case .shortcuts: return "Shortcuts"
             case .screenshots: return "Screenshots"
             case .recording: return "Screen Recording"
@@ -39,6 +40,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             switch self {
             case .general: return "gearshape.fill"
             case .afterCapture: return "rectangle.stack.fill"
+            case .sendTo: return "paperplane.fill"
             case .shortcuts: return "command"
             case .screenshots: return "camera.fill"
             case .recording: return "video.fill"
@@ -51,6 +53,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             switch self {
             case .general: return .systemGray
             case .afterCapture: return .systemGreen
+            case .sendTo: return .systemTeal
             case .shortcuts: return .systemIndigo
             case .screenshots: return .systemBlue
             case .recording: return .systemRed
@@ -71,6 +74,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     /// Kept so it can follow the setting when a link's prompt turns it on (`refreshURLScheme`).
     private let urlSchemeSwitch = NSSwitch()
     private let shortcutsPane = ShortcutsPane()
+    private let sendToPane = SendToPane()
     /// Ask Claude's API key: typed into `apiKeyField`, saved to the Keychain; `apiKeyStatus` shows what is stored.
     private let apiKeyField = NSSecureTextField()
     private let apiKeyStatus = NSTextField(labelWithString: "")
@@ -127,8 +131,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     required init?(coder: NSCoder) { fatalError() }
 
     /// Brings Settings to the front; `askClaude` opens it on the Ask Claude pane, where the API key goes.
-    func present(askClaude: Bool = false) {
+    func present(askClaude: Bool = false, sendTo: Bool = false) {
         if askClaude, let row = Pane.listed.firstIndex(of: .askClaude) {
+            sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        } else if sendTo, let row = Pane.listed.firstIndex(of: .sendTo) {
             sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
         refreshFolder()
@@ -345,7 +351,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            Preferences.showQuickAccess) { Preferences.showQuickAccess = $0 },
                     row("Quick Access position", "The corner the previews stack up from, on the screen with the pointer.",
                         quickAccessSidePopup()),
-                ], note: "Capture Text and Capture Area & Pin skip these."),
+                ], note: "Capture Text and Capture Area & Pin skip these. Actions set to run after every capture "
+                    + "(Settings → Send To) run once the screenshot is saved."),
                 group("Capture Text", [
                     toggle("Edit the text before copying",
                            "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away.",
@@ -363,6 +370,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     row("Captures kept", "Lowering it deletes the oldest captures now.", historyLimitPopup()),
                 ], note: "The panel's Saved Files view shows everything in the export location, with search."),
             ]
+
+        case .sendTo:
+            // Kept by the pane to rebuild its list when an action changes; Settings lives as long as the app.
+            return sendToPane.build(.init(group: { self.group($0, $1, note: $2) }, row: { self.row($0, $1, $2) },
+                                          toggle: { self.toggle($0, $1, $2, $3) }, bind: { self.bind($0, $1) },
+                                          window: { self.window }))
 
         case .shortcuts:
             return shortcutsPane.build(group: { group($0, $1, note: $2) }, row: { row($0, $1, $2) })

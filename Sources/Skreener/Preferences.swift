@@ -344,4 +344,9 @@ enum Preferences {
         get { d.integer(forKey: "windowPadding") }
         set { d.set(newValue, forKey: "windowPadding") }
     }
+    /// The user's own shell commands for Send To and after-capture runs (#276); see `CustomActions`.
+    static var customActions: [CustomAction] {
+        get { CustomActions.load(from: d) }
+        set { CustomActions.save(newValue, to: d) }
+    }
 }

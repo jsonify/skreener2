@@ -145,6 +145,23 @@ Permissions switched on but not working, or asked for again after every build? S
 - You choose what happens to each capture: copy, save, open the editor, or show the preview. You can also play a
   sound or show a notification.
 
+### Send To and custom actions
+
+- **Send To menu.** The paper-plane button in Quick Access and the editor footer, and **Send To** in the right-click
+  menu of Capture History, list your own actions. The editor sends the screenshot with its annotations.
+- **Custom actions.** In **Settings → Send To** you add a name and a shell command. It runs with `/bin/zsh -lc` (so
+  your PATH and Homebrew tools work) for up to 60 seconds, after the capture is saved, and never holds up a capture.
+  The capture's path is `$1` and `$SKREENER_FILE`, the app it came from is `$SKREENER_APP`, and the text in it is
+  `$SKREENER_TEXT` (only read when your command mentions it). Skreener shows what the command printed, or why it
+  failed. Tick **Copy the output to the clipboard** for commands that print a link, and **Run after every capture**
+  to run it on each screenshot without picking it.
+
+  ```sh
+  rsync "$SKREENER_FILE" server:/shots/
+  curl -s -F "file=@$1" https://example.com/upload
+  open -a Preview "$SKREENER_FILE"
+  ```
+
 ### Automation
 
 Skreener answers `skreener://` links, so Raycast, Alfred, Shortcuts or a shell script can drive it:

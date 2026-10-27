@@ -757,6 +757,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         pill.translatesAutoresizingMaskIntoConstraints = false
 
         let actions = [("sparkles", "Ask Claude: explain, summarize or write alt text", #selector(askClaudeIt)),
+                       ("paperplane", "Send To: your own actions and notes apps", #selector(sendToIt(_:))),
                        ("square.and.arrow.up", "Share", #selector(shareIt(_:))),
                        ("pin", "Pin to Screen", #selector(pinIt)),
                        ("doc.on.doc", "Copy", #selector(copyIt)),
@@ -1369,6 +1370,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
     @MainActor @objc private func askClaudeIt() { AskClaudePanel.show(canvas.flattened(), from: window) }
     @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }
+    /// The Send To menu (#276): the screenshot as the file the destination picked gets, annotations included.
+    @MainActor @objc private func sendToIt(_ sender: NSButton) {
+        let source = SendTo.Source(app: fileURL.flatMap(SendTo.appName(for:))) { [weak self] in
+            guard let image = self?.canvas.flattened() else { return nil }
+            return Output.temporaryFile(image).map { (file: $0, image: image) }
+        }
+        SendTo.present(source, from: sender)
+    }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
     @objc private func cropIt() {
