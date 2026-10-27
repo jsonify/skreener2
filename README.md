@@ -144,6 +144,10 @@ Permissions switched on but not working, or asked for again after every build? S
   with Shift.
 - **Capture History.** Recent captures slide down from the top of the screen. The **Saved Files** view searches
   everything in your export folder by file name, app, or the text inside the screenshots.
+- **Source page.** Captures of Safari, Chrome, Arc, Edge or Brave remember the page's address and title. Saved Files
+  and History can open it again, Saved Files searches it and filters by site, and Finder shows it under Where from.
+  macOS asks once per browser for Automation access; without it the capture just has no page. A switch in
+  Settings → After Capture turns it off.
 - You choose what happens to each capture: copy, save, open the editor, or show the preview. You can also play a
   sound or show a notification.
 

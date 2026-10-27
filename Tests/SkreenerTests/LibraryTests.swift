@@ -39,6 +39,37 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(SavedLibrary.counts(all) { $0.meta.app }.map(\.value), ["Safari", "Slack"])
     }
 
+    func testSearchAndSiteFilterUseTheSourcePage() {
+        var meta = SavedLibrary.Meta(app: "Safari")
+        meta.url = "https://www.example.com/docs/page"
+        meta.pageTitle = "Quarterly Report"
+        let date = Date()
+        let page = SavedLibrary.Entry(url: URL(fileURLWithPath: "/tmp/Page.png"), date: date, kind: .image, meta: meta)
+        let plain = SavedLibrary.Entry(url: URL(fileURLWithPath: "/tmp/Plain.png"), date: date, kind: .image,
+                                       meta: SavedLibrary.Meta(app: "Slack"))
+        let both = [page, plain]
+        XCTAssertEqual(SavedLibrary.filter(both, .init(text: "quarterly")).map(\.name), ["Page"])
+        XCTAssertEqual(SavedLibrary.filter(both, .init(text: "example.com/docs")).map(\.name), ["Page"])
+        XCTAssertEqual(SavedLibrary.filter(both, .init(site: "example.com")).map(\.name), ["Page"])
+        XCTAssertTrue(SavedLibrary.filter(both, .init(site: "other.org")).isEmpty)
+        XCTAssertEqual(SavedLibrary.counts(both) { $0.meta.host }.map(\.value), ["example.com"])
+    }
+
+    func testMetaWrittenBeforeSourcePagesStillDecodes() throws {
+        let old = Data(#"{"Old.png":{"app":"Safari","edited":true,"text":"hello"}}"#.utf8)
+        let decoded = try JSONDecoder().decode([String: SavedLibrary.Meta].self, from: old)
+        XCTAssertEqual(decoded["Old.png"]?.app, "Safari")
+        XCTAssertEqual(decoded["Old.png"]?.edited, true)
+        XCTAssertNil(decoded["Old.png"]?.url)
+        XCTAssertNil(decoded["Old.png"]?.pageTitle)
+
+        var meta = SavedLibrary.Meta()
+        meta.url = "https://example.com/"
+        meta.pageTitle = "Example"
+        let again = try JSONDecoder().decode(SavedLibrary.Meta.self, from: JSONEncoder().encode(meta))
+        XCTAssertEqual(again, meta)
+    }
+
     func testListsMediaInTheFolderNewestFirst() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SkreenerTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

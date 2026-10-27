@@ -45,6 +45,16 @@ enum CaptureHistory {
         return url
     }
 
+    /// Keeps the web page the capture in `png` came from (#269) as the file's "Where from", which the panel reads back.
+    /// On the writing queue, so it comes after the PNG exists.
+    static func noteSource(_ page: SourcePage.Page, for png: URL) {
+        queue.async {
+            guard FileManager.default.fileExists(atPath: png.path) else { return }
+            SourcePage.writeWhereFroms(page.url, to: png)
+            DispatchQueue.main.async { NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil) }
+        }
+    }
+
     // MARK: Editable documents (#30)
 
     /// Where the editor document of the capture in `png` lives: a folder beside it, which `entries()` doesn't list.
@@ -160,6 +170,8 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         let date: Date
         let kind: SavedLibrary.Kind
         let inLibrary: Bool
+        /// The web page a browser capture came from (#269).
+        let sourceURL: URL?
     }
 
     private var panel: HistoryPanel?
@@ -171,6 +183,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
     private let searchField = NSSearchField()
     private let monthPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let appPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let sitePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let kindPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let editedBox = NSButton(checkboxWithTitle: "Edited", target: nil, action: nil)
     private let countLabel = NSTextField(labelWithString: "")
@@ -358,11 +371,11 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
     }
 
     private func buildFilterRow() {
-        searchField.placeholderString = "Search names, apps and text in screenshots"
+        searchField.placeholderString = "Search names, apps, pages and text in screenshots"
         searchField.delegate = self
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.widthAnchor.constraint(equalToConstant: 280).isActive = true
-        for popup in [monthPopup, appPopup, kindPopup] {
+        for popup in [monthPopup, appPopup, sitePopup, kindPopup] {
             popup.controlSize = .small
             popup.target = self; popup.action = #selector(filterChanged)
         }
@@ -371,7 +384,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         editedBox.target = self; editedBox.action = #selector(filterChanged)
         countLabel.font = .systemFont(ofSize: 11)
         countLabel.textColor = .secondaryLabelColor
-        [searchField, monthPopup, appPopup, kindPopup, editedBox, countLabel].forEach(filterRow.addArrangedSubview)
+        [searchField, monthPopup, appPopup, sitePopup, kindPopup, editedBox, countLabel].forEach(filterRow.addArrangedSubview)
         filterRow.spacing = 8
     }
 
@@ -391,7 +404,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         reload()
     }
 
-    /// Fills the Month, App and Type filters from the files there, with how many each has; keeps what was picked.
+    /// Fills the Month, App, Site and Type filters from the files there, with how many each has; keeps what was picked.
     private func refreshFilters() {
         let entries = SavedLibrary.shared.entries
         func fill(_ popup: NSPopUpButton, all: String, _ values: [(value: String, count: Int)], title: (String) -> String) {
@@ -413,6 +426,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
             SavedLibrary.Entry.monthKey.date(from: key).map(monthName.string(from:)) ?? key
         }
         fill(appPopup, all: "Any App", SavedLibrary.counts(entries) { $0.meta.app }) { $0 }
+        fill(sitePopup, all: "Any Site", SavedLibrary.counts(entries) { $0.meta.host }) { $0 }
         fill(kindPopup, all: "Any Type", SavedLibrary.counts(entries) { $0.kind.rawValue }) {
             SavedLibrary.Kind(rawValue: $0)?.title ?? $0
         }
@@ -422,6 +436,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         SavedLibrary.Query(text: searchField.stringValue,
                            month: monthPopup.selectedItem?.representedObject as? String,
                            app: appPopup.selectedItem?.representedObject as? String,
+                           site: sitePopup.selectedItem?.representedObject as? String,
                            kind: (kindPopup.selectedItem?.representedObject as? String).flatMap(SavedLibrary.Kind.init(rawValue:)),
                            editedOnly: editedBox.state == .on)
     }
@@ -431,12 +446,15 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         let items: [Item]
         switch mode {
         case .history:
-            items = CaptureHistory.entries().map { Item(url: $0.url, date: $0.date, kind: .image, inLibrary: false) }
+            items = CaptureHistory.entries().map {
+                Item(url: $0.url, date: $0.date, kind: .image, inLibrary: false,
+                     sourceURL: SourcePage.readWhereFroms(of: $0.url).flatMap(Self.pageURL))
+            }
             emptyLabel.stringValue = "No captures yet. Screenshots you take show up here."
         case .library:
             let lib = SavedLibrary.shared
             let found = SavedLibrary.filter(lib.entries, query)
-            items = found.prefix(Self.maxShown).map { Item(url: $0.url, date: $0.date, kind: $0.kind, inLibrary: true) }
+            items = found.prefix(Self.maxShown).map { Item(url: $0.url, date: $0.date, kind: $0.kind, inLibrary: true, sourceURL: Self.pageURL($0.meta.url)) }
             let total = lib.entries.count
             countLabel.stringValue = found.count > Self.maxShown ? "Showing \(Self.maxShown) of \(found.count): search to narrow it down"
                 : found.count == total ? "\(total) files" : "\(found.count) of \(total) files"
@@ -454,6 +472,11 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
             strip.addArrangedSubview(cell)
             return cell
         }
+    }
+
+    /// The address as a link, if it is a web page.
+    private static func pageURL(_ address: String?) -> URL? {
+        address.flatMap { SourcePage.Page(url: $0) }.flatMap { URL(string: $0.url) }
     }
 
     // MARK: Selection
@@ -484,6 +507,9 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         case .reveal:
             reveal([item])
             return
+        case .openSource:
+            openSource(item)
+            return
         case .edit where item.kind != .image, .copy where item.kind != .image:
             // Recordings and GIFs open in their own app; copying them copies the file.
             if action == .edit { hide(); NSWorkspace.shared.open(item.url) } else { copyFiles([item]) }
@@ -511,7 +537,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
             hide()
             NSApp.activate(ignoringOtherApps: true)
             Output.saveAs(image)
-        case .delete, .reveal: break
+        case .delete, .reveal, .openSource: break
         }
     }
 
@@ -531,6 +557,12 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
             return c
         }
         CombineScreenshots.present(candidates, from: nil)
+    }
+
+    private func openSource(_ item: Item) {
+        guard let url = item.sourceURL else { return }
+        hide()
+        NSWorkspace.shared.open(url)
     }
 
     private func copyFiles(_ items: [Item]) {
@@ -569,6 +601,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
             items.forEach { NSWorkspace.shared.open($0.url) }
         }
         add("Show in Finder") { [weak self] in self?.reveal(items) }
+        if n == 1, item.sourceURL != nil { add("Open Source Page") { [weak self] in self?.openSource(item) } }
         add(n == 1 ? "Copy File" : "Copy \(n) Files") { [weak self] in self?.copyFiles(items) }
         let images = items.filter { $0.kind == .image }
         if CombineLayout.countRange.contains(images.count) {
@@ -678,7 +711,7 @@ private final class FlippedView: NSView {
 
 /// One capture or saved file in the panel: thumbnail, relative time, and hover actions.
 private final class HistoryCell: NSView, NSDraggingSource {
-    enum Action { case edit, copy, save, pin, delete, reveal }
+    enum Action { case edit, copy, save, pin, openSource, delete, reveal }
     /// Thumbnail sizes: small, medium, large.
     static let sizes = [NSSize(width: 150, height: 96), NSSize(width: 220, height: 140), NSSize(width: 300, height: 190)]
 
@@ -736,6 +769,7 @@ private final class HistoryCell: NSView, NSDraggingSource {
             buttons.append(("square.and.arrow.down", "Save…", .save))
         }
         if still { buttons.append(("pin", "Pin", .pin)) }
+        if item.sourceURL != nil { buttons.append(("globe", "Open Source Page", .openSource)) }
         buttons.append(("trash", item.inLibrary ? "Move to Trash" : "Delete", .delete))
         var views: [NSView] = buttons.map { sym, tip, action in
             let b = HoverButton(symbol: sym, tip: tip)

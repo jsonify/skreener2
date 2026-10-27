@@ -665,7 +665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// `windows` are frontmost first, so the first one `pid` owns is its front window.
     private func captureFrontWindow(of pid: pid_t?, in windows: [SCWindow]) {
         if let pid, let w = windows.first(where: { $0.owningApplication?.processID == pid }) {
-            run(screen: Self.screen(for: w)) { try await CaptureService.captureWindow(w) }
+            run(screen: Self.screen(for: w), owner: pid) { try await CaptureService.captureWindow(w) }
             return
         }
         if !windows.isEmpty {
@@ -682,7 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .area(let screen, let rect, let frozen):
             lastArea = (screen, rect)
             run(screen: screen, areaCapture(screen, rect, frozen))
-        case .window(let w): run(screen: Self.screen(for: w)) { try await CaptureService.captureWindow(w) }
+        case .window(let w): run(screen: Self.screen(for: w), owner: w.owningApplication?.processID) { try await CaptureService.captureWindow(w) }
         case .scrolling(let screen, let rect): startScrollCapture(screen, rect)
         }
     }
@@ -735,15 +735,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return { try await CaptureService.captureScreen(screen, globalRect: rect) }
     }
 
-    /// `screen` is where the capture came from: its editor opens there (#111).
-    private func run(screen: NSScreen?, _ capture: @escaping () async throws -> NSImage, then: ((NSImage) -> Void)? = nil) {
+    /// `screen` is where the capture came from: its editor opens there (#111). `owner` is the app whose window it is, when
+    /// the capture is of one window (else the app in front is taken as the source, #269).
+    private func run(screen: NSScreen?, owner: pid_t? = nil, _ capture: @escaping () async throws -> NSImage,
+                     then: ((NSImage) -> Void)? = nil) {
         let actions = linkActions
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
             do {
                 let image = try await capture()
                 endCapture()
-                if let then { then(image) } else { self.finish(image, actions: actions, screen: screen) }
+                if let then { then(image) } else { self.finish(image, actions: actions, screen: screen, owner: owner) }
             } catch {
                 endCapture()
                 NSLog("Capture failed: \(error)")
@@ -752,8 +754,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// For a capture of a browser, asks it for the page in its front tab and keeps that with the saved file and the
+    /// history entry (#269). Nothing happens for other apps, or when the browser doesn't answer.
+    private func rememberSourcePage(of pid: pid_t?, saved: URL?, history: URL?) {
+        guard saved != nil || history != nil else { return }
+        let bundleID = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+        SourcePage.lookup(bundleID: bundleID) { page in
+            guard let page else { return }
+            if let saved {
+                SavedLibrary.shared.note(saved, page: page)
+                SourcePage.writeWhereFroms(page.url, to: saved)
+            }
+            if let history { CaptureHistory.noteSource(page, for: history) }
+        }
+    }
+
     /// The after-capture steps: Settings → After Capture, or the ones a skreener:// link chose (`actions`).
-    private func finish(_ image: NSImage, actions: CaptureActions? = nil, screen: NSScreen? = nil) {
+    private func finish(_ image: NSImage, actions: CaptureActions? = nil, screen: NSScreen? = nil, owner: pid_t? = nil) {
         let actions = actions ?? .fromPreferences
         let historyEntry = CaptureHistory.add(image)
         if actions.contains(.copy) { Output.copy(image) }
@@ -767,6 +784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                  detail: "Check the export location in Settings → General.")
             }
         }
+        rememberSourcePage(of: owner ?? lastOtherApp, saved: saved, history: historyEntry)
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
         var editor: EditorWindowController?
         if actions.contains(.edit) {

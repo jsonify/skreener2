@@ -8,7 +8,7 @@ extension Notification.Name {
 
 /// An index of the export location (#117): every screenshot, GIF and recording in it, including ones that were there
 /// before Skreener, kept up to date while files are added or deleted (in Finder too). For search it keeps, per file,
-/// the app in front when Skreener saved it, whether it was edited, and the text OCR finds in it (read in the
+/// the app in front when Skreener saved it (and the web page, for a browser), whether it was edited, and the text OCR finds in it (read in the
 /// background), in a small JSON file in Application Support.
 final class SavedLibrary {
     static let shared = SavedLibrary()
@@ -40,6 +40,11 @@ final class SavedLibrary {
         var edited = false
         /// The text OCR found; nil until it has been read.
         var text: String?
+        /// The web page a browser capture came from (#269); absent in older files.
+        var url: String?
+        var pageTitle: String?
+        /// The page's site, for the Site filter.
+        var host: String? { SourcePage.host(of: url) }
     }
 
     struct Entry: Equatable {
@@ -65,6 +70,7 @@ final class SavedLibrary {
         var text = ""
         var month: String?
         var app: String?
+        var site: String?
         var kind: Kind?
         var editedOnly = false
     }
@@ -156,13 +162,14 @@ final class SavedLibrary {
 
     // MARK: Metadata
 
-    /// Records what Skreener knows about a file it just saved: the app in front when it was captured, and whether it
-    /// was edited. Leaves out what isn't given. Main thread.
-    func note(_ url: URL, app: String? = nil, edited: Bool? = nil) {
+    /// Records what Skreener knows about a file it just saved: the app in front when it was captured, the web page it
+    /// showed, and whether it was edited. Leaves out what isn't given. Main thread.
+    func note(_ url: URL, app: String? = nil, page: SourcePage.Page? = nil, edited: Bool? = nil) {
         if !loadedMeta { refresh() }
         let key = url.lastPathComponent
         var m = meta[key] ?? Meta()
         if let app { m.app = app }
+        if let page { m.url = page.url; m.pageTitle = page.title }
         if let edited { m.edited = m.edited || edited }
         // A file saved over is a new picture: its text is read again.
         m.text = nil
@@ -213,16 +220,18 @@ final class SavedLibrary {
 
     // MARK: Search and filters
 
-    /// The entries matching `q`: every word of the search text in the file name, the app's name or the text in it.
+    /// The entries matching `q`: every word of the search text in the file name, the app's name, the page's address or
+    /// title, or the text in it.
     static func filter(_ entries: [Entry], _ q: Query) -> [Entry] {
         let words = q.text.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
         return entries.filter { e in
             if let m = q.month, e.month != m { return false }
             if let a = q.app, e.meta.app != a { return false }
+            if let s = q.site, e.meta.host != s { return false }
             if let k = q.kind, e.kind != k { return false }
             if q.editedOnly, !e.meta.edited { return false }
             guard !words.isEmpty else { return true }
-            let hay = [e.name, e.meta.app ?? "", e.meta.text ?? ""].joined(separator: "\n").lowercased()
+            let hay = [e.name, e.meta.app ?? "", e.meta.url ?? "", e.meta.pageTitle ?? "", e.meta.text ?? ""].joined(separator: "\n").lowercased()
             return words.allSatisfy { hay.contains($0) }
         }
     }
