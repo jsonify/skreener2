@@ -242,6 +242,11 @@ enum Preferences {
         get { d.object(forKey: "keepHistory") as? Bool ?? true }
         set { d.set(newValue, forKey: "keepHistory") }
     }
+    /// Ask the browser for the page of a capture of Safari, Chrome, Arc, Edge or Brave (#269).
+    static var rememberSourcePage: Bool {
+        get { d.object(forKey: "rememberSourcePage") as? Bool ?? true }
+        set { d.set(newValue, forKey: "rememberSourcePage") }
+    }
     /// Screen recordings: include system audio (other apps' sound).
     static var recordSystemAudio: Bool {
         get { d.bool(forKey: "recordSystemAudio") }
