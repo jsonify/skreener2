@@ -106,6 +106,9 @@ Permissions switched on but not working, or asked for again after every build? S
   display, and the elapsed time in the menu bar.
 - A control bar shows the elapsed time, with pause, resume and stop.
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
+- **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
+  Command-Z undoes), scroll or press Command-Plus / Command-Minus to zoom in around the pointer, and move the pointer
+  to pan. Esc clears, a second Esc leaves. The marks and the zoom show up in an ongoing recording.
 
 ### Annotation editor
 
@@ -182,6 +185,7 @@ Shift-Command-4 over to Skreener.
 | Capture Scrolling | Control-Shift-8 |
 | Capture History | Control-Shift-H |
 | Pin Click-Through On / Off | Control-Shift-0 |
+| Zoom & Draw on Screen (press again to leave) | Control-Shift-Z |
 
 ## Building from source
 

@@ -7,7 +7,8 @@ enum RecordingError: Error { case noDisplay, noFrames, writerFailed }
 /// Records a display, or an area of it, to an H.264 MP4: ScreenCaptureKit frames (and optionally system audio
 /// and, on macOS 15+, the microphone) go straight into an AVAssetWriter; with both audio sources the two audio
 /// tracks are mixed into one afterwards (`AudioMixer`). Skreener's own windows (HUD, area frame) are left out of
-/// the recording. Sample buffers arrive on `queue`; everything the writer touches stays there.
+/// the recording, except those named in `start` or `include`. Sample buffers arrive on `queue`; everything the
+/// writer touches stays there.
 final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     struct Options {
         var systemAudio = Preferences.recordSystemAudio
@@ -25,6 +26,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
 
     private let queue = DispatchQueue(label: "com.skreener.recorder")
     private var stream: SCStream?
+    private var display: SCDisplay?
+    /// The Skreener windows that are in the video (see `start` and `include`); nil until either sets them.
+    private var included: [CGWindowID]?
     private var writer: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
@@ -44,9 +48,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         guard let display = content.displays.first(where: { $0.displayID == id }) else { throw RecordingError.noDisplay }
-        let me = content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
-        let keep = content.windows.filter { including.contains($0.windowID) }
-        let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: keep)
+        let filter = Self.filter(content, display: display, including: including)
 
         let area = rect ?? screen.frame
         var scale = screen.backingScaleFactor
@@ -114,13 +116,43 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             self.audioInput = systemAudio
             self.micInput = mic
             self.stream = stream
+            self.display = display
+            if self.included == nil { self.included = including }
         }
         do { try await stream.startCapture() } catch {
             writer.cancelWriting()
             throw error
         }
         // Stopped while starting up: nothing else will stop the stream now.
-        if queue.sync(execute: { finished }) { try? await stream.stopCapture() }
+        if queue.sync(execute: { finished }) { try? await stream.stopCapture(); return }
+        // `include` called while starting up found no stream to update.
+        let now = queue.sync { included ?? including }
+        if now != including { include(now) }
+    }
+
+    /// Everything on `display` except Skreener's windows, but with the Skreener windows in `including`.
+    private static func filter(_ content: SCShareableContent, display: SCDisplay, including: [CGWindowID]) -> SCContentFilter {
+        let me = content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
+        let keep = content.windows.filter { including.contains($0.windowID) }
+        return SCContentFilter(display: display, excludingApplications: me, exceptingWindows: keep)
+    }
+
+    /// Puts exactly these Skreener windows in the video from now on, e.g. the presenter overlay opened or closed while
+    /// recording (#266). The shareable content is fetched again, as a window that just opened is only in a fresh one.
+    func include(_ windows: [CGWindowID]) {
+        Task { [self] in
+            let (stream, display) = queue.sync { () -> (SCStream?, SCDisplay?) in
+                included = windows
+                return (finished ? nil : self.stream, self.display)
+            }
+            guard let stream, let display else { return }
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                try await stream.updateContentFilter(Self.filter(content, display: display, including: windows))
+            } catch {
+                NSLog("Couldn't update the recorded windows: \(error)")
+            }
+        }
     }
 
     private static func microphoneAllowed() async -> Bool {

@@ -50,6 +50,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Trim editor for recordings: Trim on the recording's Quick Access preview opens a player with AVKit's trim bar; Trim saves the cut over the file (passthrough, no re-encode); a GIF is made again from its trimmed video — M (#26)
 - [~] Recording HUD (timer, pause/resume, stop; dashed frame around the area) and menu-bar stop (the icon turns into a stop button; ⌃⇧7 stops too) — S (#59)
 - [~] Mix system audio and microphone into one track (players that only play the first audio track miss the mic): recorded to separate tracks, then mixed into one stereo AAC track after stopping (video copied, not re-encoded); if mixing fails the separate tracks are kept — S (#27)
+- [~] Zoom & Draw on Screen (⌃⇧Z, menu): overlay on every screen; pen / arrow / box (P A R), colors on 1–5, ⌘Z undo; scroll or ⌘+ / ⌘− zooms around the pointer into a still of the screen, moving pans (drawing holds it); Esc clears, Esc again or ⌃⇧Z leaves; shows in an ongoing recording (zoom math unit-tested) — M (#266)
 
 ## Batch 4 — editor
 - [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M (#60)
