@@ -104,7 +104,19 @@ final class RecordingController {
         tearDown()
         switch result {
         case .success(let url):
-            guard let gif else { delivered(url); return }
+            guard let gif else {
+                guard Preferences.compressRecordings else { delivered(url); return }
+                // After the audio tracks were mixed (that happens before the recorder reports); the preview waits for it.
+                MessageHUD.show("Compressing recording…", symbol: "arrow.down.right.and.arrow.up.left", placement: .top)
+                Task { @MainActor [weak self] in
+                    let savings = await Compressor.compress([url])
+                    if let savings {
+                        MessageHUD.show("Recording compressed", detail: savings.summary, symbol: "checkmark.circle.fill", placement: .top)
+                    }
+                    self?.delivered(url)
+                }
+                return
+            }
             Task { @MainActor [weak self] in
                 do {
                     try await GIFExporter.export(url, to: gif)

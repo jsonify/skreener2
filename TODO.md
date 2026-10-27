@@ -116,6 +116,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Quick Access position: Settings → After Capture → Quick Access position, Bottom Left (default) or Bottom Right; previews on screen move when it changes — S (#32)
 - [~] Double-click a Quick Access preview to open its editor (a recording opens in its player) — S (#127)
 - [~] Quick Access previews (screenshots and recordings) rest semi-transparent (65%) and turn opaque while hovered; a preview that appears under the pointer, or whose share sheet is open, is opaque — S (#98)
+- [~] Compress: Settings toggles (off by default) to shrink PNGs when saving (median-cut palette PNG with alpha, kept only when it looks the same and is smaller) and to re-encode recordings as HEVC after stopping (only when smaller); Compress action in Quick Access and the saved-files context menu shows "1.2 MB → 310 KB"; JPEG, GIF and the capture history are untouched — M (#279)
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M (#33)
 - [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history; always shares a named file so the sheet shows its thumbnail and name — S (#89)
 - [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S (#90)
