@@ -74,17 +74,25 @@ enum Output {
         pb.writeObjects([image])
     }
 
+    /// `fileData` for a file the user keeps: a PNG is also compressed when Settings says so (#279). Screenshots shared
+    /// through a temporary file and the capture history's PNGs (the editor's base) stay as they are.
+    private static func savedData(_ image: NSImage, format: ImageFormat = Preferences.imageFormat) -> Data? {
+        guard let data = fileData(image, format: format) else { return nil }
+        guard format == .png, Preferences.compressScreenshots else { return data }
+        return PNGQuantizer.compressed(png: data) ?? data
+    }
+
     @discardableResult
     static func save(_ image: NSImage, to dir: URL = Preferences.saveDirectory) -> URL? {
         let url = uniqueURL(in: dir, name: filename(), ext: Preferences.imageFormat.fileExtension)
-        guard let data = fileData(image) else { return nil }
+        guard let data = savedData(image) else { return nil }
         do { try data.write(to: url); return url } catch { NSLog("Save failed: \(error)"); return nil }
     }
 
     /// Writes the image over `url` (an earlier save of the same screenshot, #118), in that file's format. Fails for
     /// a file that isn't a PNG or JPEG.
     static func overwrite(_ image: NSImage, at url: URL) -> Bool {
-        guard let format = ImageFormat(fileExtension: url.pathExtension), let data = fileData(image, format: format) else {
+        guard let format = ImageFormat(fileExtension: url.pathExtension), let data = savedData(image, format: format) else {
             return false
         }
         do { try data.write(to: url, options: .atomic); return true } catch { NSLog("Save failed: \(error)"); return false }
@@ -97,7 +105,7 @@ enum Output {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [format.contentType]
         panel.nameFieldStringValue = (name ?? filename()) + "." + format.fileExtension
-        guard panel.runModal() == .OK, let url = panel.url, let data = fileData(image) else { return nil }
+        guard panel.runModal() == .OK, let url = panel.url, let data = savedData(image) else { return nil }
         do { try data.write(to: url, options: .atomic); return url } catch { NSLog("Save failed: \(error)"); return nil }
     }
 

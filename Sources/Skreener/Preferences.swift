@@ -54,6 +54,16 @@ enum Preferences {
         get { d.bool(forKey: "downscaleRetina") }
         set { d.set(newValue, forKey: "downscaleRetina") }
     }
+    /// Shrink PNGs with a palette when saving, if that looks the same (#279). JPEGs are left alone.
+    static var compressScreenshots: Bool {
+        get { d.bool(forKey: "compressScreenshots") }
+        set { d.set(newValue, forKey: "compressScreenshots") }
+    }
+    /// Re-encode recordings as HEVC after stopping, if that makes them smaller (#279). GIFs are left alone.
+    static var compressRecordings: Bool {
+        get { d.bool(forKey: "compressRecordings") }
+        set { d.set(newValue, forKey: "compressRecordings") }
+    }
     static let defaultFilenameTemplate = "Skreener %Y-%m-%d at %H.%M.%S"
     /// Saved file names; see `Output.filename` for the tokens.
     static var filenameTemplate: String {

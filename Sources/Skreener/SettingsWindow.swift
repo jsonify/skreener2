@@ -412,6 +412,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     toggle("Save Retina screenshots at 1×", "Half the pixels each way: smaller files.", Preferences.downscaleRetina) {
                         Preferences.downscaleRetina = $0
                     },
+                    toggle("Compress screenshots when saving",
+                           "PNGs get a palette of up to 256 colors when it looks the same, and stay as they are when it doesn't.",
+                           Preferences.compressScreenshots) { Preferences.compressScreenshots = $0 },
                     row("File name", "Tokens: %Y %y %m %d %H %M %S", template),
                     row("Example", preview),
                 ]),
@@ -450,6 +453,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Video", [
                     row("Frame rate", fps),
                     toggle("Show cursor", nil, Preferences.recordShowsCursor) { Preferences.recordShowsCursor = $0 },
+                    toggle("Compress recordings after stopping",
+                           "Re-encodes as HEVC when that makes the file smaller. Takes a while for long recordings; GIFs are not changed.",
+                           Preferences.compressRecordings) { Preferences.compressRecordings = $0 },
                 ], note: "Recordings are saved to the export location as MP4. More options are in the record panel's sliders menu."),
             ]
 

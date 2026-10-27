@@ -538,6 +538,17 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         }
     }
 
+    /// Compresses the files in the background, then says how much was saved (#279).
+    private func compress(_ items: [Item]) {
+        let files = items.map(\.url)
+        let name = files.count == 1 ? files[0].lastPathComponent : "\(files.count) files"
+        MessageHUD.show("Compressing…", detail: name, symbol: "arrow.down.right.and.arrow.up.left", placement: .top)
+        Task { @MainActor in
+            let savings = await Compressor.compress(files)
+            Notifier.compressed(savings, name: name)
+        }
+    }
+
     private func contextMenu(for item: Item) -> NSMenu {
         let items = targets(for: item)
         let m = NSMenu()
@@ -556,6 +567,11 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
             items.forEach { NSWorkspace.shared.open($0.url) }
         }
         add("Show in Finder") { [weak self] in self?.reveal(items) }
+        // Only files in the export folder: a history capture is the editor's base and stays uncompressed.
+        let smaller = items.filter { $0.inLibrary && Compressor.canCompress($0.url) }
+        if !smaller.isEmpty {
+            add(smaller.count == 1 ? "Compress" : "Compress \(smaller.count) Files") { [weak self] in self?.compress(smaller) }
+        }
         add(n == 1 ? "Copy File" : "Copy \(n) Files") { [weak self] in self?.copyFiles(items) }
         m.addItem(.separator())
         let trash = item.inLibrary
