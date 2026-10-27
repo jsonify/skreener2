@@ -50,6 +50,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Trim editor for recordings: Trim on the recording's Quick Access preview opens a player with AVKit's trim bar; Trim saves the cut over the file (passthrough, no re-encode); a GIF is made again from its trimmed video — M (#26)
 - [~] Recording HUD (timer, pause/resume, stop; dashed frame around the area) and menu-bar stop (the icon turns into a stop button; ⌃⇧7 stops too) — S (#59)
 - [~] Mix system audio and microphone into one track (players that only play the first audio track miss the mic): recorded to separate tracks, then mixed into one stereo AAC track after stopping (video copied, not re-encoded); if mixing fails the separate tracks are kept — S (#27)
+- [~] Zoom & Draw on Screen (⌃⇧Z, menu): overlay on every screen; pen / arrow / box (P A R), colors on 1–5, ⌘Z undo; scroll or ⌘+ / ⌘− zooms around the pointer into a still of the screen, moving pans (drawing holds it); Esc clears, Esc again or ⌃⇧Z leaves; shows in an ongoing recording (zoom math unit-tested) — M (#266)
 
 ## Batch 4 — editor
 - [~] CleanShot-style editor chrome: unified toolbar, 990×750 min size, zoom popup, Drag Me, pin/share/copy/save footer — M (#60)
@@ -92,6 +93,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Side dock instead of the tab row: thumbnails of the window's screenshots beside the canvas (from 2 screenshots; updated shortly after edits); click switches, × on hover or middle-click closes, right-click: close others, move to new window; its header button, the footer's dock button or ⌃⌘S (Window menu) hides/shows it with a slide, remembered; Settings → Annotate: left or right — M (#140)
 - [~] No zoom-in animation when an editor window appears, a screenshot is picked in the dock, or the area / window / Record Screen overlays come up; Settings → Annotate → Editor Window → "Zoom, zoom" brings it back — S
 - [~] Copy (⌘C), cut (⌘X), paste (⌘V) and duplicate (⌘D) annotations, also into another tab or editor; they stay editable; ⌘C with nothing selected copies the image; pasting an image still works (`AnnotationClipboard`, unit-tested) — S (#125)
+- [~] Device and browser frames (editor toolbar, next to Background): macOS window, browser with an editable address, MacBook, iPhone, iPad, light or dark, drawn as vectors inside the background; saved with the editor document (`DeviceFrame`, unit-tested) — M (#271)
 
 ## Batch 5 — capture modes
 - [~] Scrolling capture (Capture Scrolling ⌃⇧8): pick an area, scroll it yourself; frames are grabbed ~8×/s (display filter set up once) and stitched off the main thread by matching rows, leaving out blank rows and the scroll-bar strip at the right edge; sticky header/footer worked out per frame and kept once, including a footer that appears mid-capture; mostly blank stretches are bridged (blank space may come out shorter); scrolling back up a little is followed, not lost; max 30,000 px; Done / ⌃⇧8 finishes, Esc / Cancel throws it away — L (#82)
@@ -114,6 +116,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Quick Access position: Settings → After Capture → Quick Access position, Bottom Left (default) or Bottom Right; previews on screen move when it changes — S (#32)
 - [~] Double-click a Quick Access preview to open its editor (a recording opens in its player) — S (#127)
 - [~] Quick Access previews (screenshots and recordings) rest semi-transparent (65%) and turn opaque while hovered; a preview that appears under the pointer, or whose share sheet is open, is opaque — S (#98)
+- [~] Compress: Settings toggles (off by default) to shrink PNGs when saving (median-cut palette PNG with alpha, kept only when it looks the same and is smaller) and to re-encode recordings as HEVC after stopping (only when smaller); Compress action in Quick Access and the saved-files context menu shows "1.2 MB → 310 KB"; JPEG, GIF and the capture history are untouched — M (#279)
 - [ ] Upload to S3-compatible / custom endpoint + copy link — M (#33)
 - [~] Share sheet (NSSharingServicePicker) in the editor footer, Quick Access, recording thumbnail and capture history; always shares a named file so the sheet shows its thumbnail and name — S (#89)
 - [~] Launch at login (SMAppService; Settings → General; asks to approve in Login Items when macOS wants that) — S (#90)

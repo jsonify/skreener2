@@ -29,6 +29,8 @@ import AVFoundation
     private var video: URL?
     /// The editor that opened with this capture, shown again by Edit while it is still open.
     private weak var editor: EditorWindowController?
+    /// A Compress is running on the file; Trim waits for it so the two don't replace the file over each other.
+    private var compressing = false
     private let panel: NSPanel
     private var card: QuickAccessCard? { panel.contentView as? QuickAccessCard }
 
@@ -142,11 +144,17 @@ import AVFoundation
         sendButton = card.addCorner(symbol: "paperplane", label: "Send To", at: .bottomRight, beside: shareButton) { [weak self] in
             if let sendButton { self?.sendTo(from: sendButton) }
         }
+        var center: [(String, () -> Void)] = [("Copy", { [weak self] in self?.copy() })]
         if recording != nil {
-            card.addCenter([("Copy", { [weak self] in self?.copy() }), ("Trim", { [weak self] in self?.trim() })])
+            center.append(("Trim", { [weak self] in self?.trim() }))
         } else {
-            card.addCenter([("Copy", { [weak self] in self?.copy() }), ("Save", { [weak self] in self?.save() })])
+            center.append(("Save", { [weak self] in self?.save() }))
         }
+        // A saved PNG or an MP4 recording can be made smaller (#279).
+        if let file = recording ?? saved, Compressor.canCompress(file) {
+            center.append(("Compress", { [weak self] in self?.compress(file) }))
+        }
+        card.addCenter(center)
         // Double-clicking the preview does what Edit does (Open for a recording) (#127).
         card.onDoubleClick = { [weak self] in
             guard let self else { return }
@@ -250,8 +258,21 @@ import AVFoundation
         close()
     }
 
+    /// Makes the saved file smaller in the background and says by how much. The preview stays.
+    private func compress(_ file: URL) {
+        guard !compressing, FileManager.default.fileExists(atPath: file.path) else { return }
+        compressing = true
+        MessageHUD.show("Compressing…", detail: file.lastPathComponent, symbol: "arrow.down.right.and.arrow.up.left", placement: .top)
+        Task { @MainActor [weak self] in
+            let savings = await Compressor.compress([file])
+            self?.compressing = false
+            Notifier.compressed(savings, name: file.lastPathComponent)
+        }
+    }
+
     /// Opens the trim editor, which takes over the GIF's video.
     private func trim() {
+        guard !compressing else { NSSound.beep(); return }
         if let recording { RecordingTrimWindow.open(recording, video: video ?? recording) }
         video = nil
         close()

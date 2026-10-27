@@ -281,7 +281,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let historyMenu = NSMenu(title: "From Capture History")
     // Crop, Background and the area picks (Copy Text from Area, average color, contrast) replace the tool options in
     // the same strip while they are active.
-    private enum StripMode { case tools, crop, areaPick, background }
+    private enum StripMode { case tools, crop, areaPick, background, deviceFrame }
     private var stripMode = StripMode.tools {
         didSet { refreshStrip() }
     }
@@ -303,6 +303,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let blurPopup = PillPopUp(pullsDown: false)
     private let aspectPopup = PillPopUp(pullsDown: false)
     private let framePopup = PillPopUp(pullsDown: true)
+    private let deviceFrameBar = NSStackView()
+    private let deviceKindPopup = PillPopUp(pullsDown: false)
+    private let deviceLookPopup = PillPopUp(pullsDown: false)
+    private let deviceURLField = NSTextField(string: "")
     private let shadowLabel = NSTextField(labelWithString: "Shadow")
     private let shadowSlider = NSSlider(value: 0.5, minValue: 0, maxValue: 1, target: nil, action: nil)
     /// Tags of the Frame menu's items: an inset, or the whole image's corner radius, plus the value in points.
@@ -429,7 +433,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
         canvas.onContextChange = { [weak self] _, _ in self?.contextChanged() }
         canvas.onCropModeChange = { [weak self] on in self?.stripMode = on ? .crop : .tools }
-        canvas.onBackgroundChange = { [weak self] in if self?.stripMode == .background { self?.refreshStrip() } }
+        canvas.onBackgroundChange = { [weak self] in
+            if self?.stripMode == .background || self?.stripMode == .deviceFrame { self?.refreshStrip() }
+        }
         canvas.onAreaPickChange = { [weak self] kind in
             if kind != .contrast { self?.contrastLabel.stringValue = "" }
             self?.stripMode = kind == nil ? .tools : .areaPick
@@ -453,6 +459,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         buildCropBar()
         buildAreaBar()
         buildBackgroundBar()
+        buildDeviceFrameBar()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -718,7 +725,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesTitle.textColor = .secondaryLabelColor
         attributesHint.font = .systemFont(ofSize: 12)
         attributesHint.textColor = .tertiaryLabelColor
-        let row = pillRow([attributesTitle, attributesBar, attributesHint, cropBar, areaBar, backgroundBar], spacing: 10)
+        let row = pillRow([attributesTitle, attributesBar, attributesHint, cropBar, areaBar, backgroundBar, deviceFrameBar], spacing: 10)
         row.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox(); line.boxType = .separator
         line.translatesAutoresizingMaskIntoConstraints = false
@@ -913,6 +920,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                 iconMenuButton("plus.rectangle.on.rectangle",
                                "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu()),
                 iconButton("photo", "Background", self, #selector(backgroundIt)),
+                iconButton("macwindow", "Device or browser frame", self, #selector(deviceFrameIt)),
                 iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands)),
                 iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR)", commands(CanvasView.textCommands)),
             ])
@@ -1164,7 +1172,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     private func contextChanged() {
         // Clicking an annotation or picking a tool leaves the background options.
-        if stripMode == .background { stripMode = .tools } else { refreshStrip() }
+        if stripMode == .background || stripMode == .deviceFrame { stripMode = .tools } else { refreshStrip() }
     }
 
     private func refreshStrip() {
@@ -1172,6 +1180,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         cropBar.isHidden = stripMode != .crop
         areaBar.isHidden = stripMode != .areaPick
         backgroundBar.isHidden = stripMode != .background
+        deviceFrameBar.isHidden = stripMode != .deviceFrame
         switch stripMode {
         case .tools:
             refreshAttributes(canvas.contextTool, canvas.contextStyle)
@@ -1185,6 +1194,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             attributesTitle.stringValue = "Background"
             attributesTitle.isHidden = false; attributesHint.isHidden = true
             refreshBackgroundBar()
+        case .deviceFrame:
+            attributesTitle.stringValue = "Frame"
+            attributesTitle.isHidden = false; attributesHint.isHidden = true
+            refreshDeviceFrameBar()
         }
         // An empty options row would leave a double gap.
         if stripMode == .tools, attributesBar.arrangedSubviews.allSatisfy(\.isHidden) { attributesBar.isHidden = true }
@@ -1305,7 +1318,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         selectToolButton(toolButtons[i].tool)
         canvas.applyCrop()
         canvas.tool = toolButtons[i].tool
-        if stripMode == .background { stripMode = .tools }
+        if stripMode == .background || stripMode == .deviceFrame { stripMode = .tools }
         window?.makeFirstResponder(canvas)
     }
     private func selectToolButton(_ t: Tool) {
@@ -1471,6 +1484,73 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         canvas.clearSelection()
         if canvas.background == nil { canvas.updateBackground { $0 = Preferences.lastBackground } }
         stripMode = .background
+        window?.makeFirstResponder(canvas)
+    }
+
+    /// Shows the frame options; the frame itself starts as None.
+    @objc private func deviceFrameIt() {
+        if stripMode == .deviceFrame { stripMode = .tools; return }
+        canvas.applyCrop()
+        canvas.clearSelection()
+        stripMode = .deviceFrame
+        window?.makeFirstResponder(canvas)
+    }
+
+    private func buildDeviceFrameBar() {
+        deviceKindPopup.toolTip = "Frame around the screenshot, inside the background"
+        deviceKindPopup.target = self; deviceKindPopup.action = #selector(deviceKindPicked)
+        for kind in DeviceFrame.Kind.allCases {
+            deviceKindPopup.addItem(withTitle: kind.name); deviceKindPopup.lastItem?.tag = kind.rawValue
+        }
+        deviceLookPopup.toolTip = "Light or dark frame"
+        deviceLookPopup.target = self; deviceLookPopup.action = #selector(deviceLookPicked)
+        for (title, tag) in [("Light", 0), ("Dark", 1)] { deviceLookPopup.addItem(withTitle: title); deviceLookPopup.lastItem?.tag = tag }
+        deviceURLField.placeholderString = "Address shown in the browser bar"
+        deviceURLField.toolTip = "Address shown in the browser bar"
+        deviceURLField.controlSize = .small
+        deviceURLField.font = .systemFont(ofSize: 12)
+        deviceURLField.target = self; deviceURLField.action = #selector(deviceURLEdited)
+        deviceURLField.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        [deviceKindPopup, deviceLookPopup, deviceURLField].forEach(deviceFrameBar.addArrangedSubview)
+        deviceFrameBar.spacing = 6
+        deviceFrameBar.isHidden = true
+    }
+
+    private func refreshDeviceFrameBar() {
+        let f = canvas.deviceFrame
+        deviceKindPopup.selectItem(withTag: f.kind.rawValue)
+        deviceLookPopup.selectItem(withTag: f.dark ? 1 : 0)
+        deviceLookPopup.isEnabled = !f.isNone
+        deviceURLField.isHidden = f.kind != .browser
+        // Not while it is being typed in, as the change that ends the typing refreshes the bar too.
+        if deviceURLField.currentEditor() == nil { deviceURLField.stringValue = f.url }
+    }
+
+    /// Changes the frame (one undo step) and remembers its look for the next one.
+    private func changeDeviceFrame(_ change: (inout DeviceFrame) -> Void) {
+        canvas.updateDeviceFrame(change)
+        if !canvas.deviceFrame.isNone { Preferences.lastDeviceFrame = canvas.deviceFrame }
+        refreshStrip()
+    }
+
+    @objc private func deviceKindPicked() {
+        let kind = DeviceFrame.Kind(rawValue: deviceKindPopup.selectedTag()) ?? .none
+        let last = Preferences.lastDeviceFrame
+        changeDeviceFrame { f in
+            // The first frame picked takes the light or dark look and address used last.
+            if f.isNone { f.dark = last.dark; f.url = last.url }
+            f.kind = kind
+        }
+    }
+
+    @objc private func deviceLookPicked() {
+        let dark = deviceLookPopup.selectedTag() == 1
+        changeDeviceFrame { $0.dark = dark }
+    }
+
+    @objc private func deviceURLEdited() {
+        let url = deviceURLField.stringValue
+        changeDeviceFrame { $0.url = url }
         window?.makeFirstResponder(canvas)
     }
 

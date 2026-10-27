@@ -106,6 +106,9 @@ Permissions switched on but not working, or asked for again after every build? S
   display, and the elapsed time in the menu bar.
 - A control bar shows the elapsed time, with pause, resume and stop.
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
+- **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
+  Command-Z undoes), scroll or press Command-Plus / Command-Minus to zoom in around the pointer, and move the pointer
+  to pan. Esc clears, a second Esc leaves. The marks and the zoom show up in an ongoing recording.
 
 ### Annotation editor
 
@@ -122,9 +125,13 @@ Permissions switched on but not working, or asked for again after every build? S
   **Remove Background**.
 - **Backgrounds.** Gradients, solid colors, your wallpaper or a picture of your own. There are presets for
   common aspect ratios and social media sizes, plus padding, corner radius and shadow.
+- **Frames.** Wrap a screenshot in a macOS window, a browser (with an address you can edit), a MacBook, an iPhone
+  or an iPad, light or dark. It sits inside the background and is saved with the capture.
 - **Measure and pick colors.** Measure runs of color under the pointer, and copy colors in HEX, CSS, RGB,
   UIColor, Android, OKLCH and more. **Check Contrast** shows the WCAG 2 ratio or APCA value.
 - **Export.** Save, Save As, copy, or drag a small preview straight into another app.
+- **Compress.** Optionally shrink PNGs (a palette of up to 256 colors, only when it looks the same) and recordings
+  (HEVC) when saving, or press Compress in Quick Access or the saved-files menu. It shows the size before and after.
 - **Ask Claude.** The sparkles button sends the screenshot to Claude to explain an error, summarize a chart, write
   alt text, or answer your own question, and shows the answer to copy. It uses your own Anthropic API key (Settings →
   Ask Claude, kept in the Keychain), and nothing is sent until you press Ask. With a Claude plan instead of a key,
@@ -210,6 +217,7 @@ Shift-Command-4 over to Skreener.
 | Capture Scrolling | Control-Shift-8 |
 | Capture History | Control-Shift-H |
 | Pin Click-Through On / Off | Control-Shift-0 |
+| Zoom & Draw on Screen (press again to leave) | Control-Shift-Z |
 
 ## Building from source
 

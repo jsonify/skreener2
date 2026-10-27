@@ -59,6 +59,16 @@ enum Notifier {
         }
     }
 
+    /// The result of a Compress action (#279), always shown (the user just asked for it): "1.2 MB → 310 KB", or that
+    /// the file couldn't get any smaller. `name` is the file, or a count for several.
+    static func compressed(_ savings: Compressor.Savings?, name: String) {
+        if let savings {
+            MessageHUD.show("Compressed", detail: "\(name)\n\(savings.summary)", symbol: "checkmark.circle.fill", placement: .top)
+        } else {
+            MessageHUD.show("Already as small as it gets", detail: name, symbol: "checkmark.circle.fill", placement: .top)
+        }
+    }
+
     /// Why something didn't work, near the pointer. `permission` adds a button that opens its Privacy pane.
     static func problem(_ title: String, detail: String? = nil, permission: Permission? = nil) {
         let button = permission.map { p in (title: "Open System Settings", run: { p.openSettings() }) }

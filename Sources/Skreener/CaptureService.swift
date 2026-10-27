@@ -28,9 +28,9 @@ enum CaptureService {
     }
 
     /// Like `captureScreen`, as a CGImage at the screen's pixel scale. `excludingSelf` leaves Skreener's own windows
-    /// out (e.g. the scrolling capture's frame and controls).
+    /// out (e.g. the scrolling capture's frame and controls); `excludingWindows` only these (the presenter overlay).
     static func captureScreenImage(_ screen: NSScreen, globalRect: CGRect? = nil, showsCursor: Bool = Preferences.showCursor,
-                                   excludingSelf: Bool = false) async throws -> CGImage {
+                                   excludingSelf: Bool = false, excludingWindows: [CGWindowID] = []) async throws -> CGImage {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let id = displayID(screen), let display = content.displays.first(where: { $0.displayID == id })
         else { throw CaptureError.noDisplay }
@@ -38,7 +38,7 @@ enum CaptureService {
         let filter = excludingSelf
             ? SCContentFilter(display: display, excludingApplications: content.applications.filter { $0.bundleIdentifier == me },
                               exceptingWindows: [])
-            : SCContentFilter(display: display, excludingWindows: [])
+            : SCContentFilter(display: display, excludingWindows: content.windows.filter { excludingWindows.contains($0.windowID) })
         let scale = screen.backingScaleFactor
         let cfg: SCStreamConfiguration
         if let r = globalRect {

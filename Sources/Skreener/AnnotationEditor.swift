@@ -290,6 +290,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     var onBackgroundChange: (() -> Void)?
     /// The background is hidden while cropping so the whole screenshot can be seen.
     private var activeBackground: Background? { isCropping ? nil : background }
+    /// A device or browser frame around the screenshot, inside the background (#271). Hidden while cropping too.
+    private(set) var deviceFrame = DeviceFrame() {
+        didSet { updateExtent(); onBackgroundChange?() }
+    }
+    private var activeFrame: DeviceFrame? { isCropping || deviceFrame.isNone ? nil : deviceFrame }
     /// The screenshot area: the captured image plus any annotations that stick out past it, or the crop
     /// (image coordinates). The part outside the image is filled with `backdrop`.
     private(set) var contentRect: NSRect
@@ -356,16 +361,20 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         var items: [Annotation]
         var crop: NSRect?
         var background: Background?
+        var deviceFrame: DeviceFrame
     }
     private var snapshot: Snapshot {
-        get { Snapshot(base: base, items: items, crop: crop, background: background) }
-        set { base = newValue.base; items = newValue.items; crop = newValue.crop; background = newValue.background }
+        get { Snapshot(base: base, items: items, crop: crop, background: background, deviceFrame: deviceFrame) }
+        set {
+            base = newValue.base; items = newValue.items; crop = newValue.crop; background = newValue.background
+            deviceFrame = newValue.deviceFrame
+        }
     }
     private var draft: Annotation? {
         didSet { updateExtent() }
     }
     /// What capture history keeps to reopen this capture with its annotations still editable (#30).
-    var document: EditorDocument { EditorDocument(items: items, crop: crop, background: background) }
+    var document: EditorDocument { EditorDocument(items: items, crop: crop, background: background, deviceFrame: deviceFrame) }
     /// Typing a text annotation or choosing a crop is under way: the state isn't a finished edit yet.
     var isBusy: Bool { textEditor != nil || isCropping }
 
@@ -374,6 +383,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         items = doc.items
         crop = doc.crop
         background = doc.background
+        deviceFrame = doc.deviceFrame
         undoStack.removeAll()
         redoStack.removeAll()
         selectedID = nil
@@ -875,6 +885,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     func updateBackground(_ change: (inout Background?) -> Void) {
         finishTextEditing()
         mutate { change(&background) }
+    }
+
+    /// Changes the device or browser frame; one undo step per change.
+    func updateDeviceFrame(_ change: (inout DeviceFrame) -> Void) {
+        finishTextEditing()
+        mutate { change(&deviceFrame) }
     }
 
     /// Adds a picture as a movable, resizable annotation, centered in view and scaled down to fit the screenshot.
@@ -1752,12 +1768,14 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private func updateExtent() {
         let content = cropDraft == nil ? (crop ?? fullContentRect()) : fullContentRect()
         let r: NSRect
+        // The frame wraps the screenshot, and the background pads the frame.
+        let framed = activeFrame.map { $0.layout(around: content).outer } ?? content
         if isCropping {
             r = content.insetBy(dx: -cropMargin, dy: -cropMargin)
         } else if let bg = activeBackground {
-            r = Background.canvas(around: content, margin: bg.padding + bg.inset, aspect: bg.aspect)
+            r = Background.canvas(around: framed, margin: bg.padding + bg.inset, aspect: bg.aspect)
         } else {
-            r = content
+            r = framed
         }
         contentRect = content
         needsDisplay = true
@@ -1952,11 +1970,31 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     override func draw(_ dirtyRect: NSRect) {
         let ctx = NSGraphicsContext.current?.cgContext
         ctx?.saveGState()
+        let device = activeFrame
+        let layout = device.map { $0.layout(around: contentRect) }
         if let bg = activeBackground {
             if bg.outerRadius > 0 {
                 NSBezierPath(roundedRect: bounds, xRadius: bg.outerRadius, yRadius: bg.outerRadius).addClip()
             }
             bg.drawFill(in: bounds)
+        }
+        if let device, let layout {
+            if let bg = activeBackground {
+                let card = NSBezierPath(roundedRect: layout.outer.insetBy(dx: -bg.inset, dy: -bg.inset),
+                                        xRadius: layout.outerRadius + bg.inset, yRadius: layout.outerRadius + bg.inset)
+                if bg.shadow > 0 {
+                    ctx?.saveGState()
+                    ctx?.setShadow(offset: CGSize(width: 0, height: -8), blur: 28,
+                                   color: NSColor.black.withAlphaComponent(0.8 * bg.shadow).cgColor)
+                    device.bodyColor.setFill(); card.fill()
+                    ctx?.restoreGState()
+                }
+                if bg.inset > 0 { device.bodyColor.setFill(); card.fill() }
+            }
+            device.drawChrome(layout)
+            device.outerPath(layout).addClip()
+            device.screenPath(layout).addClip()
+        } else if let bg = activeBackground {
             let cardRect = contentRect.insetBy(dx: -bg.inset, dy: -bg.inset)
             let card = NSBezierPath(roundedRect: cardRect, xRadius: bg.cornerRadius, yRadius: bg.cornerRadius)
             if bg.shadow > 0 {
@@ -1977,7 +2015,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         } else {
             NSBezierPath(rect: contentRect).addClip()
         }
-        if contentRect != imageRect { backdrop.setFill(); contentRect.fill() }
+        // Past the image (grown by annotations, or letterboxed in a device's screen) the screen shows the backdrop.
+        let screenRect = layout?.screen ?? contentRect
+        if screenRect != imageRect { backdrop.setFill(); screenRect.fill() }
         base.draw(in: imageRect)
         let all = items + (draft.map { [$0] } ?? [])
         for a in all {
