@@ -3,7 +3,9 @@ import Security
 
 /// Ask Claude about a screenshot (#252): explain an error, summarize a chart, write alt text, or a question of the
 /// user's own. The screenshot goes to Anthropic's Messages API with the user's own API key (kept in the Keychain), and
-/// only when they press Ask. This file holds the request and the reply handling; `AskClaudePanel` is the window.
+/// only when they press Ask. Without a key, Open in Claude hands the screenshot and question to Claude on the web,
+/// which answers with the user's own Claude plan: Anthropic doesn't let other apps sign in with a Claude subscription.
+/// This file holds the request and the reply handling; `AskClaudePanel` is the window.
 enum AskClaude {
     enum Preset: Int, CaseIterable {
         case explain, summarize, altText, custom
@@ -41,6 +43,8 @@ enum AskClaude {
     static let apiVersion = "2026-10-21"
     /// Server-side fallback: a request the model's safeguards decline is retried on the model Anthropic recommends.
     static let fallbackBeta = "server-side-fallback-2026-07-01"
+    /// A new chat on claude.ai with `q` filled in as the message.
+    static let newChat = URL(string: "https://claude.ai/new")!
     /// Where to make an API key.
     static let keysPage = URL(string: "https://console.anthropic.com/settings/keys")!
     /// The API takes up to 5 MB per image; past about 1568 px on the long side it scales the image down anyway.
@@ -58,6 +62,14 @@ enum AskClaude {
         if let prompt = preset.prompt { return prompt }
         let text = custom.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? nil : text
+    }
+
+    /// A new claude.ai chat with `question` already typed in, for Open in Claude.
+    static func handoffURL(question: String) -> URL {
+        // Everything but unreserved characters is encoded: URLComponents leaves "+" alone, which reads as a space.
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let q = question.addingPercentEncoding(withAllowedCharacters: unreserved) ?? ""
+        return URL(string: "\(newChat.absoluteString)?q=\(q)") ?? newChat
     }
 
     /// The screenshot as PNG, or JPEG when PNG is too big for the API, scaled so its long side is at most `maxSide`.

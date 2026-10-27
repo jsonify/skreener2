@@ -84,6 +84,15 @@ final class AskClaudeTests: XCTestCase {
         XCTAssertEqual(rep.pixelsHigh, 300)
     }
 
+    func testHandoffLinkFillsInTheQuestion() throws {
+        let url = AskClaude.handoffURL(question: "What's wrong in C++? 50% & more")
+        let parts = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(parts.host, "claude.ai")
+        XCTAssertEqual(parts.path, "/new")
+        XCTAssertEqual(parts.queryItems, [URLQueryItem(name: "q", value: "What's wrong in C++? 50% & more")])
+        XCTAssertFalse(url.absoluteString.contains("+"), url.absoluteString)
+    }
+
     func testBase64SizeAndMaskedKey() {
         XCTAssertEqual(AskClaude.base64Size(3), 4)
         XCTAssertEqual(AskClaude.base64Size(4), 8)

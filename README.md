@@ -127,7 +127,9 @@ Permissions switched on but not working, or asked for again after every build? S
 - **Export.** Save, Save As, copy, or drag a small preview straight into another app.
 - **Ask Claude.** The sparkles button sends the screenshot to Claude to explain an error, summarize a chart, write
   alt text, or answer your own question, and shows the answer to copy. It uses your own Anthropic API key (Settings →
-  Ask Claude, kept in the Keychain), and nothing is sent until you press Ask.
+  Ask Claude, kept in the Keychain), and nothing is sent until you press Ask. With a Claude plan instead of a key,
+  **Open in Claude** copies the screenshot and opens Claude in your browser with the question filled in: paste and
+  send. (Anthropic doesn't let other apps sign in with a Claude subscription.)
 
 ### After capture
 

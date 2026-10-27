@@ -2,7 +2,9 @@ import AppKit
 
 /// Ask Claude's window (#252), opened from the sparkles button in the editor's footer: pick Explain, Summarize,
 /// Alt Text or a question of your own, press Ask (⌘Return), and the answer shows below with a Copy button. Nothing is
-/// sent until Ask is pressed. One panel at a time: opening it for another screenshot starts over with that one.
+/// sent until Ask is pressed. Ask needs an API key; Open in Claude needs none: it copies the screenshot and opens
+/// claude.ai with the question filled in, to paste the screenshot and send it there with the user's Claude plan.
+/// One panel at a time: opening it for another screenshot starts over with that one.
 final class AskClaudePanel: NSWindowController, NSWindowDelegate {
     @MainActor private static var current: AskClaudePanel?
 
@@ -33,6 +35,7 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
     private let notice = NSTextField(wrappingLabelWithString: "")
     private let askButton = NSButton(title: "Ask Claude", target: nil, action: nil)
     private let settingsButton = NSButton(title: "Add API Key…", target: nil, action: nil)
+    private let handoffButton = NSButton(title: "Open in Claude", target: nil, action: nil)
     private let spinner = NSProgressIndicator()
     private let answerView = NSTextView()
     private let copyButton = NSButton(title: "Copy", target: nil, action: nil)
@@ -69,6 +72,10 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
         askButton.toolTip = "Send the screenshot and the question to Claude (⌘Return)"
         settingsButton.target = self
         settingsButton.action = #selector(openSettings)
+        handoffButton.target = self
+        handoffButton.action = #selector(openInClaude)
+        handoffButton.toolTip = "Copy the screenshot and open Claude in your browser with the question filled in, "
+            + "to answer with your Claude plan"
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
@@ -92,7 +99,7 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let askBar = NSStackView(views: [settingsButton, spinner, spacer, askButton])
+        let askBar = NSStackView(views: [settingsButton, spinner, spacer, handoffButton, askButton])
         askBar.spacing = 10
         let copySpacer = NSView()
         copySpacer.setContentHuggingPriority(.init(1), for: .horizontal)
@@ -148,8 +155,9 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
         settingsButton.isHidden = hasKey
         notice.stringValue = hasKey
             ? "Ask sends this screenshot, with its annotations, and the question to Anthropic, using your API key. "
-                + "Nothing is sent until you press it."
-            : "Ask Claude needs your own Anthropic API key. Add it in Settings → Ask Claude; it's kept in your Keychain."
+                + "Nothing is sent until you press it. Open in Claude uses your Claude plan in the browser instead."
+            : "Ask needs your own Anthropic API key: add it in Settings → Ask Claude. With a Claude plan instead, "
+                + "Open in Claude copies the screenshot and opens Claude in your browser with the question filled in."
         refreshButtons()
     }
 
@@ -192,6 +200,28 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
         answerView.textColor = failed ? .systemRed : .labelColor
         answerView.string = text
         answerView.scrollToBeginningOfDocument(nil)
+        refreshButtons()
+    }
+
+    /// Hands the screenshot and question to claude.ai: the screenshot goes on the clipboard (the web page can't be
+    /// given an image any other way), and the question is filled in through the link.
+    @objc private func openInClaude() {
+        guard let image else { NSSound.beep(); return }
+        guard let question = AskClaude.question(preset, custom: questionField.stringValue) else {
+            window?.makeFirstResponder(questionField)
+            NSSound.beep()
+            return
+        }
+        generation += 1
+        busy = false
+        hasAnswer = false
+        spinner.stopAnimation(nil)
+        Output.copy(image)
+        NSWorkspace.shared.open(AskClaude.handoffURL(question: question))
+        answerView.textColor = .secondaryLabelColor
+        answerView.string = "Claude is opening in your browser with the question filled in, and the screenshot is on "
+            + "the clipboard. Click in Claude's message box, paste the screenshot (⌘V) and send. Claude answers there, "
+            + "using your Claude plan.\n\nThe question:\n\(question)"
         refreshButtons()
     }
 

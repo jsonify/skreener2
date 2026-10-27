@@ -518,7 +518,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 ], note: "In the editor footer, the sparkles button asks Claude to explain the screenshot, summarize it, write "
                     + "alt text for it, or answer your own question. Only when you press Ask is the screenshot, with its "
                     + "annotations, sent to Anthropic with the question. Skreener sends nothing else, and nothing "
-                    + "automatically."),
+                    + "automatically. No key? With a Claude plan, Open in Claude copies the screenshot and opens Claude "
+                    + "in your browser with the question filled in; Anthropic doesn't let other apps sign in with a "
+                    + "Claude subscription."),
             ]
 
         case .about:
