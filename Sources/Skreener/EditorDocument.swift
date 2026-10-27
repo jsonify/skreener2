@@ -1,7 +1,8 @@
 import AppKit
 
-/// The editor's state apart from the screenshot itself: the annotations, the crop and the background. Capture history
-/// keeps one next to each capture, so reopening it carries on editing instead of starting from the flattened image (#30).
+/// The editor's state apart from the screenshot itself: the annotations, the crop, the background and the
+/// device frame. Capture history keeps one next to each capture, so reopening it carries on editing instead of starting
+/// from the flattened image (#30).
 ///
 /// On disk it is a folder: `document.json`, `base.png` (the screenshot as the editor holds it, which rotating or
 /// flipping changes) and an `img-<id>.png` for each picture added to the capture.
@@ -11,6 +12,7 @@ struct EditorDocument {
     var items: [Annotation] = []
     var crop: NSRect?
     var background: Background?
+    var deviceFrame = DeviceFrame()
 
     private static let documentFile = "document.json"
     private static let baseFile = "base.png"
@@ -37,6 +39,7 @@ struct EditorDocument {
         var root: [String: Any] = ["version": Self.version, "items": items.map(Self.encode)]
         if let crop { root["crop"] = [crop.minX, crop.minY, crop.width, crop.height].map(Double.init) }
         if let background { root["background"] = background.plist }
+        if !deviceFrame.isNone { root["frame"] = deviceFrame.plist }
         let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: folder.appendingPathComponent(Self.documentFile))
     }
@@ -58,6 +61,7 @@ struct EditorDocument {
         }
         if let c = root["crop"] as? [Double], c.count == 4 { doc.crop = NSRect(x: c[0], y: c[1], width: c[2], height: c[3]) }
         if let b = root["background"] as? [String: Any] { doc.background = Background(plist: b) }
+        if let f = root["frame"] as? [String: Any] { doc.deviceFrame = DeviceFrame(plist: f) }
         Annotation.resumeNumbering(after: doc.items.map(\.seq).max() ?? 0)
         return (base, doc)
     }

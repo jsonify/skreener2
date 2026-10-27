@@ -102,6 +102,11 @@ enum Preferences {
         get { (d.dictionary(forKey: "lastBackground")).map(Background.init(plist:)) ?? Background() }
         set { d.set(newValue.plist, forKey: "lastBackground") }
     }
+    /// The device frame's look (light or dark, the browser's URL) carries over to the next one chosen (#271).
+    static var lastDeviceFrame: DeviceFrame {
+        get { (d.dictionary(forKey: "lastDeviceFrame")).map(DeviceFrame.init(plist:)) ?? DeviceFrame() }
+        set { d.set(newValue.plist, forKey: "lastDeviceFrame") }
+    }
     /// The editor's last tool and the style for new annotations, so the next editor (also after a relaunch) starts
     /// with them (#139).
     static var editorTool: Tool {
