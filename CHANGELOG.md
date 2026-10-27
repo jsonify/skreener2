@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.0](https://github.com/jsonify/skreener2/compare/v0.13.0...v0.14.0) (2026-10-27)
+
+
+### Features
+
+* **capture:** Greenshot-style crosshair lines and readable labels; Drag Me closes the editor on drop ([#81](https://github.com/jsonify/skreener2/issues/81)) ([#296](https://github.com/jsonify/skreener2/issues/296)) ([d2531c0](https://github.com/jsonify/skreener2/commit/d2531c070c9a7db0d8d5bc618db16834de47436d))
+* **editor:** add TextMatcher for Redact Specific Text ([#295](https://github.com/jsonify/skreener2/issues/295)) ([#297](https://github.com/jsonify/skreener2/issues/297)) ([24e3dbf](https://github.com/jsonify/skreener2/commit/24e3dbf9075544a1af7b3af5a6b29388ddb3600e))
+* **editor:** Redact Text tool finds words with OCR and redacts every match ([#295](https://github.com/jsonify/skreener2/issues/295)) ([#298](https://github.com/jsonify/skreener2/issues/298)) ([4de587a](https://github.com/jsonify/skreener2/commit/4de587ae12ab8bb7c97ad86653a84c070ca0489a))
+
 ## [0.13.0](https://github.com/jsonify/skreener2/compare/v0.12.0...v0.13.0) (2026-10-27)
 
 
