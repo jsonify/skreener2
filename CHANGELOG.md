@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/jsonify/skreener2/compare/v0.11.0...v0.12.0) (2026-10-27)
+
+
+### Features
+
+* **automation:** add Shortcuts actions with App Intents ([#274](https://github.com/jsonify/skreener2/issues/274)) ([#287](https://github.com/jsonify/skreener2/issues/287)) ([b44d0a2](https://github.com/jsonify/skreener2/commit/b44d0a2a542b293565666d2858bd9a8f17f8c7b2))
+* **capture:** remember the web page a browser capture came from ([#269](https://github.com/jsonify/skreener2/issues/269)) ([#281](https://github.com/jsonify/skreener2/issues/281)) ([86c70f5](https://github.com/jsonify/skreener2/commit/86c70f5cd79a7b1ae2e81fd6ca996ce3919a952e))
+* **editor:** add device and browser frames ([#271](https://github.com/jsonify/skreener2/issues/271)) ([#282](https://github.com/jsonify/skreener2/issues/282)) ([7613ec9](https://github.com/jsonify/skreener2/commit/7613ec9e164d782e685fcebd41115a9bfb83b2b0))
+* **editor:** combine screenshots into a row, column or grid ([#273](https://github.com/jsonify/skreener2/issues/273)) ([#283](https://github.com/jsonify/skreener2/issues/283)) ([c524689](https://github.com/jsonify/skreener2/commit/c5246894b0842aef694cc8081d699c9618f40007))
+* **output:** compress screenshots and recordings ([#279](https://github.com/jsonify/skreener2/issues/279)) ([#285](https://github.com/jsonify/skreener2/issues/285)) ([98b77da](https://github.com/jsonify/skreener2/commit/98b77da2f3f763eda5f9769baa416bf6c6a23719))
+* **recording:** zoom and draw on the live screen ([#266](https://github.com/jsonify/skreener2/issues/266)) ([#284](https://github.com/jsonify/skreener2/issues/284)) ([418586d](https://github.com/jsonify/skreener2/commit/418586df6338195a561abe71a3e862ea4c73c75e))
+* **sharing:** Send To menu with custom actions and notes apps ([#276](https://github.com/jsonify/skreener2/issues/276), [#275](https://github.com/jsonify/skreener2/issues/275)) ([#286](https://github.com/jsonify/skreener2/issues/286)) ([818252d](https://github.com/jsonify/skreener2/commit/818252d2e97a567979ae3cd5620a2146ef58209e))
+
 ## [0.11.0](https://github.com/jsonify/skreener2/compare/v0.10.0...v0.11.0) (2026-10-27)
 
 
