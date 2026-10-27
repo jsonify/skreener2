@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var linkActions: CaptureActions?
     /// Self-timer delay a skreener:// link chose (`delay=`) for the countdown it started.
     private var linkDelay: Int?
+    /// A Shortcuts action waiting for the capture it started (#274): gets the screenshot, or nil when the capture was
+    /// cancelled or failed. The capture takes it when it starts, and `endCapture()` answers nil to one still waiting.
+    private var shortcutResult: ((NSImage?) -> Void)?
     /// The last app other than Skreener that was in front: Capture Active Window takes its window when Skreener
     /// itself is in front (an editor or Settings is open).
     private var lastOtherApp: pid_t?
@@ -219,6 +222,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Shortcuts actions (#274): a capture command, run like a skreener:// link with no after-capture steps, returns
+    /// the screenshot instead.
+    @MainActor func captureForShortcut(_ action: HotKeyAction) async throws -> NSImage {
+        // A second capture can't start while one is on screen, and its result would never come.
+        guard shortcutResult == nil, !overlay.isActive, !recordPicker.isActive, !scrollCapture.isRunning else {
+            throw ShortcutError.busy
+        }
+        let image = await withCheckedContinuation { continuation in
+            shortcutResult = { continuation.resume(returning: $0) }
+            perform(URLCommand(command: .run(action), then: []))
+        }
+        guard let image else { throw ShortcutError.cancelled }
+        return image
+    }
+
+    /// Shortcuts actions that return nothing run like a skreener:// link.
+    @MainActor func runForShortcut(_ action: HotKeyAction) { perform(URLCommand(command: .run(action))) }
+
+    /// Hands the capture to the Shortcuts action waiting for it, if any; nil after that.
+    private func takeShortcutResult() -> ((NSImage?) -> Void)? {
+        defer { shortcutResult = nil }
+        return shortcutResult
+    }
+
     /// The self-timer delay for the countdown about to start: a link's `delay=` (once), else the menu's.
     private func timerSeconds() -> Int {
         defer { linkDelay = nil }
@@ -377,6 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Every capture flow ends here, whether it captured something or was cancelled.
     private func endCapture() {
         linkActions = nil
+        takeShortcutResult()?(nil)
         QuickAccessController.resume()
         guard iconsHiddenForCapture else { return }
         iconsHiddenForCapture = false
@@ -430,8 +458,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startScrollCapture(_ screen: NSScreen, _ rect: CGRect) {
         scrollCapture.start(screen: screen, rect: rect) { [weak self] image in
             guard let self else { return }
-            let actions = linkActions
+            let actions = linkActions, result = takeShortcutResult()
             endCapture()
+            result?(image)
             if let image { finish(image, actions: actions, screen: screen) }
         }
     }
@@ -736,15 +765,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// `screen` is where the capture came from: its editor opens there (#111).
     private func run(screen: NSScreen?, _ capture: @escaping () async throws -> NSImage, then: ((NSImage) -> Void)? = nil) {
-        let actions = linkActions
+        let actions = linkActions, result = takeShortcutResult()
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000) // let overlay fade from the compositor
             do {
                 let image = try await capture()
                 endCapture()
+                result?(image)
                 if let then { then(image) } else { self.finish(image, actions: actions, screen: screen) }
             } catch {
                 endCapture()
+                result?(nil)
                 NSLog("Capture failed: \(error)")
                 Notifier.captureFailed(error)
             }

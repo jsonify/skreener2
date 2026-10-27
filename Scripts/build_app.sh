@@ -2,12 +2,21 @@
 # Builds Skreener.app (macOS only). Usage: Scripts/build_app.sh [--run]
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Shortcuts actions (#274): Shortcuts finds them in the bundle's Metadata.appintents, which Xcode generates with
+# appintentsmetadataprocessor and SwiftPM doesn't, so this script runs that tool itself (below). It reads what the
+# compiler knows about the App Intents types (constant values for the protocols listed here, like Xcode's list) and
+# the linker's dependency info, and skips an app that doesn't link AppIntents.framework there.
+INTENTS="$PWD/.build/appintents"
+mkdir -p "$INTENTS"
+echo '["AppIntent","EntityQuery","AppEntity","TransientEntity","AppEnum","AppShortcutProviding","AppShortcutsProvider",
+"AnyResolverProviding","AppIntentsPackage","DynamicOptionsProvider","_IntentValueRepresentable","IntentValueQuery"]' \
+  > "$INTENTS/protocols.json"
+FLAGS=(-Xswiftc -emit-const-values-path -Xswiftc "$INTENTS/Skreener.swiftconstvalues"
+  -Xswiftc -Xfrontend -Xswiftc -const-gather-protocols-file -Xswiftc -Xfrontend -Xswiftc "$INTENTS/protocols.json"
+  -Xlinker -dependency_info -Xlinker "$INTENTS/link_dependency_info.dat")
 # SKREENER_STRICT=1 (set in CI) turns compiler warnings into errors so none slip through.
-if [ "${SKREENER_STRICT:-}" = "1" ]; then
-  swift build -c release -Xswiftc -warnings-as-errors
-else
-  swift build -c release
-fi
+if [ "${SKREENER_STRICT:-}" = "1" ]; then FLAGS+=(-Xswiftc -warnings-as-errors); fi
+swift build -c release "${FLAGS[@]}"
 APP=build/Skreener.app
 # Version info comes from git, so it changes on its own with every commit and release (#135); nothing to edit by hand.
 # Marketing version (About, Finder): SKREENER_VERSION (release.sh sets it from --version or the tag), else the newest
@@ -50,6 +59,26 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSMicrophoneUsageDescription</key><string>Skreener records your microphone in screen recordings when you turn that on in Settings.</string>
 </dict></plist>
 PLIST
+# Metadata.appintents for the Shortcuts actions (see the top). The tool may write to the dependency file it is given,
+# so it gets a copy: the linker only writes the original when it links again.
+if xcrun --find appintentsmetadataprocessor >/dev/null 2>&1; then
+  cp "$INTENTS/link_dependency_info.dat" "$INTENTS/dependency_info.dat"
+  find "$PWD/Sources/Skreener" -name '*.swift' > "$INTENTS/sources.txt"
+  echo "$INTENTS/Skreener.swiftconstvalues" > "$INTENTS/constvalues.txt"
+  : > "$INTENTS/metadata.txt"
+  TOOLCHAIN="$(dirname "$(dirname "$(dirname "$(xcrun --find swiftc)")")")"
+  xcrun appintentsmetadataprocessor --toolchain-dir "$TOOLCHAIN" --module-name Skreener \
+    --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
+    --platform-family macOS --deployment-target 14.0 --target-triple "$(uname -m)-apple-macos14.0" \
+    --bundle-identifier com.skreener.app --output "$APP/Contents/Resources" --binary-file "$APP/Contents/MacOS/Skreener" \
+    --dependency-file "$INTENTS/dependency_info.dat" --stringsdata-file "$INTENTS/ExtractedAppShortcutsMetadata.stringsdata" \
+    --source-file-list "$INTENTS/sources.txt" --swift-const-vals-list "$INTENTS/constvalues.txt" \
+    --metadata-file-list "$INTENTS/metadata.txt" --static-metadata-file-list "$INTENTS/metadata.txt" \
+    --compile-time-extraction --deployment-aware-processing --no-app-shortcuts-localization
+  [ -d "$APP/Contents/Resources/Metadata.appintents" ] || { echo "error: no Metadata.appintents in $APP" >&2; exit 1; }
+else
+  echo "warning: appintentsmetadataprocessor not found (it comes with Xcode); Skreener's actions won't show up in Shortcuts." >&2
+fi
 # Ad-hoc signing ("-") changes the app's identity on every build, so macOS forgets the
 # Screen Recording grant. Sign with a stable certificate instead: SKREENER_SIGN_IDENTITY if set,
 # otherwise "Skreener Dev" when it exists (create it once with Scripts/make_dev_cert.sh).
