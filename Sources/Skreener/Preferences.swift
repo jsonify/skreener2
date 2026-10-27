@@ -369,6 +369,21 @@ enum Preferences {
         get { CustomActions.load(from: d) }
         set { CustomActions.save(newValue, to: d) }
     }
+    /// Rules that move a saved capture into a folder by its app or text (#277); see `AutoFiling`.
+    static var filingRules: [FilingRule] {
+        get { AutoFiling.load(from: d) }
+        set { AutoFiling.save(newValue, to: d) }
+    }
+    /// Saved captures get a Finder tag with the name of the app they came from (#277).
+    static var tagWithApp: Bool {
+        get { d.bool(forKey: "tagWithApp") }
+        set { d.set(newValue, forKey: "tagWithApp") }
+    }
+    /// The text OCR finds in a saved screenshot goes in its Spotlight comment, so Spotlight finds it (#277).
+    static var spotlightText: Bool {
+        get { d.bool(forKey: "spotlightText") }
+        set { d.set(newValue, forKey: "spotlightText") }
+    }
     /// Send To destinations the user turned off (ids, so a new one starts on) (#275).
     static var sendToHidden: Set<String> {
         get { Set(d.stringArray(forKey: "sendToHidden") ?? []) }

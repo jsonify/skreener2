@@ -33,9 +33,14 @@ final class RecordingController {
     /// The elapsed time ("01:23") while recording, about twice a second.
     var onTick: ((String) -> Void)?
 
+    /// The app in front when the recording started, for the library, its Finder tag and the filing rules (#277).
+    private var app: String?
+
     /// Records `screen`, or the area `rect` on it (global, bottom-left origin coordinates), as a video or a GIF.
-    func start(screen: NSScreen, rect: CGRect?, gif: Bool = false) {
+    /// `app` is the app in front.
+    func start(screen: NSScreen, rect: CGRect?, gif: Bool = false, app: String? = nil) {
         guard recorder == nil else { return }
+        self.app = app
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         let name = "Skreener Recording \(f.string(from: Date()))"
@@ -134,7 +139,9 @@ final class RecordingController {
     }
 
     /// `video` is the temporary MP4 a GIF was made from: the preview keeps it for Trim, else it is deleted here.
-    private func delivered(_ url: URL, video: URL? = nil) {
+    private func delivered(_ saved: URL, video: URL? = nil) {
+        if let app { SavedLibrary.shared.note(saved, app: app) }
+        let url = AutoFiling.afterSave(saved, app: app)
         Sound.play("Glass")
         if Preferences.copyToClipboard {
             NSPasteboard.general.clearContents()

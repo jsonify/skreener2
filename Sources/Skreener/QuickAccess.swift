@@ -20,8 +20,10 @@ import AVFoundation
     private static let gap: CGFloat = 12
 
     private let image: NSImage
-    /// The file the screenshot was saved to (Settings → After Capture), which dragging the preview out hands over.
-    private let saved: URL?
+    /// The file the screenshot was saved to (Settings → After Capture), which dragging the preview out hands over;
+    /// followed when a filing rule moves it (#277).
+    private var saved: URL? { savedFile.map(AutoFiling.current) }
+    private let savedFile: URL?
     /// The video or GIF file when this previews a recording; `image` is then its first frame.
     private let recording: URL?
     /// For a GIF recording, the temporary MP4 it was made from, kept for Trim; deleted when the preview goes away
@@ -110,7 +112,7 @@ import AVFoundation
 
     private init(image: NSImage, editor: EditorWindowController? = nil, recording: URL? = nil, saved: URL? = nil) {
         self.image = image
-        self.saved = saved
+        self.savedFile = saved
         self.editor = editor
         self.recording = recording
         let aspect = image.size.height / max(image.size.width, 1)
@@ -152,7 +154,7 @@ import AVFoundation
         }
         // A saved PNG or an MP4 recording can be made smaller (#279).
         if let file = recording ?? saved, Compressor.canCompress(file) {
-            center.append(("Compress", { [weak self] in self?.compress(file) }))
+            center.append(("Compress", { [weak self] in self?.compress(AutoFiling.current(file)) }))
         }
         card.addCenter(center)
         // Double-clicking the preview does what Edit does (Open for a recording) (#127).
@@ -162,7 +164,7 @@ import AVFoundation
         }
         // Dragging the preview out hands over the file: the recording, the saved screenshot, or a named temporary copy.
         card.fileToDrag = {
-            recording ?? saved.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+            recording ?? saved.map(AutoFiling.current).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
                 ?? Output.temporaryFile(image)
         }
         // Swiping it toward the screen edge dismisses it (#32).

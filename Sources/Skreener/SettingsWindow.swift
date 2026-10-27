@@ -75,6 +75,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private let urlSchemeSwitch = NSSwitch()
     private let shortcutsPane = ShortcutsPane()
     private let sendToPane = SendToPane()
+    private let filingPane = FilingPane()
     /// Ask Claude's API key: typed into `apiKeyField`, saved to the Keychain; `apiKeyStatus` shows what is stored.
     private let apiKeyField = NSSecureTextField()
     private let apiKeyStatus = NSTextField(labelWithString: "")
@@ -340,7 +341,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             ]
 
         case .afterCapture:
-            return [
+            var views: [NSView] = [
                 group("Screenshots", [
                     toggle("Copy to clipboard", nil, Preferences.copyToClipboard) { Preferences.copyToClipboard = $0 },
                     toggle("Save to the export location", nil, Preferences.autoSave) { Preferences.autoSave = $0 },
@@ -373,12 +374,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     row("Captures kept", "Lowering it deletes the oldest captures now.", historyLimitPopup()),
                 ], note: "The panel's Saved Files view shows everything in the export location, with search."),
             ]
+            // Filing rules, tags and Spotlight (#277) come after what happens to the screenshot.
+            views.insert(contentsOf: filingPane.build(paneTools), at: 1)
+            return views
 
         case .sendTo:
             // Kept by the pane to rebuild its list when an action changes; Settings lives as long as the app.
-            return sendToPane.build(.init(group: { self.group($0, $1, note: $2) }, row: { self.row($0, $1, $2) },
-                                          toggle: { self.toggle($0, $1, $2, $3) }, bind: { self.bind($0, $1) },
-                                          window: { self.window }))
+            return sendToPane.build(paneTools)
 
         case .shortcuts:
             return shortcutsPane.build(group: { group($0, $1, note: $2) }, row: { row($0, $1, $2) })
@@ -630,6 +632,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     // MARK: Building blocks
+
+    /// The building blocks below, for the panes that live in their own files.
+    private var paneTools: SendToPane.Tools {
+        .init(group: { self.group($0, $1, note: $2) }, row: { self.row($0, $1, $2) },
+              toggle: { self.toggle($0, $1, $2, $3) }, bind: { self.bind($0, $1) }, window: { self.window })
+    }
 
     /// A titled rounded box of rows, with separators between them and an optional note under it.
     private func group(_ title: String, _ rows: [NSView], note: String? = nil) -> NSView {

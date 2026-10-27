@@ -1358,6 +1358,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     /// Writes the image (see `saveScreenshot`) and returns where; nil after saying why it failed.
     private func save() -> URL? {
         let image = canvas.flattened()
+        // A filing rule may have moved the file since (#277).
+        if let file = fileURL { fileURL = AutoFiling.current(file) }
         if Preferences.saveOverExisting, let url = fileURL, ImageFormat(fileExtension: url.pathExtension) != nil,
            FileManager.default.fileExists(atPath: url.path) {
             if Output.overwrite(image, at: url) {
