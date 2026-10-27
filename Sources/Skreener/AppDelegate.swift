@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import ScreenCaptureKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServicesMenuRequestor {
     private var statusItem: NSStatusItem!
     private var menu: NSMenu!
     private let overlay = SelectionOverlay()
@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func buildMenu() -> NSMenu {
         let m = NSMenu()
+        m.delegate = self
         // Key equivalents come from the global shortcuts (`updateMenuShortcuts`).
         func add(_ t: String, _ s: Selector, _ shortcut: HotKeyAction) {
             let i = NSMenuItem(title: t, action: s, keyEquivalent: "")
@@ -164,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; m.addItem(i)
             shortcutItems[shortcut] = i
         }
+        m.addItem(ContinuityCamera.menuItem(title: "Open from iPhone or iPad"))
         m.addItem(.separator())
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.keyEquivalentModifierMask = [.command]; settings.target = self; m.addItem(settings)
@@ -276,6 +278,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Self-Timer submenu: tick the current delay.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === self.menu {
+            ContinuityCamera.opensInNewTab = true
+            NSApp.activate(ignoringOtherApps: true)
+        }
         for i in menu.items where i.action == #selector(timerDelayPicked(_:)) {
             i.state = i.tag == Preferences.selfTimerSeconds ? .on : .off
         }
@@ -382,6 +388,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @MainActor @objc private func pinFile() {
         NSApp.activate(ignoringOtherApps: true)
         if let picked = ImageSource.pickFile() { PinnedScreenshotController.pin(picked.image) }
+    }
+
+    /// The status menu's "Open from iPhone or iPad" looks for somewhere to put the picture (#270).
+    func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?,
+                        returnType: NSPasteboard.PasteboardType?) -> Any? {
+        ContinuityCamera.accepts(sendType: sendType, returnType: returnType) ? self : nil
+    }
+
+    func readSelection(from pboard: NSPasteboard) -> Bool {
+        guard let img = ContinuityCamera.image(from: pboard) else { return false }
+        EditorWindowController(image: img).present()
+        return true
     }
 
     @objc private func pinClipboard() {

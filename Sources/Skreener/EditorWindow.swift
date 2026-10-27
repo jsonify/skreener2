@@ -220,7 +220,7 @@ private let pillHeight: CGFloat = 26
 
 /// CleanShot-style editor: unified titlebar toolbar, centered zoomable canvas, footer with zoom / Drag Me / actions.
 /// The window never gets smaller than `minimumSize`.
-final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate {
+final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate, NSServicesMenuRequestor {
     static let minimumSize = NSSize(width: 990, height: 750)
     static var live: [EditorWindowController] = []
     /// Set by the app: lets the user pick an area on screen and hands back the capture (nil if cancelled).
@@ -1449,8 +1449,24 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         CombineScreenshots.present(tabs + history, from: window)
     }
 
+    // MARK: Import from iPhone or iPad (#270)
+
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?,
+                                 returnType: NSPasteboard.PasteboardType?) -> Any? {
+        ContinuityCamera.accepts(sendType: sendType, returnType: returnType)
+            ? self : super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
+
+    /// The picture from the device: a layer here, or a new tab when the menu-bar item asked for it.
+    func readSelection(from pboard: NSPasteboard) -> Bool {
+        guard let img = ContinuityCamera.image(from: pboard) else { return false }
+        if ContinuityCamera.opensInNewTab { EditorWindowController(image: img).present() } else { canvas.insertImage(img) }
+        return true
+    }
+
     private func buildAddImageMenu() -> NSMenu {
         let m = NSMenu()
+        m.delegate = self
         for (title, sym, sel) in [("Capture Area…", "camera.viewfinder", #selector(addImageFromCapture)),
                                   ("Open File…", "folder", #selector(addImageFromFile)),
                                   ("Paste from Clipboard", "doc.on.clipboard", #selector(addImageFromClipboard))] {
@@ -1465,6 +1481,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         history.submenu = historyMenu
         m.insertItem(history, at: 1)
         m.addItem(.separator())
+        m.addItem(ContinuityCamera.menuItem(title: "Import from iPhone or iPad"))
+        m.addItem(.separator())
         let combine = NSMenuItem(title: "Combine Screenshots…", action: #selector(combineScreenshots), keyEquivalent: "")
         combine.target = self
         combine.image = symbol("rectangle.split.3x1", "Combine Screenshots")
@@ -1474,6 +1492,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     /// Fills Add Image → From Capture History with the newest captures, as thumbnails.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu !== historyMenu { ContinuityCamera.opensInNewTab = false }
         guard menu === historyMenu else { return }
         menu.removeAllItems()
         let entries = CaptureHistory.entries().prefix(20)

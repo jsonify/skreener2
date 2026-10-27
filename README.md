@@ -125,6 +125,9 @@ Permissions switched on but not working, or asked for again after every build? S
   **Remove Background**.
 - **Combine Screenshots.** This lays 2 to 9 captures out in a row, column or grid on a new canvas. The captures stay
   movable images. Pick them from the editor tabs or the history.
+- **Photos from your iPhone or iPad.** **Add Image > Import from iPhone or iPad** takes a photo, scans documents or
+  adds a sketch on a nearby iPhone or iPad (same Apple ID, Wi-Fi and Bluetooth on), and places it as a movable layer.
+  The menu-bar menu's **Open from iPhone or iPad** opens the picture in a new tab.
 - **Backgrounds.** Gradients, solid colors, your wallpaper or a picture of your own. There are presets for
   common aspect ratios and social media sizes, plus padding, corner radius and shadow.
 - **Frames.** Wrap a screenshot in a macOS window, a browser (with an address you can edit), a MacBook, an iPhone
