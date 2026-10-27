@@ -21,7 +21,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private static let sidebarWidth: CGFloat = 200
 
     private enum Pane: Int, CaseIterable {
-        case general, afterCapture, shortcuts, screenshots, recording, annotate, about
+        case general, afterCapture, shortcuts, screenshots, recording, annotate, askClaude, about
 
         var title: String {
             switch self {
@@ -31,6 +31,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             case .screenshots: return "Screenshots"
             case .recording: return "Screen Recording"
             case .annotate: return "Annotate"
+            case .askClaude: return "Ask Claude"
             case .about: return "About"
             }
         }
@@ -42,6 +43,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             case .screenshots: return "camera.fill"
             case .recording: return "video.fill"
             case .annotate: return "pencil.tip"
+            case .askClaude: return "sparkles"
             case .about: return "info"
             }
         }
@@ -53,6 +55,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             case .screenshots: return .systemBlue
             case .recording: return .systemRed
             case .annotate: return .systemOrange
+            case .askClaude: return .systemPurple
             case .about: return .systemGray
             }
         }
@@ -68,6 +71,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     /// Kept so it can follow the setting when a link's prompt turns it on (`refreshURLScheme`).
     private let urlSchemeSwitch = NSSwitch()
     private let shortcutsPane = ShortcutsPane()
+    /// Ask Claude's API key: typed into `apiKeyField`, saved to the Keychain; `apiKeyStatus` shows what is stored.
+    private let apiKeyField = NSSecureTextField()
+    private let apiKeyStatus = NSTextField(labelWithString: "")
+    private let apiKeyRemove = NSButton(title: "Remove", target: nil, action: nil)
     /// Each permission's status in Settings → General, refreshed whenever Settings comes to the front (#112).
     private var permissionLabels: [Permission: NSTextField] = [:]
     private let sidebar = NSTableView()
@@ -119,11 +126,16 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    func present() {
+    /// Brings Settings to the front; `askClaude` opens it on the Ask Claude pane, where the API key goes.
+    func present(askClaude: Bool = false) {
+        if askClaude, let row = Pane.listed.firstIndex(of: .askClaude) {
+            sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
         refreshFolder()
         refreshLogin()   // may have changed in System Settings
         refreshURLScheme()   // may have been allowed from a link's prompt
         refreshSystemState()
+        refreshAPIKey()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         DockPresence.update()
@@ -474,6 +486,43 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 ]),
             ]
 
+        case .askClaude:
+            apiKeyField.placeholderString = "sk-ant-…"
+            apiKeyField.translatesAutoresizingMaskIntoConstraints = false
+            apiKeyField.widthAnchor.constraint(equalToConstant: 220).isActive = true
+            let save = NSButton(title: "Save", target: nil, action: nil)
+            bind(save) { [weak self] _ in self?.saveAPIKey() }
+            bind(apiKeyField) { [weak self] _ in self?.saveAPIKey() }
+            let entry = NSStackView(views: [apiKeyField, save])
+            entry.spacing = 8
+
+            apiKeyStatus.textColor = .secondaryLabelColor
+            apiKeyRemove.controlSize = .small
+            bind(apiKeyRemove) { [weak self] _ in
+                APIKeyStore.set(nil)
+                self?.refreshAPIKey()
+            }
+            let stored = NSStackView(views: [apiKeyStatus, apiKeyRemove])
+            stored.spacing = 10
+            refreshAPIKey()
+
+            let getKey = NSButton(title: "Get a Key…", target: nil, action: nil)
+            bind(getKey) { _ in NSWorkspace.shared.open(AskClaude.keysPage) }
+
+            return [
+                group("Anthropic API", [
+                    row("API key", "Your own key from the Claude Console. It's kept in your Keychain.", entry),
+                    row("Saved key", stored),
+                    row("New to the API?", "Make a key in the Claude Console. Use of the API is billed to that account.",
+                        getKey),
+                ], note: "In the editor footer, the sparkles button asks Claude to explain the screenshot, summarize it, write "
+                    + "alt text for it, or answer your own question. Only when you press Ask is the screenshot, with its "
+                    + "annotations, sent to Anthropic with the question. Skreener sends nothing else, and nothing "
+                    + "automatically. No key? With a Claude plan, Open in Claude copies the screenshot and opens Claude "
+                    + "in your browser with the question filled in; Anthropic doesn't let other apps sign in with a "
+                    + "Claude subscription."),
+            ]
+
         case .about:
             let icon = NSImageView(image: NSApp.applicationIconImage)
             icon.translatesAutoresizingMaskIntoConstraints = false
@@ -677,6 +726,25 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         return row(permission.title, permission.purpose, control)
     }
     func refreshURLScheme() { urlSchemeSwitch.state = Preferences.allowURLScheme ? .on : .off }
+
+    // MARK: Ask Claude
+
+    private func saveAPIKey() {
+        let key = apiKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        if APIKeyStore.set(key) {
+            apiKeyField.stringValue = ""
+        } else {
+            NSSound.beep()
+        }
+        refreshAPIKey()
+    }
+
+    private func refreshAPIKey() {
+        let key = APIKeyStore.key
+        apiKeyStatus.stringValue = key.map(APIKeyStore.masked) ?? "None"
+        apiKeyRemove.isHidden = key == nil
+    }
 
     // MARK: Export location
 

@@ -756,7 +756,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         pill.imageProvider = { [weak self] in self?.canvas.flattened() ?? NSImage() }
         pill.translatesAutoresizingMaskIntoConstraints = false
 
-        let actions = [("square.and.arrow.up", "Share", #selector(shareIt(_:))),
+        let actions = [("sparkles", "Ask Claude: explain, summarize or write alt text", #selector(askClaudeIt)),
+                       ("square.and.arrow.up", "Share", #selector(shareIt(_:))),
                        ("pin", "Pin to Screen", #selector(pinIt)),
                        ("doc.on.doc", "Copy", #selector(copyIt)),
                        ("square.and.arrow.down", "Save (⌘S)", #selector(saveIt))].map { sym, tip, sel in
@@ -1366,6 +1367,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func saveIt() { saveScreenshot() }
     @objc private func saveAsIt() { saveScreenshotAs() }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
+    @MainActor @objc private func askClaudeIt() { AskClaudePanel.show(canvas.flattened(), from: window) }
     @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
     @objc private func undoIt() { canvas.undo() }
