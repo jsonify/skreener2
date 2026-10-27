@@ -46,6 +46,9 @@ final class SelectionOverlay {
     /// The selection stays adjustable after the drag; Return or a double-click takes it (#102).
     private var adjustable = false
 
+    /// A selection is on screen; `begin` ignores another until it ends.
+    var isActive: Bool { completion != nil }
+
     /// `adjustable` keeps the dragged area on screen to refine it before it is taken (Settings → General).
     func begin(mode: Mode, windows: [SCWindow], hints: [Mode: String] = [:],
                adjustable: Bool = Preferences.adjustAreaBeforeCapture, completion: @escaping (Selection?) -> Void) {
