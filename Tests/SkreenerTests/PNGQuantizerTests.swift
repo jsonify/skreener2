@@ -19,11 +19,26 @@ final class PNGQuantizerTests: XCTestCase {
 
     /// `colors` repeated over `count` pixels.
     private func pixels(_ colors: [[UInt8]], count: Int) -> [UInt8] {
-        (0..<count).flatMap { colors[$0 % colors.count] }
+        var out: [UInt8] = []
+        for i in 0..<count { out += colors[i % colors.count] }
+        return out
+    }
+
+    private func color(_ r: Int, _ g: Int, _ b: Int, _ a: Int = 255) -> [UInt8] {
+        [UInt8(r), UInt8(g), UInt8(b), UInt8(a)]
+    }
+
+    private func expand(_ indices: [UInt8], _ palette: [UInt8]) -> [UInt8] {
+        var out: [UInt8] = []
+        for i in indices {
+            let at = Int(i) * 4
+            out += palette[at..<at + 4]
+        }
+        return out
     }
 
     private func reconstruct(_ q: PNGQuantizer.Quantized) -> [UInt8] {
-        q.indices.flatMap { Array(q.palette[Int($0) * 4..<Int($0) * 4 + 4]) }
+        expand(q.indices, q.palette)
     }
 
     func testFewColorsAreExact() throws {
@@ -44,7 +59,7 @@ final class PNGQuantizerTests: XCTestCase {
     }
 
     func testExactlyTheMaximumNumberOfColorsIsExact() throws {
-        let colors = (0..<256).map { [UInt8($0), UInt8(255 - $0), UInt8($0 / 2), 255] }
+        let colors: [[UInt8]] = (0..<256).map { i in color(i, 255 - i, i / 2) }
         let rgba = pixels(colors, count: 256 * 3)
         let q = try XCTUnwrap(PNGQuantizer.quantize(rgba: rgba))
         XCTAssertEqual(q.palette.count / 4, 256)
@@ -54,7 +69,7 @@ final class PNGQuantizerTests: XCTestCase {
 
     func testMoreColorsAreReducedWithABoundedError() throws {
         // 32 × 32 colors, 8 apart in red and green.
-        let colors = (0..<1024).map { [UInt8($0 % 32 * 8), UInt8($0 / 32 * 8), 128, 255] }
+        let colors: [[UInt8]] = (0..<1024).map { i in color(i % 32 * 8, i / 32 * 8, 128) }
         let q = try XCTUnwrap(PNGQuantizer.quantize(rgba: pixels(colors, count: 1024)))
         XCTAssertLessThanOrEqual(q.palette.count / 4, 256)
         XCTAssertGreaterThan(q.meanError, 0)
@@ -63,7 +78,7 @@ final class PNGQuantizerTests: XCTestCase {
     }
 
     func testSameImageGivesSamePalette() throws {
-        let colors = (0..<1000).map { [UInt8($0 % 40 * 6), UInt8($0 / 40 * 10), UInt8($0 % 7 * 30), 255] }
+        let colors: [[UInt8]] = (0..<1000).map { i in color(i % 40 * 6, i / 40 * 10, i % 7 * 30) }
         let rgba = pixels(colors, count: 1000)
         XCTAssertEqual(PNGQuantizer.quantize(rgba: rgba)?.palette, PNGQuantizer.quantize(rgba: rgba)?.palette)
     }
@@ -80,11 +95,13 @@ final class PNGQuantizerTests: XCTestCase {
     func testEncodedPNGDecodesToTheSamePixels() throws {
         for colorCount in [2, 3, 12, 200] {
             let width = 13, height = 7
-            let palette = (0..<colorCount).flatMap { i -> [UInt8] in
-                [UInt8(i * 7 % 256), UInt8(i * 13 % 256), UInt8(255 - i), i % 5 == 0 ? 255 : 255 - UInt8(i % 3) * 40]
+            var palette: [UInt8] = []
+            for i in 0..<colorCount {
+                let alpha: Int = i % 5 == 0 ? 255 : 255 - (i % 3) * 40
+                palette += color(i * 7 % 256, i * 13 % 256, 255 - i, alpha)
             }
-            let indices = (0..<width * height).map { UInt8($0 * 3 % colorCount) }
-            let expected = indices.flatMap { Array(palette[Int($0) * 4..<Int($0) * 4 + 4]) }
+            let indices: [UInt8] = (0..<width * height).map { (i: Int) -> UInt8 in UInt8(i * 3 % colorCount) }
+            let expected = expand(indices, palette)
 
             let png = try XCTUnwrap(IndexedPNG.encode(width: width, height: height, palette: palette, indices: indices,
                                                       colorSpace: CGColorSpace(name: CGColorSpace.sRGB)))
