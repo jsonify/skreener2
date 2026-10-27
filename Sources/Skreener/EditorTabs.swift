@@ -107,6 +107,8 @@ final class EditorWindow: NSWindow {
     }
     // Window → Show / Hide Screenshots (⌃⌘S, #140)
     @objc func toggleScreenshotDock(_ sender: Any?) { (windowController as? EditorWindowController)?.toggleDock() }
+    // Image → Combine Screenshots… (#273)
+    @objc func combineScreenshots(_ sender: Any?) { (windowController as? EditorWindowController)?.combineScreenshots() }
     // File → Save / Save As… (#118)
     @objc func saveScreenshot(_ sender: Any?) { (windowController as? EditorWindowController)?.saveScreenshot() }
     @objc func saveScreenshotAs(_ sender: Any?) { (windowController as? EditorWindowController)?.saveScreenshotAs() }

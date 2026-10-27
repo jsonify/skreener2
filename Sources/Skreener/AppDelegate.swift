@@ -308,7 +308,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         var imageItems: [NSMenuItem] = []
         for group in [plain(CanvasView.imageCommands), sizeItems, plain(CanvasView.redactCommands), textItems,
-                      plain(CanvasView.colorCommands), plain(CanvasView.snapCommands)] {
+                      plain(CanvasView.colorCommands), plain(CanvasView.snapCommands),
+                      [item("Combine Screenshots…", #selector(EditorWindow.combineScreenshots(_:)), "", [])]] {
             if !imageItems.isEmpty { imageItems.append(.separator()) }   // a new separator each time: menus can't share items
             imageItems += group
         }

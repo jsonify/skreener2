@@ -1425,6 +1425,21 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
     }
 
+    // MARK: Combine Screenshots (#273)
+
+    /// The layers added to the canvas, e.g. by Combine Screenshots on the new tab.
+    func addImageLayers(_ placed: [(image: NSImage, frame: NSRect)]) { canvas.insertImages(placed) }
+
+    /// Offers this window's tabs, then the newest history captures, to combine; all the tabs start ticked.
+    @objc func combineScreenshots() {
+        let tabs = tabGroup.editors.map { editor in
+            CombineScreenshots.Candidate(title: editor.window?.title ?? "Screenshot", thumbnail: editor.dockThumbnail,
+                                         image: { editor.canvas.flattened() }, selected: true)
+        }
+        let history = CombineScreenshots.historyCandidates(count: 12)
+        CombineScreenshots.present(tabs + history, from: window)
+    }
+
     private func buildAddImageMenu() -> NSMenu {
         let m = NSMenu()
         for (title, sym, sel) in [("Capture Area…", "camera.viewfinder", #selector(addImageFromCapture)),
@@ -1440,6 +1455,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         historyMenu.delegate = self
         history.submenu = historyMenu
         m.insertItem(history, at: 1)
+        m.addItem(.separator())
+        let combine = NSMenuItem(title: "Combine Screenshots…", action: #selector(combineScreenshots), keyEquivalent: "")
+        combine.target = self
+        combine.image = symbol("rectangle.split.3x1", "Combine Screenshots")
+        m.addItem(combine)
         return m
     }
 
