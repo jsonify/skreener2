@@ -27,7 +27,7 @@ enum ContinuityCamera {
     @MainActor static var opensInNewTab = false
 
     /// AppKit's "Import from iPhone or iPad" item: Take Photo, Scan Documents and Add Sketch for each device.
-    @MainActor static func menuItem(title: String) -> NSMenuItem {
+    static func menuItem(title: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.identifier = NSMenuItem.importFromDeviceIdentifier
         return item
