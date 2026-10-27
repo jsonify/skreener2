@@ -47,8 +47,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleURLSchemes</key><array><string>skreener</string></array>
   </dict></array>
   <key>NSScreenCaptureUsageDescription</key><string>Skreener needs screen recording access to take screenshots and record the screen.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Skreener asks your browser for the address of the page you capture, so you can get back to it from Saved Files, and asks Notes and Reminders to add a capture when you pick them in Send To.</string>
   <key>NSMicrophoneUsageDescription</key><string>Skreener records your microphone in screen recordings when you turn that on in Settings.</string>
-  <key>NSAppleEventsUsageDescription</key><string>Skreener asks Notes and Reminders to add a capture when you pick them in Send To.</string>
 </dict></plist>
 PLIST
 # Ad-hoc signing ("-") changes the app's identity on every build, so macOS forgets the
