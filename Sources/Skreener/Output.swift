@@ -87,7 +87,11 @@ enum Output {
         guard let format = ImageFormat(fileExtension: url.pathExtension), let data = fileData(image, format: format) else {
             return false
         }
-        do { try data.write(to: url, options: .atomic); return true } catch { NSLog("Save failed: \(error)"); return false }
+        // An atomic write makes a new file, which would lose the page the capture came from (#269).
+        let page = SourcePage.readWhereFroms(of: url)
+        do { try data.write(to: url, options: .atomic) } catch { NSLog("Save failed: \(error)"); return false }
+        if let page { SourcePage.writeWhereFroms(page, to: url) }
+        return true
     }
 
     /// The save panel; returns where the image went (nil when cancelled or the write failed).

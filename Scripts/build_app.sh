@@ -56,6 +56,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleURLSchemes</key><array><string>skreener</string></array>
   </dict></array>
   <key>NSScreenCaptureUsageDescription</key><string>Skreener needs screen recording access to take screenshots and record the screen.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Skreener asks your browser for the address of the page you capture, so you can get back to it from Saved Files.</string>
   <key>NSMicrophoneUsageDescription</key><string>Skreener records your microphone in screen recordings when you turn that on in Settings.</string>
 </dict></plist>
 PLIST
