@@ -20,6 +20,12 @@ final class RecordingController {
     private var pausedTotal: TimeInterval = 0
     /// Where the GIF goes when this recording is a GIF (the video is then a temporary file).
     private var gifURL: URL?
+    /// The effects overlay's window, which is in the video.
+    private var effectsWindows: [CGWindowID] = []
+    /// Other Skreener windows that belong in the video: the presenter overlay while it is open (#266).
+    var alsoRecorded: [CGWindowID] = [] {
+        didSet { if alsoRecorded != oldValue { recorder?.include(effectsWindows + alsoRecorded) } }
+    }
 
     var isRecording: Bool { recorder != nil }
     /// Called with true on start and false when the recording ends (saved, failed, cancelled or never started).
@@ -51,7 +57,8 @@ final class RecordingController {
                       keys: Preferences.recordShowKeystrokes && AccessibilityAccess.granted)
         var options = ScreenRecorder.Options()
         if gif { options.systemAudio = false; options.microphone = false }
-        let keep = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
+        effectsWindows = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
+        let keep = effectsWindows + alsoRecorded
         if Preferences.recordShowControls { showHUD(near: rect ?? screen.frame, on: screen, fullscreen: rect == nil) }
         startedAt = Date(); pausedAt = nil; pausedTotal = 0
         tick()
@@ -142,6 +149,7 @@ final class RecordingController {
         hideWindows()
         recorder = nil
         gifURL = nil
+        effectsWindows = []
         onStateChange?(false)
     }
 

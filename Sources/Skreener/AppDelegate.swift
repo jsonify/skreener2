@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
+    private let presenter = PresenterOverlay()
     /// Whether the picker on screen was opened by Record Screen or by All-in-One (#29).
     private var pickerPurpose = PickerPurpose.record
     private let scrollCapture = ScrollCaptureController()
@@ -61,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .timedWindow: { [weak self] in self?.timedWindow() },
             .timedFullscreen: { [weak self] in self?.timedFullscreen() },
             .recordScreen: { [weak self] in self?.recordScreen() },
+            .presenter: { [weak self] in self?.togglePresenter() },
             .showHistory: { [weak self] in self?.showHistory() },
             .toggleDesktopIcons: { [weak self] in self?.toggleDesktopIcons() },
             .openFile: { [weak self] in self?.openFile() },
@@ -73,6 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         shortcuts.register()
         updateMenuShortcuts()
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
+        // The presenter overlay is meant to be seen, so a recording keeps it in the video (#266).
+        presenter.onWindowsChange = { [weak self] ids in self?.recording.alsoRecorded = ids }
         recording.onTick = { [weak self] time in
             self?.statusItem.button?.title = Preferences.recordTimeInMenuBar ? " " + time : ""
         }
@@ -139,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timerItem.submenu = timerMenu; m.addItem(timerItem)
         m.addItem(.separator())
         add("Record Screen", #selector(recordScreen), .recordScreen)
+        add("Zoom & Draw on Screen", #selector(togglePresenter), .presenter)
         m.addItem(.separator())
         add("Capture History", #selector(showHistory), .showHistory)
         m.addItem(.separator())
@@ -527,6 +532,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func stopRecording() { recording.stop() }
+
+    /// Presenter mode (#266): zoom and draw on the live screen; the same command leaves.
+    @objc private func togglePresenter() { presenter.toggle() }
 
     /// While recording, the menu bar icon becomes a stop button (⌃⇧7 also stops).
     private func recordingChanged(_ on: Bool) {
