@@ -501,15 +501,30 @@ private final class SelectionView: NSView {
         if mode == .window { drawWindowHighlight(); return }
         // The screen isn't dimmed: only the selection gets a translucent fill.
         let hole: NSRect? = selectionRect
-        // While a selection waits to be adjusted, the loupe only shows while dragging it.
-        let pointerAids = mode != .window && Preferences.showMagnifier && (adjusted == nil || drag != nil)
-        defer { if pointerAids, let c = cursorPoint { drawLoupe(at: c) } }
+        // The pointer aids follow the pointer, except while a selection waits to be adjusted and isn't being dragged.
+        let pointer = adjusted == nil || drag != nil ? cursorPoint : nil
+        var newDrag = false
+        if case .new? = drag { newDrag = true }
+        if let p = pointer, Preferences.showCrosshairLines { drawCrosshairLines(at: p) }
+        defer {
+            if let p = pointer {
+                if Preferences.showMagnifier {
+                    drawLoupe(at: p)
+                } else if !newDrag {
+                    // Without the loupe its coordinates go beside the pointer (a new drag shows the size there).
+                    drawPointerLabel("\(Int(p.x)), \(Int(bounds.height - p.y))", near: p, leftOfPointer: false)
+                }
+            }
+        }
         if let hint, start == nil, adjusted == nil { drawHintBanner(hint, centeredAt: NSPoint(x: bounds.midX, y: bounds.midY)) }
         guard let h = hole else { return }
-        NSColor.gray.withAlphaComponent(0.25).setFill()
+        // Accent border over a dark one, on a light accent tint: it shows on dark and light screens alike.
+        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
         h.fill()
-        NSColor.black.withAlphaComponent(0.35).setStroke()
-        let b = NSBezierPath(rect: h.insetBy(dx: 0.5, dy: 0.5)); b.lineWidth = 1; b.stroke()
+        NSColor.black.withAlphaComponent(0.45).setStroke()
+        let outer = NSBezierPath(rect: h.insetBy(dx: 0.5, dy: 0.5)); outer.lineWidth = 3; outer.stroke()
+        NSColor.controlAccentColor.setStroke()
+        let b = NSBezierPath(rect: h.insetBy(dx: 0.5, dy: 0.5)); b.lineWidth = 1.5; b.stroke()
         // A new drag clears `adjusted`, so handles show only on a selection being adjusted.
         if adjusted != nil { drawHandles(around: h) }
         if case .new? = drag, let c = current {
@@ -529,16 +544,22 @@ private final class SelectionView: NSView {
         }
     }
 
-    /// While dragging, the width × height beside the pointer on a dark pill, so it reads over any background: below-left
-    /// of it, or below-right when the loupe sits on the left (near the right edge of the screen).
+    /// While dragging, the width × height beside the pointer: below-left of it, or below-right when the loupe sits on
+    /// the left (near the right edge of the screen).
     private func drawDragSize(of r: NSRect, at p: NSPoint) {
+        let loupeOnLeft = Preferences.showMagnifier && p.x + Self.loupeGap + Self.loupeSide > bounds.maxX - 4
+        drawPointerLabel("\(Int(r.width)) × \(Int(r.height))", near: p, leftOfPointer: !loupeOnLeft)
+    }
+
+    /// `text` on a dark pill just below the pointer, on its left or right, kept on screen: it reads over anything.
+    private func drawPointerLabel(_ text: String, near p: NSPoint, leftOfPointer: Bool) {
         let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
                                                     .foregroundColor: NSColor.white]
-        let label = "\(Int(r.width)) × \(Int(r.height))" as NSString
+        let label = text as NSString
         let size = label.size(withAttributes: attrs)
         let pill = NSSize(width: size.width + 12, height: size.height + 6)
-        let loupeOnLeft = Preferences.showMagnifier && p.x + Self.loupeGap + Self.loupeSide > bounds.maxX - 4
-        var origin = NSPoint(x: loupeOnLeft ? p.x + 12 : p.x - 12 - pill.width, y: p.y - 12 - pill.height)
+        var origin = NSPoint(x: leftOfPointer ? p.x - 12 - pill.width : p.x + 12, y: p.y - 12 - pill.height)
+        if !leftOfPointer, origin.x + pill.width > bounds.maxX - 2 { origin.x = p.x - 12 - pill.width }
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
         if origin.y < bounds.minY + 2 { origin.y = p.y + 12 }
         let box = NSRect(origin: origin, size: pill)
@@ -548,6 +569,19 @@ private final class SelectionView: NSView {
         let edge = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)
         edge.lineWidth = 1; edge.stroke()
         label.draw(at: NSPoint(x: box.minX + 6, y: box.minY + 3), withAttributes: attrs)
+    }
+
+    /// Greenshot-style guides: a horizontal and a vertical line through the pointer across the whole screen, for
+    /// lining a corner up with something far away. Dark on a light halo, so they show on any background.
+    private func drawCrosshairLines(at p: NSPoint) {
+        let x = floor(p.x) + 0.5, y = floor(p.y) + 0.5
+        let lines = NSBezierPath()
+        lines.move(to: NSPoint(x: x, y: bounds.minY)); lines.line(to: NSPoint(x: x, y: bounds.maxY))
+        lines.move(to: NSPoint(x: bounds.minX, y: y)); lines.line(to: NSPoint(x: bounds.maxX, y: y))
+        NSColor.white.withAlphaComponent(0.55).setStroke()
+        lines.lineWidth = 3; lines.stroke()
+        NSColor.black.withAlphaComponent(0.75).setStroke()
+        lines.lineWidth = 1; lines.stroke()
     }
 
     /// Window picking (#129): the screen stays as it is; the part of the window under the pointer that can be seen gets

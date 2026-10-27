@@ -92,6 +92,11 @@ enum Preferences {
         get { d.object(forKey: "showMagnifier") as? Bool ?? true }
         set { d.set(newValue, forKey: "showMagnifier") }
     }
+    /// Lines through the pointer across the whole screen while picking an area, like Greenshot's.
+    static var showCrosshairLines: Bool {
+        get { d.object(forKey: "showCrosshairLines") as? Bool ?? true }
+        set { d.set(newValue, forKey: "showCrosshairLines") }
+    }
     /// Keep the area selection on screen after the drag, adjustable, until Return or a double-click captures it (#102).
     static var adjustAreaBeforeCapture: Bool {
         get { d.object(forKey: "adjustAreaBeforeCapture") as? Bool ?? true }
