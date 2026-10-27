@@ -73,7 +73,8 @@ Permissions switched on but not working, or asked for again after every build? S
 
 - **Area, window and full screen**, plus **Previous Area** to repeat the last selection, and **Capture Active
   Window** to grab the front window without picking.
-- **Area selection** comes with a pixel magnifier and a live size readout. Arrow keys nudge the pointer (Shift
+- **Area selection** comes with a pixel magnifier (or the pointer's coordinates when it is off), crosshair lines
+  across the screen, and a live size readout. Arrow keys nudge the pointer (Shift
   moves 10 pt). Hold Space to move the selection, Shift for a square, and Option to drag from the center.
 - **Adjust before capturing.** After the drag the selection stays on screen. You can drag its handles or move it.
   Arrow keys move it, and Command + arrows resize it. The scroll wheel grows or shrinks every side. Return or a

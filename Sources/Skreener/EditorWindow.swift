@@ -83,10 +83,13 @@ private final class ZoomingScrollView: NSScrollView {
 }
 
 /// The centered "Drag Me" pill: drag it to drop the annotated image as a file (PNG or JPEG, per Settings) anywhere.
-/// While dragging, Skreener hides so the drop target is visible, and a small preview rides under the pointer;
-/// a cancelled drag brings it back. After a drop it stays hidden (Dock icon or ⌘-Tab shows the editor again).
+/// The editor vanishes the moment the drag starts and Skreener hides, so the drop target is visible, and a small
+/// preview rides under the pointer. A drop means the screenshot is done with: the editor closes. A cancelled drag
+/// (Esc, or let go where nothing takes it) brings it back as it was.
 private final class DragPill: NSView, NSDraggingSource {
     var imageProvider: () -> NSImage = { NSImage() }
+    /// Called after a drop that something took.
+    var onDropped: () -> Void = {}
     private var dragStarted = false
     /// The drag preview's size, with the pointer over its bottom-right quadrant.
     private static let previewSize = NSSize(width: 100, height: 85)
@@ -97,8 +100,11 @@ private final class DragPill: NSView, NSDraggingSource {
     override func mouseDragged(with event: NSEvent) {
         guard !dragStarted else { return }
         dragStarted = true
+        // Gone before the image is rendered and written, which can take a moment for a big screenshot.
+        window?.alphaValue = 0
+        CATransaction.flush()
         let image = imageProvider()
-        guard let url = Output.temporaryFile(image) else { return }
+        guard let url = Output.temporaryFile(image) else { window?.alphaValue = 1; return }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         let size = Self.previewSize
         let p = convert(event.locationInWindow, from: nil)
@@ -115,7 +121,13 @@ private final class DragPill: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        if operation.isEmpty { NSApp.unhide(nil) }
+        if operation.isEmpty {
+            window?.alphaValue = 1
+            NSApp.unhide(nil)
+        } else {
+            // After the session is done with this view.
+            DispatchQueue.main.async { [onDropped] in onDropped() }
+        }
     }
 
     /// The screenshot filling a small rounded card (cropped to the card's shape), with a hairline border.
@@ -787,6 +799,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
         let pill = DragPill()
         pill.imageProvider = { [weak self] in self?.canvas.flattened() ?? NSImage() }
+        pill.onDropped = { [weak self] in self?.window?.close() }
         pill.translatesAutoresizingMaskIntoConstraints = false
 
         let actions = [("sparkles", "Ask Claude: explain, summarize or write alt text", #selector(askClaudeIt)),
