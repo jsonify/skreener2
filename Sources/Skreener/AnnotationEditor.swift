@@ -3,9 +3,10 @@ import CoreImage
 
 enum Tool: Int, CaseIterable {
     /// `.image` is not a toolbar tool: it marks pictures added with Add Image or pasted with ⌘V. Nor is `.ruler`: a
-    /// measurement kept by clicking while the ruler keys are held (#107).
+    /// measurement kept by clicking while the ruler keys are held (#107). `.redactText` finds words and redacts them
+    /// (#295); it draws nothing itself. New tools go last: raw values are stored in Preferences and documents.
     case select, arrow, rect, filledRect, ellipse, line, pen, highlighter, text, counter, pixelate, blur, spotlight,
-         erase, magnifier, image, ruler
+         erase, magnifier, image, ruler, redactText
 
     /// Single-key shortcuts in the editor (no modifiers).
     static let shortcuts: [Character: Tool] = ["v": .select, "a": .arrow, "r": .rect, "f": .filledRect, "o": .ellipse,
@@ -45,6 +46,7 @@ enum Tool: Int, CaseIterable {
         case .magnifier: return "Magnifier"
         case .image: return "Image"
         case .ruler: return "Ruler"
+        case .redactText: return "Redact Text"
         }
     }
 }
@@ -265,6 +267,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             guard base !== oldValue else { return }
             cachedRep = nil; cachedBackdrop = nil; cachedCG = nil; cachedPixels = nil; blurCache = [:]
             textLineCache = [:]; textLinePending = []; eraseColors = [:]
+            textIndex = nil; textIndexPending = false
+            refreshFind()   // reads the new screenshot when Redact Text is on
             updateExtent()
         }
     }
@@ -316,8 +320,16 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     var tool: Tool = Preferences.editorTool {
         didSet {
             guard tool != oldValue else { return }
-            finishTextEditing(); endAreaPick(); notifyContext()
-            Preferences.editorTool = tool
+            finishTextEditing(); endAreaPick()
+            if tool == .redactText || oldValue == .redactText {
+                if tool == .redactText { selectedID = nil }
+                findTerms = []
+                refreshFind()   // starts reading the text, or clears the highlights
+                needsDisplay = true
+            }
+            notifyContext()
+            // Redact Text is for this screenshot only: an editor never opens in it.
+            Preferences.editorTool = tool == .redactText ? .select : tool
         }
     }
     /// Style given to new annotations; like the tool, remembered for the next editor (#139).
@@ -445,6 +457,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             areaAnchor = p; areaDraft = nil; return
         }
         if let r = cropDraft { drag = cropDrag(in: r, at: p); return }
+        if tool == .redactText, ruler == nil {
+            // A click on a match takes it out of Redact Selected, or puts it back; nothing else happens on a click.
+            if let hits = RedactText.toggling(findHits, at: p) { findHits = hits }
+            return
+        }
         if ruler != nil {
             // Clicking while measuring keeps the measurement on the screenshot.
             if let d = rulerDraft { mutate { items.append(d) } }
@@ -468,7 +485,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         selectedID = nil
         needsDisplay = true
         switch tool {
-        case .select, .image: return
+        case .select, .image, .redactText: return
         case .text: addText(at: p)
         case .counter:
             // Placed on mouse down; dragging before release moves it, and both are one undo step.
@@ -763,6 +780,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             }
             return
         }
+        if tool == .redactText, event.keyCode == 53 { endRedactText(); return }   // Esc
         let mods = event.modifierFlags.intersection([.command, .control, .option])
         let shift = event.modifierFlags.contains(.shift)
         if mods.isEmpty, let axis = Self.rulerAxis(for: event.keyCode, nothingSelected: selectedIndex == nil) {
@@ -1275,6 +1293,95 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             }
             self.mutate { self.items += added }
             self.selectedID = nil
+        }
+    }
+
+    // MARK: Redact Text (#295: OCR reads the screenshot once; the find bar's terms are matched and redacted)
+
+    /// The screenshot's text, read the first time Redact Text is used; cleared with `base`.
+    private var textIndex: TextRecognizer.TextIndex?
+    private var textIndexPending = false
+    private var findTerms: [String] = []
+    private var findOptions = TextMatcher.Options()
+    /// The matches of the find bar's terms, highlighted while the tool is on.
+    private var findHits: [RedactText.Hit] = [] {
+        didSet {
+            if findHits != oldValue { needsDisplay = true }
+            onFindChange?()
+        }
+    }
+    /// Called when the matches change or the text has been read, for the find bar's count.
+    var onFindChange: (() -> Void)?
+
+    /// The find bar's count line.
+    var findStatus: String {
+        RedactText.status(findHits, reading: tool == .redactText && textIndex == nil,
+                          invalidPattern: RedactText.hasInvalidPattern(findTerms, options: findOptions),
+                          searching: findTerms.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
+
+    /// Matches `terms` against the screenshot's text and highlights them (reading the text first, once).
+    func find(_ terms: [String], options: TextMatcher.Options) {
+        findTerms = terms
+        findOptions = options
+        refreshFind()
+    }
+
+    private func refreshFind() {
+        guard tool == .redactText else { findHits = []; return }
+        guard let index = textIndex else { readTextIndex(); onFindChange?(); return }
+        let found = TextMatcher.matches(of: findTerms, in: index.lines, options: findOptions).map { match in
+            RedactText.boxes(for: match) { span in index.box(line: span.line, range: span.range) }
+        }
+        findHits = RedactText.hits(found, keeping: findHits)
+    }
+
+    private func readTextIndex() {
+        guard !textIndexPending else { return }
+        textIndexPending = true
+        let image = base
+        Task { @MainActor [weak self] in
+            let index = await TextRecognizer.index(of: image)
+            guard let self, self.base === image else { return }
+            self.textIndexPending = false
+            self.textIndex = index
+            self.refreshFind()
+        }
+    }
+
+    /// Redact Selected (or All): one annotation per box of each match, in one undo step, editable like any other and
+    /// burned in on export. Returns how many matches were covered; beeps when there are none.
+    func redactFound(all: Bool, cover: RedactText.Cover) -> Int {
+        let chosen = findHits.filter { all || $0.selected }
+        guard !chosen.isEmpty else { NSSound.beep(); return 0 }
+        let added = RedactText.annotations(chosen.flatMap(\.boxes), cover: cover, style: style)
+        mutate { items += added }
+        selectedID = nil
+        return chosen.count
+    }
+
+    /// Esc: back to Select (the find bar closes with the tool).
+    func endRedactText() {
+        guard tool == .redactText else { return }
+        tool = .select
+        onToolShortcut?(.select)
+    }
+
+    private func drawFindHits() {
+        for hit in findHits {
+            for r in hit.boxes {
+                let path = NSBezierPath(rect: r)
+                path.lineWidth = 1.5 / zoom
+                if hit.selected {
+                    NSColor.controlAccentColor.withAlphaComponent(0.3).setFill()
+                    path.fill()
+                    NSColor.controlAccentColor.setStroke()
+                } else {
+                    path.setLineDash([5 / zoom, 3 / zoom], count: 2, phase: 0)
+                    NSColor.systemGray.setStroke()
+                }
+                path.stroke()
+            }
         }
     }
 
@@ -1910,7 +2017,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case .pen, .highlighter:
             guard !a.points.isEmpty else { return nil }
             return StrokeShapes.smoothPath(a.points)
-        case .text, .pixelate, .blur, .erase, .magnifier, .select, .counter, .image: return nil
+        case .text, .pixelate, .blur, .erase, .magnifier, .select, .counter, .image, .redactText: return nil
         }
     }
 
@@ -1980,7 +2087,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             let box = textBoxRect(a)
             return [NSPoint(x: box.maxX, y: box.midY), NSPoint(x: box.minX, y: box.midY), NSPoint(x: box.maxX, y: box.minY)]
                 + (tailTip(a).map { [$0] } ?? [])
-        case .pen, .highlighter, .counter, .select: return []
+        case .pen, .highlighter, .counter, .select, .redactText: return []
         }
     }
 
@@ -2065,6 +2172,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if let r = cropDraft { drawCropOverlay(r) }
         if !exporting, let r = areaDraft ?? contrastArea { drawAreaOverlay(r) }
         if !exporting, areaDraft == nil, let r = contrastArea, let s = contrastSummary { drawTag(s, under: r) }
+        if !exporting, tool == .redactText, !isCropping { drawFindHits() }
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
         if !exporting, let d = rulerDraft { renderShape(d) }
         if !exporting { drawSnapGuides() }
@@ -2182,7 +2290,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             drawMagnifier(a)
         case .ruler:
             drawRuler(a)
-        case .spotlight, .select:
+        case .spotlight, .select, .redactText:
             break   // spotlights are drawn together by drawSpotlights
         }
     }

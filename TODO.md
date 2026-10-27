@@ -76,6 +76,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Own tab row instead of AppKit's tab bar: pill tabs on a dark capsule (like the scrolling-capture bar), × / middle-click closes, right-click: close others, move to new window — M (#78)
 - [~] Copy Text via OCR in the editor: all text, or drag over an area (⇧⌘T, toolbar or Image menu); a toast says how many lines were copied — S (#79)
 - [~] Redact via OCR: all text, email addresses, phone numbers, links → editable pixelate boxes (toolbar or Image menu) — M (#80)
+- [~] Redact Text tool: type terms as chips (Return or comma; live matching), Match Case / Whole Word / Regex / Fuzzy, matches highlighted with a count, click one to leave it out; Redact Selected / Redact All as solid, pixelate, blur or erase boxes in one undo step (OCR once per screenshot; `TextMatcher`, unit-tested) — M (#295)
 - [~] Drag Me: Skreener hides while dragging, with a 100×85 pt preview card under the pointer (pointer over its bottom-right quadrant); a cancelled drag brings it back, after a drop the Dock icon / ⌘-Tab does. Pinned screenshots and Quick Access stay on screen — S (#81)
 - [~] Smart Erase (E; fills the box with the most common color around it) and Text Only for pixelate, blur and erase (OCR finds the lines in the box; only those are hidden) — M (#105)
 - [~] Magnifier (M): lens showing an area at 1.5/2/3/4×, circle or rectangle, border and connector line; lens and area move separately — M (#106)

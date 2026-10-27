@@ -238,6 +238,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         ("checkerboard.rectangle", .pixelate),
         ("drop.halffull", .blur),
         ("eraser", .erase),
+        ("text.magnifyingglass", .redactText),
         ("flashlight.on.fill", .spotlight),
         ("magnifyingglass", .magnifier),
         ("1.circle.fill", .counter),
@@ -281,10 +282,27 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let historyMenu = NSMenu(title: "From Capture History")
     // Crop, Background and the area picks (Copy Text from Area, average color, contrast) replace the tool options in
     // the same strip while they are active.
-    private enum StripMode { case tools, crop, areaPick, background, deviceFrame }
+    private enum StripMode { case tools, crop, areaPick, background, deviceFrame, redactText }
     private var stripMode = StripMode.tools {
-        didSet { refreshStrip() }
+        didSet {
+            refreshStrip()
+            if stripMode == .redactText, oldValue != .redactText { updateFind(); focusFindField() }
+        }
     }
+    /// What the strip shows when no other mode is on: Redact Text's find bar while that tool is on, else the tool's
+    /// options.
+    private var restingStrip: StripMode { canvas.tool == .redactText ? .redactText : .tools }
+    // Redact Text's find bar (#295): the terms as chips, how they match, how matches are covered, and the count.
+    private let findBar = NSStackView()
+    private let findField = NSTokenField()
+    private let findCount = NSTextField(labelWithString: "")
+    private lazy var matchCaseButton = findToggle("Aa", "Match Case")
+    private lazy var wholeWordButton = findToggle("Whole Word", "Whole Word: only whole words match, not parts of longer ones")
+    private lazy var regexButton = findToggle(".*", "Regex: each term is a regular expression")
+    private lazy var fuzzyButton = findToggle("Fuzzy", "Fuzzy: look-alike characters (0/O, 1/l/I, 5/S, 8/B, rn/m) match, spaces are ignored")
+    private let coverPopup = PillPopUp(pullsDown: false)
+    private lazy var redactSelectedButton = textButton("Redact Selected", self, #selector(redactSelectedFound))
+    private lazy var redactAllButton = textButton("Redact All", self, #selector(redactAllFound), filled: true)
     private let cropBar = NSStackView()
     private let areaBar = NSStackView()
     private let areaHint = NSTextField(labelWithString: "")
@@ -433,13 +451,18 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         scroll.onZoom = { [weak self] in self?.fitMode = false; self?.refreshZoomLabel() }
         canvas.onToolShortcut = { [weak self] t in self?.selectToolButton(t) }
         canvas.onContextChange = { [weak self] _, _ in self?.contextChanged() }
-        canvas.onCropModeChange = { [weak self] on in self?.stripMode = on ? .crop : .tools }
+        canvas.onCropModeChange = { [weak self] on in
+            guard let self else { return }
+            self.stripMode = on ? .crop : self.restingStrip
+        }
+        canvas.onFindChange = { [weak self] in self?.refreshFindCount() }
         canvas.onBackgroundChange = { [weak self] in
             if self?.stripMode == .background || self?.stripMode == .deviceFrame { self?.refreshStrip() }
         }
         canvas.onAreaPickChange = { [weak self] kind in
-            if kind != .contrast { self?.contrastLabel.stringValue = "" }
-            self?.stripMode = kind == nil ? .tools : .areaPick
+            guard let self else { return }
+            if kind != .contrast { self.contrastLabel.stringValue = "" }
+            self.stripMode = kind == nil ? self.restingStrip : .areaPick
         }
         canvas.onTextCopied = { [weak self] text in self?.textCopied(text) }
         canvas.onEscape = { [weak self] in self?.escapePressed() }
@@ -459,6 +482,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         buildAttributesBar()
         buildCropBar()
         buildAreaBar()
+        buildFindBar()
         buildBackgroundBar()
         buildDeviceFrameBar()
     }
@@ -726,7 +750,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         attributesTitle.textColor = .secondaryLabelColor
         attributesHint.font = .systemFont(ofSize: 12)
         attributesHint.textColor = .tertiaryLabelColor
-        let row = pillRow([attributesTitle, attributesBar, attributesHint, cropBar, areaBar, backgroundBar, deviceFrameBar], spacing: 10)
+        let row = pillRow([attributesTitle, attributesBar, attributesHint, cropBar, areaBar, findBar, backgroundBar, deviceFrameBar],
+                          spacing: 10)
         row.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox(); line.boxType = .separator
         line.translatesAutoresizingMaskIntoConstraints = false
@@ -929,7 +954,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             // One pill per tool; the current one is filled.
             toolPills = toolButtons.map { b in
                 let key = Tool.shortcuts.first { $0.value == b.tool }.map { " (\($0.key.uppercased()))" } ?? ""
-                let pill = iconButton(b.symbol, b.tool.name + key, self, #selector(toolChanged(_:)), style: .plain)
+                let tip = b.tool == .redactText ? "Redact Text: find words and redact every match" : b.tool.name + key
+                let pill = iconButton(b.symbol, tip, self, #selector(toolChanged(_:)), style: .plain)
                 pill.isOn = b.tool == canvas.tool
                 return pill
             }
@@ -1019,6 +1045,120 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
          fontPopup, sizePopup, boldButton, textBoxPopup, tailButton, pixelPopup, textOnlyButton, magnificationPopup, lensShapePopup,
          arrangeButton].forEach(attributesBar.addArrangedSubview)
         refreshStrip()
+    }
+
+    /// The strip while Redact Text is on (#295): type words (Return or a comma makes each a chip), click highlights
+    /// to leave them out, then Redact Selected or Redact All.
+    private func buildFindBar() {
+        findField.placeholderString = "Words to redact"
+        findField.toolTip = "Return or a comma after each term; what is typed after the last one matches too"
+        findField.font = .systemFont(ofSize: 12)
+        findField.controlSize = .small
+        findField.delegate = self
+        findField.widthAnchor.constraint(equalToConstant: 190).isActive = true
+        findCount.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        findCount.lineBreakMode = .byTruncatingTail
+        findCount.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        coverPopup.toolTip = "How matches are covered: only Solid really removes the text"
+        coverPopup.target = self; coverPopup.action = #selector(coverPicked(_:))
+        for c in RedactText.Cover.allCases { coverPopup.addItem(withTitle: c.title); coverPopup.lastItem?.tag = c.rawValue }
+        redactSelectedButton.toolTip = "Redact the highlighted matches (click a match to leave it out)"
+        redactAllButton.toolTip = "Redact every match"
+        [findField, matchCaseButton, wholeWordButton, regexButton, fuzzyButton, coverPopup, findCount, redactSelectedButton,
+         redactAllButton].forEach(findBar.addArrangedSubview)
+        findBar.spacing = 6
+        findBar.setCustomSpacing(10, after: findField)
+        findBar.setCustomSpacing(10, after: coverPopup)
+        findBar.setCustomSpacing(10, after: findCount)
+        findBar.isHidden = true
+    }
+
+    private func findToggle(_ title: String, _ tip: String) -> PillButton {
+        let b = textButton(title, self, #selector(findToggled(_:)))
+        b.toolTip = tip
+        b.setAccessibilityLabel(tip)
+        return b
+    }
+
+    private func refreshFindBar() {
+        let o = Preferences.redactTextOptions
+        matchCaseButton.isOn = o.caseSensitive
+        wholeWordButton.isOn = o.wholeWord
+        regexButton.isOn = o.regex
+        fuzzyButton.isOn = o.fuzzy
+        coverPopup.selectItem(withTag: Preferences.redactTextCover.rawValue)
+        refreshFindCount()
+    }
+
+    private func refreshFindCount() {
+        guard stripMode == .redactText else { return }
+        findCount.stringValue = canvas.findStatus
+        let invalid = RedactText.hasInvalidPattern(findTerms, options: Preferences.redactTextOptions)
+        findCount.textColor = invalid ? .systemRed : .secondaryLabelColor
+    }
+
+    /// The chips, plus the text typed after them that isn't a chip yet (it matches as it is typed).
+    private var findTerms: [String] {
+        if let values = findField.objectValue as? [Any] { return values.compactMap { $0 as? String } }
+        return findField.stringValue.components(separatedBy: ",")
+    }
+
+    private func updateFind() { canvas.find(findTerms, options: Preferences.redactTextOptions) }
+
+    private func focusFindField() {
+        guard stripMode == .redactText else { return }
+        window?.makeFirstResponder(findField)
+        // After the chips, so typing adds a term instead of replacing them all.
+        if let editor = findField.currentEditor() {
+            editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
+        }
+    }
+
+    private func clearFindField() {
+        findField.abortEditing()
+        findField.objectValue = [String]()
+    }
+
+    /// Esc in the find bar, or on the canvas: back to Select, which closes the bar.
+    private func endRedactText() {
+        canvas.endRedactText()
+        window?.makeFirstResponder(canvas)
+    }
+
+    @objc private func findToggled(_ b: PillButton) {
+        var o = Preferences.redactTextOptions
+        if b === matchCaseButton {
+            o.caseSensitive.toggle()
+        } else if b === wholeWordButton {
+            o.wholeWord.toggle()
+        } else if b === regexButton {
+            // Fuzzy matching doesn't apply to patterns, so the two are never on together.
+            o.regex.toggle()
+            if o.regex { o.fuzzy = false }
+        } else if b === fuzzyButton {
+            o.fuzzy.toggle()
+            if o.fuzzy { o.regex = false }
+        }
+        Preferences.redactTextOptions = o
+        refreshFindBar()
+        updateFind()
+    }
+
+    @objc private func coverPicked(_ p: PillPopUp) {
+        Preferences.redactTextCover = RedactText.Cover(rawValue: p.selectedTag()) ?? .solid
+    }
+
+    @objc private func redactSelectedFound() { redactFound(all: false) }
+    @objc private func redactAllFound() { redactFound(all: true) }
+
+    /// Covers the matches, then starts over with no terms; the tool stays on for more.
+    private func redactFound(all: Bool) {
+        let n = canvas.redactFound(all: all, cover: Preferences.redactTextCover)
+        guard n > 0 else { return }
+        clearFindField()
+        updateFind()
+        showToast(n == 1 ? "Redacted 1 match" : "Redacted \(n) matches")
+        focusFindField()
     }
 
     private func buildCropBar() {
@@ -1173,14 +1313,21 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     }
 
     private func contextChanged() {
-        // Clicking an annotation or picking a tool leaves the background options.
-        if stripMode == .background || stripMode == .deviceFrame { stripMode = .tools } else { refreshStrip() }
+        // Clicking an annotation or picking a tool leaves the background options; Redact Text has its own bar.
+        if canvas.tool != .redactText, !findField.stringValue.isEmpty { clearFindField() }
+        let resting = restingStrip
+        if [.tools, .redactText, .background, .deviceFrame].contains(stripMode), stripMode != resting {
+            stripMode = resting
+        } else {
+            refreshStrip()
+        }
     }
 
     private func refreshStrip() {
         attributesBar.isHidden = stripMode != .tools
         cropBar.isHidden = stripMode != .crop
         areaBar.isHidden = stripMode != .areaPick
+        findBar.isHidden = stripMode != .redactText
         backgroundBar.isHidden = stripMode != .background
         deviceFrameBar.isHidden = stripMode != .deviceFrame
         switch stripMode {
@@ -1192,6 +1339,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .areaPick:
             refreshAreaBar()
             attributesTitle.isHidden = false; attributesHint.isHidden = true
+        case .redactText:
+            attributesTitle.stringValue = Tool.redactText.name
+            attributesTitle.isHidden = false; attributesHint.isHidden = true
+            refreshFindBar()
         case .background:
             attributesTitle.stringValue = "Background"
             attributesTitle.isHidden = false; attributesHint.isHidden = true
@@ -1320,8 +1471,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         selectToolButton(toolButtons[i].tool)
         canvas.applyCrop()
         canvas.tool = toolButtons[i].tool
-        if stripMode == .background || stripMode == .deviceFrame { stripMode = .tools }
-        window?.makeFirstResponder(canvas)
+        if stripMode == .background || stripMode == .deviceFrame { stripMode = restingStrip }
+        if canvas.tool == .redactText { focusFindField() } else { window?.makeFirstResponder(canvas) }
     }
     private func selectToolButton(_ t: Tool) {
         for (pill, b) in zip(toolPills, toolButtons) { pill.isOn = b.tool == t }
@@ -1522,7 +1673,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     }
     /// Shows the background options, adding the last background used the first time.
     @objc private func backgroundIt() {
-        if stripMode == .background { stripMode = .tools; return }
+        if stripMode == .background { stripMode = restingStrip; return }
         canvas.applyCrop()
         canvas.clearSelection()
         if canvas.background == nil { canvas.updateBackground { $0 = Preferences.lastBackground } }
@@ -1532,7 +1683,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     /// Shows the frame options; the frame itself starts as None.
     @objc private func deviceFrameIt() {
-        if stripMode == .deviceFrame { stripMode = .tools; return }
+        if stripMode == .deviceFrame { stripMode = restingStrip; return }
         canvas.applyCrop()
         canvas.clearSelection()
         stripMode = .deviceFrame
@@ -1731,6 +1882,35 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                 self.canvas.resize(toWidth: size.width, height: size.height)
             }
             self.window?.makeFirstResponder(self.canvas)
+        }
+    }
+}
+
+// Redact Text's find field (#295): every keystroke matches again; Return makes a chip, Esc ends the tool.
+extension EditorWindowController: NSTokenFieldDelegate {
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTokenField) === findField else { return }
+        updateFind()
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard (obj.object as? NSTokenField) === findField else { return }
+        updateFind()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard control === findField else { return false }
+        switch commandSelector {
+        case #selector(NSResponder.cancelOperation(_:)), #selector(NSTextView.complete(_:)):
+            // After this keystroke is handled: ending the tool takes the field out of editing.
+            Task { @MainActor [weak self] in self?.endRedactText() }
+            return true
+        case #selector(NSResponder.insertNewline(_:)):
+            // Return ends editing, which makes the typed text a chip; typing then goes on after the chips.
+            Task { @MainActor [weak self] in self?.focusFindField() }
+            return false
+        default:
+            return false
         }
     }
 }

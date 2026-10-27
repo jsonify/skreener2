@@ -98,7 +98,9 @@ Permissions switched on but not working, or asked for again after every build? S
   **Speak** (Option-Command-S, in the scratch pad) reads the selection, or all the text, aloud in a voice that
   matches its language; it turns into **Stop** until the speech ends.
 - In the editor, **Copy Text** copies the text from the whole screenshot or from a dragged area. **Redact** finds
-  text, emails, phone numbers or links and pixelates them.
+  text, emails, phone numbers or links and pixelates them. The **Redact Text** tool finds the words you type
+  (several at once, with Match Case, Whole Word, Regex and Fuzzy options), highlights every match so you can click
+  away false positives, and covers the rest with a solid box, pixelation, blur or erase in one undoable step.
 
 ### Screen recording
 
