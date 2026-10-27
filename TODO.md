@@ -47,6 +47,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [ ] Webcam overlay in recordings — M (#25)
 - [~] Record to GIF (records an MP4, converts at 15 fps, max 960 px wide) — M (#57)
 - [~] Click highlighting and keystroke display, drawn into the video (keystrokes need Accessibility access) — M (#58)
+- [~] Cursor spotlight while recording: dims all but a soft circle around the pointer, drawn into the video by the effects overlay; on/off, circle size and dim amount in the recording options, ⌃⇧S (rebindable) toggles it mid-recording; layout, gradient and clamping unit-tested — S (#267)
 - [~] Trim editor for recordings: Trim on the recording's Quick Access preview opens a player with AVKit's trim bar; Trim saves the cut over the file (passthrough, no re-encode); a GIF is made again from its trimmed video — M (#26)
 - [~] Recording HUD (timer, pause/resume, stop; dashed frame around the area) and menu-bar stop (the icon turns into a stop button; ⌃⇧7 stops too) — S (#59)
 - [~] Mix system audio and microphone into one track (players that only play the first audio track miss the mic): recorded to separate tracks, then mixed into one stereo AAC track after stopping (video copied, not re-encoded); if mixing fails the separate tracks are kept — S (#27)

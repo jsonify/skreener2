@@ -103,7 +103,8 @@ Permissions switched on but not working, or asked for again after every build? S
 - Record an area or a window to **MP4** or **GIF** at 30 or 60 fps.
 - You can include system audio and the microphone (macOS 15+); with both on, they are mixed into one track.
 - Other options: a countdown, dimming the rest of the screen, showing the cursor, click highlighting, keystroke
-  display, and the elapsed time in the menu bar.
+  display, a cursor spotlight (dims all but a soft circle around the pointer; radius and dim amount are in the
+  options, and Control-Shift-S turns it on or off while recording), and the elapsed time in the menu bar.
 - A control bar shows the elapsed time, with pause, resume and stop.
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
 - **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
@@ -228,6 +229,7 @@ Shift-Command-4 over to Skreener.
 | Capture History | Control-Shift-H |
 | Pin Click-Through On / Off | Control-Shift-0 |
 | Zoom & Draw on Screen (press again to leave) | Control-Shift-Z |
+| Cursor Spotlight (while recording) | Control-Shift-S |
 
 ## Building from source
 

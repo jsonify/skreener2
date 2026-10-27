@@ -54,7 +54,8 @@ final class RecordingController {
 
     private func capture(_ r: ScreenRecorder, screen: NSScreen, rect: CGRect?, gif: Bool) {
         effects.start(area: rect ?? screen.frame, clicks: Preferences.recordHighlightClicks,
-                      keys: Preferences.recordShowKeystrokes && AccessibilityAccess.granted)
+                      keys: Preferences.recordShowKeystrokes && AccessibilityAccess.granted,
+                      spotlight: Preferences.recordSpotlight)
         var options = ScreenRecorder.Options()
         if gif { options.systemAudio = false; options.microphone = false }
         effectsWindows = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
@@ -147,6 +148,12 @@ final class RecordingController {
             Notifier.confirm(url.pathExtension.lowercased() == "gif" ? "GIF saved" : "Recording saved",
                              detail: url.lastPathComponent, file: url)
         }
+    }
+
+    /// Turns the cursor spotlight on or off mid-recording (the hotkey). Ignored when nothing is recording.
+    func toggleSpotlight() {
+        guard isRecording, effects.panel != nil else { return }
+        effects.setSpotlight(!effects.spotlightOn)
     }
 
     private func hideWindows() {

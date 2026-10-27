@@ -311,6 +311,21 @@ enum Preferences {
         get { [32, 48, 64].contains(d.integer(forKey: "clickHighlightSize")) ? d.integer(forKey: "clickHighlightSize") : 48 }
         set { d.set(newValue, forKey: "clickHighlightSize") }
     }
+    /// Dim everything but a soft circle around the pointer, in the video (⌃⇧S turns it on and off mid-recording).
+    static var recordSpotlight: Bool {
+        get { d.bool(forKey: "recordSpotlight") }
+        set { d.set(newValue, forKey: "recordSpotlight") }
+    }
+    /// Spotlight circle radius in points, within `Spotlight.radiusRange`.
+    static var spotlightRadius: Int {
+        get { d.object(forKey: "spotlightRadius") == nil ? 120 : Spotlight.clampedRadius(d.integer(forKey: "spotlightRadius")) }
+        set { d.set(Spotlight.clampedRadius(newValue), forKey: "spotlightRadius") }
+    }
+    /// How dark the rest is, in percent, within `Spotlight.dimRange`.
+    static var spotlightDim: Int {
+        get { d.object(forKey: "spotlightDim") == nil ? 50 : Spotlight.clampedDim(d.integer(forKey: "spotlightDim")) }
+        set { d.set(Spotlight.clampedDim(newValue), forKey: "spotlightDim") }
+    }
     /// Show pressed keys in the video (needs Accessibility access).
     static var recordShowKeystrokes: Bool {
         get { d.bool(forKey: "recordShowKeystrokes") }
