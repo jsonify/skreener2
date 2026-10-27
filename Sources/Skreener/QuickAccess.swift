@@ -136,8 +136,13 @@ import AVFoundation
             card.addCorner(symbol: "pencil", label: "Edit", at: .topRight) { [weak self] in self?.edit() }
             card.addCorner(symbol: "pin.fill", label: "Pin", at: .bottomLeft) { [weak self] in self?.pin() }
         }
-        card.addCorner(symbol: "square.and.arrow.up", label: "Share", at: .bottomRight) { [weak self, weak card] in
+        let shareButton = card.addCorner(symbol: "square.and.arrow.up", label: "Share", at: .bottomRight) { [weak self, weak card] in
             if let card { self?.share(from: card) }
+        }
+        // Send To (custom actions, notes apps) sits beside Share.
+        weak var sendButton: PillButton?
+        sendButton = card.addCorner(symbol: "paperplane", label: "Send To", at: .bottomRight, beside: shareButton) { [weak self] in
+            if let sendButton { self?.sendTo(from: sendButton) }
         }
         var center: [(String, () -> Void)] = [("Copy", { [weak self] in self?.copy() })]
         if recording != nil {
@@ -288,6 +293,21 @@ import AVFoundation
         if let recording { Output.share(recording, from: view, delegate: self) } else { Output.share(image, from: view, delegate: self) }
     }
 
+    /// The Send To menu under its button. The preview stays opaque while the menu is open, and goes once a destination
+    /// is picked.
+    private func sendTo(from button: NSView) {
+        card?.held = true
+        let image = image, saved = saved, recording = recording
+        let source = SendTo.Source(isImage: recording == nil, app: (recording ?? saved).flatMap(SendTo.appName(for:))) {
+            if let recording { return (file: recording, image: nil) }
+            if let saved, FileManager.default.fileExists(atPath: saved.path) { return (file: saved, image: image) }
+            return Output.temporaryFile(image).map { (file: $0, image: image) }
+        }
+        SendTo.present(source, from: button) { [weak self] in self?.close() }
+        card?.syncHover()
+        card?.held = false
+    }
+
     /// Once a share service is picked the preview has done its job; a cancelled share sheet leaves it.
     nonisolated func sharingServicePicker(_ picker: NSSharingServicePicker, didChoose service: NSSharingService?) {
         MainActor.assumeIsolated {
@@ -408,20 +428,34 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func addCorner(symbol: String, label: String, at corner: Corner, run: @escaping () -> Void) {
+    /// `beside` puts the button next to another one in the same corner, on its inner side.
+    @discardableResult
+    func addCorner(symbol: String, label: String, at corner: Corner, beside other: PillButton? = nil,
+                   run: @escaping () -> Void) -> PillButton {
         let button = PillButton(title: nil, symbol: symbol, style: .raised, height: 24, run: run)
         button.toolTip = label
         button.setAccessibilityLabel(label)
         controls.addSubview(button)
         let inset: CGFloat = 7
         switch corner {
-        case .topLeft, .bottomLeft: button.leadingAnchor.constraint(equalTo: controls.leadingAnchor, constant: inset).isActive = true
-        case .topRight, .bottomRight: button.trailingAnchor.constraint(equalTo: controls.trailingAnchor, constant: -inset).isActive = true
+        case .topLeft, .bottomLeft:
+            if let other {
+                button.leadingAnchor.constraint(equalTo: other.trailingAnchor, constant: 6).isActive = true
+            } else {
+                button.leadingAnchor.constraint(equalTo: controls.leadingAnchor, constant: inset).isActive = true
+            }
+        case .topRight, .bottomRight:
+            if let other {
+                button.trailingAnchor.constraint(equalTo: other.leadingAnchor, constant: -6).isActive = true
+            } else {
+                button.trailingAnchor.constraint(equalTo: controls.trailingAnchor, constant: -inset).isActive = true
+            }
         }
         switch corner {
         case .topLeft, .topRight: button.topAnchor.constraint(equalTo: controls.topAnchor, constant: inset).isActive = true
         case .bottomLeft, .bottomRight: button.bottomAnchor.constraint(equalTo: controls.bottomAnchor, constant: -inset).isActive = true
         }
+        return button
     }
 
     func addCenter(_ actions: [(String, () -> Void)]) {

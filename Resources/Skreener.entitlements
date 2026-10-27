@@ -5,8 +5,10 @@
   Skreener is not sandboxed. Screen Recording, Accessibility (auto-scroll, keystroke display) and
   Input Monitoring are TCC permissions the user grants; they need no entitlement. The hardened
   runtime does block the microphone unless the app asks for it here (recordings with the mic on).
-  Apple Events (Automation) let it ask Safari, Chrome, Arc, Edge and Brave for the page of a browser capture; the
-  user grants each browser. Desktop icons are toggled with /usr/bin/defaults + killall, not Apple Events.
+  Apple Events (Automation) let it ask Safari, Chrome, Arc, Edge and Brave for the page of a browser capture, and
+  add a capture to Notes or Reminders from the Send To menu; the user grants each app, and the hardened runtime
+  blocks them unless the app asks for it here. Desktop icons are toggled with /usr/bin/defaults + killall, not
+  Apple Events.
 -->
 <plist version="1.0">
 <dict>

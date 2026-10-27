@@ -619,6 +619,14 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
             add(smaller.count == 1 ? "Compress" : "Compress \(smaller.count) Files") { [weak self] in self?.compress(smaller) }
         }
         add(n == 1 ? "Copy File" : "Copy \(n) Files") { [weak self] in self?.copyFiles(items) }
+        if n == 1 {
+            let sendTo = NSMenuItem(title: "Send To", action: nil, keyEquivalent: "")
+            // (Assigned inside, as an NSMenu can't be handed out of the main-actor closure.)
+            MainActor.assumeIsolated {
+                sendTo.submenu = SendTo.menu(for: SendTo.Source(file: item.url, isImage: item.kind == .image))
+            }
+            m.addItem(sendTo)
+        }
         let images = items.filter { $0.kind == .image }
         if CombineLayout.countRange.contains(images.count) {
             add("Combine \(images.count) Captures…") { [weak self] in self?.combine(images) }

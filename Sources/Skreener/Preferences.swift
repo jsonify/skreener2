@@ -364,4 +364,29 @@ enum Preferences {
         get { d.integer(forKey: "windowPadding") }
         set { d.set(newValue, forKey: "windowPadding") }
     }
+    /// The user's own shell commands for Send To and after-capture runs (#276); see `CustomActions`.
+    static var customActions: [CustomAction] {
+        get { CustomActions.load(from: d) }
+        set { CustomActions.save(newValue, to: d) }
+    }
+    /// Send To destinations the user turned off (ids, so a new one starts on) (#275).
+    static var sendToHidden: Set<String> {
+        get { Set(d.stringArray(forKey: "sendToHidden") ?? []) }
+        set { d.set(newValue.sorted(), forKey: "sendToHidden") }
+    }
+    /// Notes apps get the text found in the screenshot along with it.
+    static var sendToIncludeText: Bool {
+        get { d.object(forKey: "sendToIncludeText") as? Bool ?? true }
+        set { d.set(newValue, forKey: "sendToIncludeText") }
+    }
+    /// The folder of the Obsidian vault the pictures are copied into; empty until chosen.
+    static var obsidianVaultPath: String {
+        get { d.string(forKey: "obsidianVaultPath") ?? "" }
+        set { d.set(newValue, forKey: "obsidianVaultPath") }
+    }
+    /// Append to Obsidian's daily note (the Advanced URI plugin) instead of the note Skreener/Captures.
+    static var obsidianDailyNote: Bool {
+        get { d.bool(forKey: "obsidianDailyNote") }
+        set { d.set(newValue, forKey: "obsidianDailyNote") }
+    }
 }

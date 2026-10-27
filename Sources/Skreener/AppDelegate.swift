@@ -814,16 +814,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let historyEntry = CaptureHistory.add(image)
         if actions.contains(.copy) { Output.copy(image) }
         var saved: URL?
+        let appName = lastOtherApp.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName
         if actions.contains(.save) {
             saved = Output.save(image)
             // For the library's App filter and search (#117).
-            if let saved { SavedLibrary.shared.note(saved, app: lastOtherApp.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName) }
+            if let saved { SavedLibrary.shared.note(saved, app: appName) }
             if saved == nil {
                 Notifier.problem("Couldn't save the screenshot",
                                  detail: "Check the export location in Settings → General.")
             }
         }
         rememberSourcePage(of: owner ?? lastOtherApp, saved: saved, history: historyEntry)
+        // The user's own after-capture commands (Settings → Send To), once the file is saved.
+        MainActor.assumeIsolated { SendTo.runAfterCapture(image: image, saved: saved, app: appName) }
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
         var editor: EditorWindowController?
         if actions.contains(.edit) {
