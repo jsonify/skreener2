@@ -529,25 +529,25 @@ private final class SelectionView: NSView {
         }
     }
 
-    /// While dragging, the width over the height beside the pointer, macOS-style: below-left of it, or below-right
-    /// when the loupe sits on the left (near the right edge of the screen).
+    /// While dragging, the width × height beside the pointer on a dark pill, so it reads over any background: below-left
+    /// of it, or below-right when the loupe sits on the left (near the right edge of the screen).
     private func drawDragSize(of r: NSRect, at p: NSPoint) {
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.white
-        shadow.shadowBlurRadius = 2
-        shadow.shadowOffset = .zero
-        let style = NSMutableParagraphStyle()
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
-                                                    .foregroundColor: NSColor.black.withAlphaComponent(0.75),
-                                                    .shadow: shadow, .paragraphStyle: style]
-        let label = "\(Int(r.width))\n\(Int(r.height))" as NSString
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+                                                    .foregroundColor: NSColor.white]
+        let label = "\(Int(r.width)) × \(Int(r.height))" as NSString
         let size = label.size(withAttributes: attrs)
+        let pill = NSSize(width: size.width + 12, height: size.height + 6)
         let loupeOnLeft = Preferences.showMagnifier && p.x + Self.loupeGap + Self.loupeSide > bounds.maxX - 4
-        style.alignment = loupeOnLeft ? .left : .right
-        var origin = NSPoint(x: loupeOnLeft ? p.x + 10 : p.x - 10 - size.width, y: p.y - 10 - size.height)
-        origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - size.width - 2)
-        if origin.y < bounds.minY + 2 { origin.y = p.y + 10 }
-        label.draw(in: NSRect(origin: origin, size: size), withAttributes: attrs)
+        var origin = NSPoint(x: loupeOnLeft ? p.x + 12 : p.x - 12 - pill.width, y: p.y - 12 - pill.height)
+        origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
+        if origin.y < bounds.minY + 2 { origin.y = p.y + 12 }
+        let box = NSRect(origin: origin, size: pill)
+        NSColor.black.withAlphaComponent(0.75).setFill()
+        NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
+        NSColor.white.withAlphaComponent(0.35).setStroke()
+        let edge = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)
+        edge.lineWidth = 1; edge.stroke()
+        label.draw(at: NSPoint(x: box.minX + 6, y: box.minY + 3), withAttributes: attrs)
     }
 
     /// Window picking (#129): the screen stays as it is; the part of the window under the pointer that can be seen gets
