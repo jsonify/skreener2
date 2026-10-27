@@ -278,10 +278,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
 
     /// Self-Timer submenu: tick the current delay.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        if menu === self.menu {
-            ContinuityCamera.opensInNewTab = true
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        // No activation here: it would take focus from the app in front on every menu use. The editor that
+        // opens the picture activates Skreener itself.
+        if menu === self.menu { ContinuityCamera.opensInNewTab = true }
         for i in menu.items where i.action == #selector(timerDelayPicked(_:)) {
             i.state = i.tag == Preferences.selfTimerSeconds ? .on : .off
         }
