@@ -123,6 +123,8 @@ Permissions switched on but not working, or asked for again after every build? S
   Objects** places the same box over every matching element.
 - **Image operations.** Crop, rotate, flip, resize to exact sizes, **Cut Out** a strip and join the rest, and
   **Remove Background**.
+- **Combine Screenshots.** This lays 2 to 9 captures out in a row, column or grid on a new canvas. The captures stay
+  movable images. Pick them from the editor tabs or the history.
 - **Backgrounds.** Gradients, solid colors, your wallpaper or a picture of your own. There are presets for
   common aspect ratios and social media sizes, plus padding, corner radius and shadow.
 - **Frames.** Wrap a screenshot in a macOS window, a browser (with an address you can edit), a MacBook, an iPhone

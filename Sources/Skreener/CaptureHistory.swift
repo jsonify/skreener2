@@ -546,6 +546,19 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
     }
 
+    /// Opens the Combine Screenshots sheet with `items` ticked (#273).
+    private func combine(_ items: [Item]) {
+        hide()
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        let candidates = items.map { item in
+            var c = CombineScreenshots.candidate(url: item.url, title: f.localizedString(for: item.date, relativeTo: Date()))
+            c.selected = true
+            return c
+        }
+        CombineScreenshots.present(candidates, from: nil)
+    }
+
     private func openSource(_ item: Item) {
         guard let url = item.sourceURL else { return }
         hide()
@@ -613,6 +626,10 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
                 sendTo.submenu = SendTo.menu(for: SendTo.Source(file: item.url, isImage: item.kind == .image))
             }
             m.addItem(sendTo)
+        }
+        let images = items.filter { $0.kind == .image }
+        if CombineLayout.countRange.contains(images.count) {
+            add("Combine \(images.count) Captures…") { [weak self] in self?.combine(images) }
         }
         m.addItem(.separator())
         let trash = item.inLibrary
