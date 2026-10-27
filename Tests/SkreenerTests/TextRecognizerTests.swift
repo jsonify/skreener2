@@ -59,6 +59,39 @@ final class TextRecognizerTests: XCTestCase {
         XCTAssertTrue(boxes.isEmpty, "\(boxes)")
     }
 
+    func testIndexBoxesAPhraseWithinItsLine() async {
+        let index = await TextRecognizer.index(of: TestImages.text(["Pay Jane Smith today", "Nothing else here"]))
+        let matches = TextMatcher.matches(of: ["Jane Smith"], in: index.lines, options: .init())
+        XCTAssertEqual(matches.count, 1, "\(index.lines)")
+        guard let span = matches.first?.spans.first else { return }
+        XCTAssertEqual(matches.first?.spans.count, 1)
+        guard let box = index.box(line: span.line, range: span.range) else { return XCTFail("no box for the phrase") }
+        // One box for both words, inside the first line's (the top 120 pt band of a 240 pt image) and narrower.
+        let line = index.lineBoxes[span.line]
+        XCTAssertTrue(line.insetBy(dx: -2, dy: -2).contains(box), "\(box) in \(line)")
+        XCTAssertLessThan(box.width, line.width * 0.8, "\(box) in \(line)")
+        XCTAssertGreaterThan(box.minY, 110, "\(box)")
+    }
+
+    func testIndexBoxSitsOnTheMatch() async {
+        let image = TestImages.text(["Mail jane@example.com today"])
+        let index = await TextRecognizer.index(of: image)
+        let matches = TextMatcher.matches(of: ["jane@example.com"], in: index.lines, options: .init())
+        XCTAssertEqual(matches.count, 1, "\(index.lines)")
+        guard let span = matches.first?.spans.first else { return }
+        guard let box = index.box(line: span.line, range: span.range) else { return XCTFail("no box for the address") }
+        // "Mail " comes first, so the box starts well to the right of the line's start (x = 40).
+        XCTAssertGreaterThan(box.minX, 100, "\(box)")
+        XCTAssertLessThanOrEqual(box.maxX, image.size.width)
+    }
+
+    func testIndexOfABlankImageIsEmpty() async {
+        let blank = TestImages.image(width: 300, height: 120) { r in NSColor.white.setFill(); r.fill() }
+        let index = await TextRecognizer.index(of: blank)
+        XCTAssertTrue(index.lines.isEmpty, "\(index.lines)")
+        XCTAssertNil(index.box(line: 0, range: "".startIndex..<"".endIndex))
+    }
+
     func testRedactFindsNothingWithoutMatches() async {
         let boxes = await TextRecognizer.boxes(in: TestImages.text(["Nothing private here"]), matching: .emails)
         XCTAssertTrue(boxes.isEmpty, "\(boxes)")

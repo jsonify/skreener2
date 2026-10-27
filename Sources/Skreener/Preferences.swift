@@ -137,6 +137,24 @@ enum Preferences {
         get { (d.dictionary(forKey: "editorStyle")).map(Style.init(plist:)) ?? Style() }
         set { d.set(newValue.plist, forKey: "editorStyle") }
     }
+    /// The Redact Text tool's match options (Whole Word on at first) and how it covers matches (#295).
+    static var redactTextOptions: TextMatcher.Options {
+        get {
+            TextMatcher.Options(caseSensitive: d.bool(forKey: "redactTextCaseSensitive"),
+                                wholeWord: d.object(forKey: "redactTextWholeWord") as? Bool ?? true,
+                                regex: d.bool(forKey: "redactTextRegex"), fuzzy: d.bool(forKey: "redactTextFuzzy"))
+        }
+        set {
+            d.set(newValue.caseSensitive, forKey: "redactTextCaseSensitive")
+            d.set(newValue.wholeWord, forKey: "redactTextWholeWord")
+            d.set(newValue.regex, forKey: "redactTextRegex")
+            d.set(newValue.fuzzy, forKey: "redactTextFuzzy")
+        }
+    }
+    static var redactTextCover: RedactText.Cover {
+        get { RedactText.Cover(rawValue: d.integer(forKey: "redactTextCover")) ?? .solid }
+        set { d.set(newValue.rawValue, forKey: "redactTextCover") }
+    }
     /// Boxes being drawn or resized in the editor snap to the edges of what's in the screenshot (#123).
     static var snapToObjects: Bool {
         get { d.object(forKey: "snapToObjects") as? Bool ?? true }

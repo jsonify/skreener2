@@ -81,6 +81,54 @@ enum TextRecognizer {
         }.value
     }
 
+    /// Every line of text in a screenshot, and a way to box any part of one, for the Redact Text tool (#295).
+    /// Vision's results are kept because only they can place a range of a line; nothing changes them after `init`.
+    final class TextIndex: @unchecked Sendable {
+        /// Each line as read; the ranges `box(line:range:)` takes index these strings.
+        let lines: [String]
+        /// Each line's box (image points, bottom-left origin).
+        let lineBoxes: [CGRect]
+        private let candidates: [VNRecognizedText]
+        private let size: CGSize
+
+        init(_ observations: [VNRecognizedTextObservation], size: CGSize) {
+            let read = observations.compactMap { obs in obs.topCandidates(1).first.map { (obs.boundingBox, $0) } }
+            candidates = read.map { $0.1 }
+            lines = read.map { $0.1.string }
+            lineBoxes = read.map { TextRecognizer.points($0.0, in: size) }
+            self.size = size
+        }
+
+        /// The box (image points, bottom-left origin) around `range` of line `line`. When Vision can't place the
+        /// range, the whole line stands in if the range is most of it; otherwise nil, and that part is left out.
+        func box(line: Int, range: Range<String.Index>) -> CGRect? {
+            guard candidates.indices.contains(line) else { return nil }
+            if let b = try? candidates[line].boundingBox(for: range) { return TextRecognizer.points(b.boundingBox, in: size) }
+            let text = lines[line]
+            return text[range].count * 2 > text.count ? lineBoxes[line] : nil
+        }
+    }
+
+    /// Reads all the text in `image` once (language correction off, so names and numbers stay as shown).
+    static func index(of image: NSImage) async -> TextIndex {
+        var rect = CGRect(origin: .zero, size: image.size)
+        let size = image.size
+        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return TextIndex([], size: size) }
+        return await Task.detached(priority: .userInitiated) {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false
+            let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+            do { try handler.perform([request]) } catch { NSLog("OCR failed: \(error)"); return TextIndex([], size: size) }
+            return TextIndex(request.results ?? [], size: size)
+        }.value
+    }
+
+    /// A normalized Vision box (bottom-left origin, like the editor's image coordinates) in image points.
+    fileprivate static func points(_ b: CGRect, in size: CGSize) -> CGRect {
+        CGRect(x: b.minX * size.width, y: b.minY * size.height, width: b.width * size.width, height: b.height * size.height)
+    }
+
     private static func matches(_ kind: Sensitive, in text: String) -> [Range<String.Index>] {
         let ns = NSRange(text.startIndex..., in: text)
         let found: [NSTextCheckingResult]
