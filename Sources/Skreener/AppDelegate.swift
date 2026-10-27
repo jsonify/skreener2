@@ -768,7 +768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         // The user's own after-capture commands (Settings → Send To), once the file is saved.
-        SendTo.runAfterCapture(image: image, saved: saved, app: appName)
+        MainActor.assumeIsolated { SendTo.runAfterCapture(image: image, saved: saved, app: appName) }
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.
         var editor: EditorWindowController?
         if actions.contains(.edit) {

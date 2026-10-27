@@ -559,7 +559,9 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         add(n == 1 ? "Copy File" : "Copy \(n) Files") { [weak self] in self?.copyFiles(items) }
         if n == 1 {
             let sendTo = NSMenuItem(title: "Send To", action: nil, keyEquivalent: "")
-            sendTo.submenu = SendTo.menu(for: SendTo.Source(file: item.url, isImage: item.kind == .image))
+            sendTo.submenu = MainActor.assumeIsolated {
+                SendTo.menu(for: SendTo.Source(file: item.url, isImage: item.kind == .image))
+            }
             m.addItem(sendTo)
         }
         m.addItem(.separator())
