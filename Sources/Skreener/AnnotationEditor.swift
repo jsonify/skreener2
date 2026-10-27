@@ -1056,6 +1056,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     static let sizeCommands: [(String, Selector)] = [
         ("Resize Image…", #selector(CanvasView.resizeImage(_:))), ("Cut Out…", #selector(CanvasView.cutOut(_:))),
         ("Remove Background", #selector(CanvasView.removeBackground(_:))),
+        ("Balance Padding", #selector(CanvasView.balancePadding(_:))),
     ]
 
     /// The same orientation change as an affine map, for a w×h area with a bottom-left origin.
@@ -1223,6 +1224,27 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             self.mutate { self.base = kept }
             self.onMessage?("Background removed")
         }
+    }
+
+    /// Crops to the content with the same margin on every side, within the current crop. One undo step; the crop
+    /// can be adjusted afterwards (#272).
+    @objc func balancePadding(_ sender: Any?) {
+        finishTextEditing()
+        applyCrop()
+        guard let buf = pixels else { NSSound.beep(); return }
+        let s = pixelScale, h = base.size.height
+        let region = pixelRect(crop ?? imageRect)
+        let inks = items.filter { !($0.tool == .text && $0.text.isEmpty) }
+            .map { pixelRect(bounds(of: $0).insetBy(dx: -inkPadding($0), dy: -inkPadding($0))) }
+        guard let px = PaddingBalancer.balance(in: buf, region: region, keeping: inks) else {
+            onMessage?("Padding is already balanced"); return
+        }
+        // Back to points (bottom-left origin); the image edge clips the rounding.
+        let r = NSRect(x: px.minX / s.x, y: h - px.maxY / s.y, width: px.width / s.x, height: px.height / s.y)
+            .integral.intersection(imageRect)
+        guard r.width >= 4, r.height >= 4, r != contentRect else { onMessage?("Padding is already balanced"); return }
+        mutate { crop = r.contains(fullContentRect()) ? nil : r }
+        onMessage?("Padding balanced")
     }
 
     // MARK: Redact (OCR finds the text; each match gets an editable pixelate box)

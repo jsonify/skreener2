@@ -300,6 +300,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let gradientFrom = ColorPill()
     private let gradientTo = ColorPill()
     private lazy var chooseImageButton = textButton("Choose…", self, #selector(chooseBackgroundImage))
+    private lazy var balanceButton = textButton("Balance", canvas, #selector(CanvasView.balancePadding(_:)))
     private let blurPopup = PillPopUp(pullsDown: false)
     private let aspectPopup = PillPopUp(pullsDown: false)
     private let framePopup = PillPopUp(pullsDown: true)
@@ -1134,8 +1135,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         shadowSlider.target = self; shadowSlider.action = #selector(backgroundShadowChanged)
         shadowSlider.widthAnchor.constraint(equalToConstant: 80).isActive = true
 
+        balanceButton.toolTip = "Trim uneven empty margins and center the content (crops, undoable)"
         [fillPopup, directionPopup, gradientFrom, gradientTo, chooseImageButton, blurPopup, aspectPopup, paddingPopup,
-         cornerPopup, framePopup, shadowLabel, shadowSlider].forEach(backgroundBar.addArrangedSubview)
+         balanceButton, cornerPopup, framePopup, shadowLabel, shadowSlider].forEach(backgroundBar.addArrangedSubview)
         backgroundBar.spacing = 6
         backgroundBar.setCustomSpacing(4, after: shadowLabel)
         backgroundBar.isHidden = true

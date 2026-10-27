@@ -68,6 +68,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Blur (B; gaussian, strength popup), spotlight (S; dims everything outside, rounded corners) — M (#72)
 - [~] Rotate left/right, flip horizontal/vertical (toolbar menu or Image menu; annotations follow, undoable) — S (#73)
 - [~] Rounded rectangles (corner popup for rect/filled rect/spotlight), arrow styles (filled, open, double-headed) — M (#74)
+- [~] Auto-balance padding (Balance button in the Background bar and Image menu: crops to the content with equal margins, within the current crop; undoable) — S (#272)
 - [~] Compact toolbar: small bordered buttons (tools as one segmented control) so everything fits the 990 pt minimum; smaller style bar and footer — S (#75)
 - [~] Pill style throughout the editor, in CleanShot's subtle colors: white raised pills with a soft shadow (grey in dark mode); tools as plain icons on a faint grey capsule, the current one in the accent color; Save as / Apply filled; outlined Drag Me; pop-ups are pills with a ▾; color is a dot pill with presets + More Colors…; tabs on the same grey capsule, the current one raised — M (#76)
 - [~] Editors open as tabs of one window instead of a window per screenshot (Settings → Editor toggle; ⇧⌘[ / ⇧⌘] switch tabs, Window menu: move tab to new window, merge all windows) — S (#77)

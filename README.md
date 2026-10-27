@@ -122,7 +122,8 @@ Permissions switched on but not working, or asked for again after every build? S
 - **Snap to objects.** Boxes snap to the edges of buttons and shapes in the screenshot. **Repeat on Similar
   Objects** places the same box over every matching element.
 - **Image operations.** Crop, rotate, flip, resize to exact sizes, **Cut Out** a strip and join the rest, and
-  **Remove Background**.
+  **Remove Background**. **Balance** (in the Background bar and the Image menu) trims uneven empty margins and centers
+  the content by cropping, so you can still adjust it with Crop.
 - **Combine Screenshots.** This lays 2 to 9 captures out in a row, column or grid on a new canvas. The captures stay
   movable images. Pick them from the editor tabs or the history.
 - **Backgrounds.** Gradients, solid colors, your wallpaper or a picture of your own. There are presets for
