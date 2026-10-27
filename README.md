@@ -201,6 +201,14 @@ open "skreener://ocr"
 `then=` (`copy`, `save`, `edit`, `pin`, `quickaccess`) overrides the After Capture settings for that one capture.
 Links are off until you allow them in **Settings > General**, or from the prompt the first link shows.
 
+#### Shortcuts actions
+
+The Shortcuts app also lists Skreener's own actions, which take and return images, so you can chain them with other
+apps: **Capture Area**, **Capture Window** and **Capture Fullscreen** return the screenshot as an image file
+(After Capture steps don't run), **Capture Text** returns the recognized text, **Pin Image** and **Open in Editor**
+take an image, and **Record Screen** starts or stops a recording. They work whether or not links are allowed. Siri and Spotlight know phrases like "Capture an
+area with Skreener" without any setup.
+
 ## Default shortcuts
 
 You can change every shortcut in **Settings > Shortcuts**. Skreener warns you when a combination is already taken
