@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.13.0](https://github.com/jsonify/skreener2/compare/v0.12.0...v0.13.0) (2026-10-27)
+
+
+### Features
+
+* **editor:** auto-balance padding ([#272](https://github.com/jsonify/skreener2/issues/272)) ([9d2fc45](https://github.com/jsonify/skreener2/commit/9d2fc45ac42cd44ac8d648ebfb9f3e3b27cc8f91))
+* **editor:** auto-balance padding ([#272](https://github.com/jsonify/skreener2/issues/272)) ([c13ac41](https://github.com/jsonify/skreener2/commit/c13ac41b0748a73cde74dae8fc4a7ca76d99128c))
+* **editor:** insert a photo or scan from iPhone ([#270](https://github.com/jsonify/skreener2/issues/270)) ([00766e9](https://github.com/jsonify/skreener2/commit/00766e9af9ad53785d4a870016288a4dcae8fd21))
+* **editor:** insert a photo or scan from iPhone ([#270](https://github.com/jsonify/skreener2/issues/270)) ([61b6db6](https://github.com/jsonify/skreener2/commit/61b6db63b3bb6232b8e593a4ce991ccabdc81de1))
+* **library:** auto-filing rules, Finder tags and Spotlight keywords ([#277](https://github.com/jsonify/skreener2/issues/277)) ([6300ed6](https://github.com/jsonify/skreener2/commit/6300ed61c387b7d8774b5fc7cad965ebaacd9d3e))
+* **library:** auto-filing rules, Finder tags and Spotlight keywords ([#277](https://github.com/jsonify/skreener2/issues/277)) ([da9af32](https://github.com/jsonify/skreener2/commit/da9af32c2cc1b19c25e5ff52a5e8ebd8b460ea86))
+* **ocr:** read captured text aloud ([#268](https://github.com/jsonify/skreener2/issues/268)) ([e732cd4](https://github.com/jsonify/skreener2/commit/e732cd4532b26b12fdfd6facd21baf8584830d58))
+* **ocr:** read captured text aloud ([#268](https://github.com/jsonify/skreener2/issues/268)) ([145bd29](https://github.com/jsonify/skreener2/commit/145bd2946628efa16a93c5c6d4140e8462cf4b60))
+* **recording:** cursor spotlight while recording ([#267](https://github.com/jsonify/skreener2/issues/267)) ([e05674d](https://github.com/jsonify/skreener2/commit/e05674d17dd2bf39f3a0e3058b61d052dec07a15))
+* **recording:** cursor spotlight while recording ([#267](https://github.com/jsonify/skreener2/issues/267)) ([26d02e1](https://github.com/jsonify/skreener2/commit/26d02e11ff7f6ed334626ad052f5c880f8a23222))
+
+
+### Bug Fixes
+
+* **editor:** build the iPhone import item off the main actor ([#270](https://github.com/jsonify/skreener2/issues/270)) ([bc129b8](https://github.com/jsonify/skreener2/commit/bc129b81b60ea6a52479bacc12f3afffa29c9e7d))
+* **editor:** keep the app in front when the menu-bar menu opens ([#270](https://github.com/jsonify/skreener2/issues/270)) ([8e599f3](https://github.com/jsonify/skreener2/commit/8e599f354cf921b9fa31077321fc8d15713b48a0))
+
 ## [0.12.0](https://github.com/jsonify/skreener2/compare/v0.11.0...v0.12.0) (2026-10-27)
 
 
