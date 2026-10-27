@@ -161,6 +161,13 @@ Permissions switched on but not working, or asked for again after every build? S
   curl -s -F "file=@$1" https://example.com/upload
   open -a Preview "$SKREENER_FILE"
   ```
+- **Notes apps.** Send To also lists the notes apps you have installed: Obsidian, Bear, Apple Notes, Drafts, Things
+  and Reminders. **Settings → Send To** picks which show, and whether the text found in the screenshot goes along.
+  Bear and Apple Notes get the picture inside the note. Drafts, Things and Reminders only hold text, so they get the
+  text and the picture is put on the clipboard to paste. Obsidian can't be handed a file: choose your vault's folder in
+  Settings, and Skreener copies the picture into its `Skreener` folder and appends `![[picture]]` and the text to the
+  note `Skreener/Captures` (or to today's daily note, if you have the Advanced URI plugin). Apple Notes and Reminders
+  ask for permission to be controlled the first time.
 
 ### Automation
 

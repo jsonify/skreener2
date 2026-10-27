@@ -79,7 +79,7 @@ struct CustomActionDestination: SendDestination {
 
     /// The destinations to list, custom actions first; a recording only goes to the ones that take one.
     static func destinations(forImage: Bool) -> [SendDestination] {
-        let list: [SendDestination] = Preferences.customActions.map(CustomActionDestination.init)
+        let list: [SendDestination] = Preferences.customActions.map(CustomActionDestination.init) + NotesDestinations.all()
         return list.filter { $0.isAvailable && (forImage || $0.acceptsRecordings) }
     }
 

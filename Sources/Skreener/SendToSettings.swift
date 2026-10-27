@@ -1,7 +1,8 @@
 import AppKit
 
-/// Settings → Send To: the user's custom actions (#276), which can be added, edited, reordered and deleted. They show
-/// in the Send To menu, and the ones set to run after every capture run once a screenshot is saved.
+/// Settings → Send To: the user's custom actions (#276), which can be added, edited, reordered and deleted, and the
+/// notes apps to list (#275). Actions show in the Send To menu, and the ones set to run after every capture run once a
+/// screenshot is saved.
 @MainActor final class SendToPane: NSObject {
     /// The pieces of the Settings window's own layout this pane builds with.
     struct Tools {
@@ -15,6 +16,7 @@ import AppKit
     private var tools: Tools!
     /// The Actions group, rebuilt whenever the list changes.
     private let actionsHost = NSStackView()
+    private let vaultLabel = NSTextField(labelWithString: "")
 
     func build(_ tools: Tools) -> [NSView] {
         self.tools = tools
@@ -22,7 +24,79 @@ import AppKit
         actionsHost.alignment = .leading
         actionsHost.spacing = 0
         reloadActions()
-        return [actionsHost]
+        var views: [NSView] = [actionsHost, notesGroup()]
+        if NotesApp.obsidian.isInstalled { views.append(obsidianGroup()) }
+        return views
+    }
+
+    // MARK: Notes apps
+
+    private func blurb(_ app: NotesApp) -> String {
+        switch app {
+        case .obsidian: return "The picture is copied into your vault and linked from a note."
+        case .bear: return "A new note with the picture inside."
+        case .drafts: return "A new draft with the text. The picture goes on the clipboard."
+        case .things: return "A new to-do with the text as its notes. The picture goes on the clipboard."
+        case .appleNotes: return "A new note with the picture inside. Asks for permission the first time."
+        case .reminders: return "A new reminder with the text. The picture goes on the clipboard. Asks for permission the first time."
+        }
+    }
+
+    private func notesGroup() -> NSView {
+        var rows: [NSView] = NotesApp.allCases.filter(\.isInstalled).map { app in
+            let id = NotesDestination(app: app).id
+            return tools.toggle(app.title, blurb(app), !Preferences.sendToHidden.contains(id)) { on in
+                var hidden = Preferences.sendToHidden
+                if on { hidden.remove(id) } else { hidden.insert(id) }
+                Preferences.sendToHidden = hidden
+            }
+        }
+        if rows.isEmpty {
+            rows = [tools.row("No notes apps found", "Obsidian, Bear, Drafts, Things, Apple Notes and Reminders show up here when installed.",
+                              NSView())]
+        } else {
+            rows.append(tools.toggle("Include the text in the screenshot",
+                                     "Read on your Mac when you send. Drafts, Things and Reminders only hold text, so they always get it.",
+                                     Preferences.sendToIncludeText) { Preferences.sendToIncludeText = $0 })
+        }
+        return tools.group("Notes Apps", rows, "Only installed apps are listed in Send To.")
+    }
+
+    private func obsidianGroup() -> NSView {
+        let choose = NSButton(title: "Choose…", target: nil, action: nil)
+        tools.bind(choose) { [weak self] _ in self?.chooseVault() }
+        vaultLabel.lineBreakMode = .byTruncatingMiddle
+        vaultLabel.textColor = .secondaryLabelColor
+        vaultLabel.translatesAutoresizingMaskIntoConstraints = false
+        vaultLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
+        refreshVault()
+        let folder = NSStackView(views: [vaultLabel, choose])
+        folder.spacing = 10
+        return tools.group("Obsidian", [
+            tools.row("Vault folder", "The vault's folder on your Mac. Pictures are copied into its Skreener folder.", folder),
+            tools.toggle("Append to the daily note", "Needs the Advanced URI plugin. Off: a note called Skreener/Captures.",
+                         Preferences.obsidianDailyNote) { Preferences.obsidianDailyNote = $0 },
+        ], nil)
+    }
+
+    private func refreshVault() {
+        let path = Preferences.obsidianVaultPath
+        vaultLabel.stringValue = path.isEmpty ? "Not chosen" : (path as NSString).abbreviatingWithTildeInPath
+        vaultLabel.toolTip = path
+    }
+
+    private func chooseVault() {
+        guard let window = tools.window() else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = "Choose the folder of your Obsidian vault."
+        if !Preferences.obsidianVaultPath.isEmpty { panel.directoryURL = URL(fileURLWithPath: Preferences.obsidianVaultPath) }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Preferences.obsidianVaultPath = url.path
+            self?.refreshVault()
+        }
     }
 
     // MARK: Actions

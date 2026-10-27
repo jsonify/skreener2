@@ -5,11 +5,13 @@
   Skreener is not sandboxed. Screen Recording, Accessibility (auto-scroll, keystroke display) and
   Input Monitoring are TCC permissions the user grants; they need no entitlement. The hardened
   runtime does block the microphone unless the app asks for it here (recordings with the mic on).
-  Desktop icons are toggled with /usr/bin/defaults + killall, not Apple Events, so there is no
-  com.apple.security.automation.apple-events.
+  Desktop icons are toggled with /usr/bin/defaults + killall, not Apple Events. Apple Events are only sent
+  to Notes and Reminders, to add a capture from the Send To menu, which the hardened runtime blocks unless
+  the app asks for it here.
 -->
 <plist version="1.0">
 <dict>
   <key>com.apple.security.device.audio-input</key><true/>
+  <key>com.apple.security.automation.apple-events</key><true/>
 </dict>
 </plist>
