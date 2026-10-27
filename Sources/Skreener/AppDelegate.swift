@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     /// The last app other than Skreener that was in front: Capture Active Window takes its window when Skreener
     /// itself is in front (an editor or Settings is open).
     private var lastOtherApp: pid_t?
+    private var lastOtherAppName: String? { lastOtherApp.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName }
 
     /// The bundled template glyph (falls back to an SF Symbol when run outside the .app, e.g. `swift run`).
     private lazy var menuBarIcon: NSImage? = {
@@ -554,10 +555,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             endCapture()
         case .video(let screen, let rect)?:
             Preferences.lastRecordRect = rect
-            recording.start(screen: screen, rect: rect)
+            recording.start(screen: screen, rect: rect, app: lastOtherAppName)
         case .gif(let screen, let rect)?:
             Preferences.lastRecordRect = rect
-            recording.start(screen: screen, rect: rect, gif: true)
+            recording.start(screen: screen, rect: rect, gif: true, app: lastOtherAppName)
         case .screenshot(let screen, let rect)?:
             lastArea = (screen, rect)
             run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
@@ -818,7 +819,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         let bundleID = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
         SourcePage.lookup(bundleID: bundleID) { page in
             guard let page else { return }
-            if let saved {
+            // A text filing rule may have moved the file meanwhile (#277).
+            if let saved = saved.map(AutoFiling.current) {
                 SavedLibrary.shared.note(saved, page: page)
                 SourcePage.writeWhereFroms(page.url, to: saved)
             }
@@ -832,11 +834,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         let historyEntry = CaptureHistory.add(image)
         if actions.contains(.copy) { Output.copy(image) }
         var saved: URL?
-        let appName = lastOtherApp.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName
+        // The window's own app when one window was captured, else the app in front.
+        let appName = owner.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName ?? lastOtherAppName
         if actions.contains(.save) {
             saved = Output.save(image)
-            // For the library's App filter and search (#117).
-            if let saved { SavedLibrary.shared.note(saved, app: appName) }
+            if let file = saved {
+                // For the library's App filter and search (#117).
+                SavedLibrary.shared.note(file, app: appName)
+                // Tags and files it (#277).
+                saved = AutoFiling.afterSave(file, app: appName)
+            }
             if saved == nil {
                 Notifier.problem("Couldn't save the screenshot",
                                  detail: "Check the export location in Settings → General.")

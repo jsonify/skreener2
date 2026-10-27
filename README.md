@@ -162,6 +162,14 @@ Permissions switched on but not working, or asked for again after every build? S
   and History can open it again, Saved Files searches it and filters by site, and Finder shows it under Where from.
   macOS asks once per browser for Automation access; without it the capture just has no page. A switch in
   Settings → After Capture turns it off.
+- **Filing rules.** In **Settings → After Capture → Filing Rules** you send saved captures to their own folders by the
+  app they came from or the text in them, e.g. "App name is Figma → ~/Design/Screens" or "Text contains Invoice →
+  ~/Receipts". Both ignore case, the first rule that matches wins, and each rule can be switched off. A text rule moves
+  the screenshot a moment after saving, once its text has been read. A file is never replaced (a taken name gets a
+  number), a missing folder is made, and Saved Files keeps showing and searching moved captures.
+- **Finder tags and Spotlight.** Two switches below the rules, off by default: tag saved captures with the app's name
+  (e.g. a "Safari" tag in Finder), and put the text read in a screenshot in its Spotlight comment, so Spotlight finds
+  it by any word in it.
 - You choose what happens to each capture: copy, save, open the editor, or show the preview. You can also play a
   sound or show a notification.
 

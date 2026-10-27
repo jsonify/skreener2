@@ -58,10 +58,11 @@ enum Output {
     }
 
     /// `dir/name.ext`, or `name 2.ext`, `name 3.ext`… when that file already exists (a template without seconds).
-    static func uniqueURL(in dir: URL, name: String, ext: String) -> URL {
+    static func uniqueURL(in dir: URL, name: String, ext: String,
+                          exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> URL {
         var url = dir.appendingPathComponent(name).appendingPathExtension(ext)
         var n = 2
-        while FileManager.default.fileExists(atPath: url.path) {
+        while exists(url) {
             url = dir.appendingPathComponent("\(name) \(n)").appendingPathExtension(ext)
             n += 1
         }
@@ -95,10 +96,12 @@ enum Output {
         guard let format = ImageFormat(fileExtension: url.pathExtension), let data = savedData(image, format: format) else {
             return false
         }
-        // An atomic write makes a new file, which would lose the page the capture came from (#269).
-        let page = SourcePage.readWhereFroms(of: url)
+        // An atomic write makes a new file, which would lose the page the capture came from (#269), its tags and
+        // Spotlight comment (#277).
+        let page = SourcePage.readWhereFroms(of: url), kept = AutoFiling.Kept(of: url)
         do { try data.write(to: url, options: .atomic) } catch { NSLog("Save failed: \(error)"); return false }
         if let page { SourcePage.writeWhereFroms(page, to: url) }
+        kept.restore(to: url)
         return true
     }
 

@@ -9,7 +9,7 @@ extension Notification.Name {
 /// An index of the export location (#117): every screenshot, GIF and recording in it, including ones that were there
 /// before Skreener, kept up to date while files are added or deleted (in Finder too). For search it keeps, per file,
 /// the app in front when Skreener saved it (and the web page, for a browser), whether it was edited, and the text OCR finds in it (read in the
-/// background), in a small JSON file in Application Support.
+/// background), in a small JSON file in Application Support. Files a filing rule moved elsewhere stay in it (#277).
 final class SavedLibrary {
     static let shared = SavedLibrary()
 
@@ -84,6 +84,8 @@ final class SavedLibrary {
     private var watcher: DispatchSourceFileSystemObject?
     private var reindexPending = false
     private var ocrRunning = false
+    /// What runs once a file's text has been read, by key (#277).
+    private var onRead: [String: (String) -> Void] = [:]
     private let ocrQueue = DispatchQueue(label: "Skreener.library.ocr", qos: .utility)
     private let saveQueue = DispatchQueue(label: "Skreener.library.save", qos: .utility)
 
@@ -136,11 +138,16 @@ final class SavedLibrary {
     private func reindex() {
         guard let dir = watched else { return }
         isIndexing = true
+        let elsewhere = meta.keys.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let files = Self.list(dir)
+            let filed = Self.describe(elsewhere)
+            let files = (Self.list(dir) + filed).sorted { $0.date > $1.date }
             DispatchQueue.main.async {
                 guard let self, self.watched == dir else { return }
-                self.entries = files.map { Entry(url: $0.url, date: $0.date, kind: $0.kind, meta: self.meta[$0.url.lastPathComponent] ?? Meta()) }
+                // Filed files that were deleted or moved on in Finder are forgotten.
+                let gone = Set(elsewhere.map(\.path)).subtracting(filed.map(\.url.path))
+                if !gone.isEmpty { gone.forEach { self.meta[$0] = nil }; self.saveMeta() }
+                self.entries = files.map { Entry(url: $0.url, date: $0.date, kind: $0.kind, meta: self.meta[self.key(for: $0.url)] ?? Meta()) }
                 self.isIndexing = false
                 NotificationCenter.default.post(name: .skreenerLibraryChanged, object: nil)
                 self.readTextInBackground()
@@ -153,11 +160,17 @@ final class SavedLibrary {
         let keys: [URLResourceKey] = [.creationDateKey, .isRegularFileKey]
         let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys,
                                                                  options: [.skipsHiddenFiles])) ?? []
-        return urls.compactMap { url -> (url: URL, date: Date, kind: Kind)? in
+        return describe(urls).sorted { $0.date > $1.date }
+    }
+
+    /// The screenshots, GIFs and recordings among `urls` that exist, with their dates and kinds.
+    private static func describe(_ urls: [URL]) -> [(url: URL, date: Date, kind: Kind)] {
+        urls.compactMap { url -> (url: URL, date: Date, kind: Kind)? in
             guard let kind = Kind(fileExtension: url.pathExtension),
-                  let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { return nil }
+                  let values = try? url.resourceValues(forKeys: [.creationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true else { return nil }
             return (url, values.creationDate ?? .distantPast, kind)
-        }.sorted { $0.date > $1.date }
+        }
     }
 
     // MARK: Metadata
@@ -166,7 +179,7 @@ final class SavedLibrary {
     /// showed, and whether it was edited. Leaves out what isn't given. Main thread.
     func note(_ url: URL, app: String? = nil, page: SourcePage.Page? = nil, edited: Bool? = nil) {
         if !loadedMeta { refresh() }
-        let key = url.lastPathComponent
+        let key = key(for: url)
         var m = meta[key] ?? Meta()
         if let app { m.app = app }
         if let page { m.url = page.url; m.pageTitle = page.title }
@@ -174,8 +187,35 @@ final class SavedLibrary {
         // A file saved over is a new picture: its text is read again.
         m.text = nil
         meta[key] = m
-        if let i = entries.firstIndex(where: { $0.url.lastPathComponent == key }) { entries[i].meta = m }
+        if let i = entries.firstIndex(where: { self.key(for: $0.url) == key }) { entries[i].meta = m }
         saveMeta()
+    }
+
+    /// Files in the export location are known by name, ones a filing rule moved elsewhere by their full path (#277).
+    private func key(for url: URL) -> String {
+        let dir = (watched ?? Preferences.saveDirectory).standardizedFileURL.path
+        return url.deletingLastPathComponent().standardizedFileURL.path == dir ? url.lastPathComponent : url.standardizedFileURL.path
+    }
+
+    /// Runs `body` with the text of `url` (a file Skreener just saved) once OCR has read it, after `note`. Main thread.
+    func whenRead(_ url: URL, _ body: @escaping (String) -> Void) {
+        onRead[key(for: url)] = body
+    }
+
+    /// Follows a file a filing rule moved (#277), so Saved Files still shows and searches it. Main thread.
+    func moved(from old: URL, to new: URL) {
+        let oldKey = key(for: old), newKey = key(for: new)
+        let m = meta.removeValue(forKey: oldKey) ?? Meta()
+        meta[newKey] = m
+        if let body = onRead.removeValue(forKey: oldKey) { onRead[newKey] = body }
+        if let i = entries.firstIndex(where: { $0.url == old }) {
+            entries[i] = Entry(url: new, date: entries[i].date, kind: entries[i].kind, meta: m)
+        } else if let kind = Kind(fileExtension: new.pathExtension) {
+            entries.insert(Entry(url: new, date: Date(), kind: kind, meta: m), at: 0)
+        }
+        saveMeta()
+        NotificationCenter.default.post(name: .skreenerLibraryChanged, object: nil)
+        readTextInBackground()
     }
 
     private func saveMeta() {
@@ -196,11 +236,12 @@ final class SavedLibrary {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.ocrRunning = false
-                let key = url.lastPathComponent
+                let key = self.key(for: url)
                 var m = self.meta[key] ?? Meta()
                 m.text = text
                 self.meta[key] = m
                 if let i = self.entries.firstIndex(where: { $0.url == url }) { self.entries[i].meta = m }
+                self.onRead.removeValue(forKey: key)?(text)
                 // Save every so often rather than after every file.
                 if self.entries.filter({ $0.kind == .image && $0.meta.text == nil }).count % 20 == 0 { self.saveMeta() }
                 self.readTextInBackground()
