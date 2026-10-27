@@ -4,6 +4,7 @@ import AppKit
 /// Copy to Clipboard (⌘Return) copies the whole text and closes it; Esc or the close button closes it without copying.
 /// Closing forgets the text: the next Capture Text starts a fresh one. While it is open, another Capture Text adds its
 /// text on its own line at the cursor (#261); the cursor starts at the end, so by default each capture adds a new line.
+/// Speak (⌥⌘S) reads the selection, or all the text, aloud; it turns into Stop until the speech ends (#268).
 final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate {
     @MainActor private static var current: TextScratchPad?
 
@@ -31,6 +32,8 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 
     private let textView = ScratchTextView()
     private let count = NSTextField(labelWithString: "")
+    private let speakButton = NSButton(title: "Speak", target: nil, action: nil)
+    private let speaker = TextSpeaker()
 
     private init() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -62,6 +65,12 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 
         let join = NSButton(title: "Join Lines", target: self, action: #selector(joinLines))
         join.toolTip = "Turn the selected lines (or all of them) into one line"
+        speakButton.target = self
+        speakButton.action = #selector(toggleSpeech)
+        speakButton.keyEquivalent = "s"
+        speakButton.keyEquivalentModifierMask = [.command, .option]
+        speakButton.toolTip = "Read the selection, or all the text, aloud (⌥⌘S)"
+        speaker.onFinish = { [weak self] in self?.speakButton.title = "Speak" }
         let copy = NSButton(title: "Copy to Clipboard", target: self, action: #selector(copyAndClose))
         copy.bezelColor = .controlAccentColor
         copy.keyEquivalent = "\r"
@@ -72,7 +81,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let bar = NSStackView(views: [join, count, spacer, copy])
+        let bar = NSStackView(views: [join, speakButton, count, spacer, copy])
         bar.spacing = 10
 
         let content = NSView()
@@ -98,6 +107,16 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         close()
         let lines = text.split(separator: "\n").count
         Notifier.confirm(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+    }
+
+    @objc private func toggleSpeech() {
+        if speaker.isSpeaking { speaker.stop(); return }
+        guard let text = TextSpeaker.textToSpeak(textView.string, selection: textView.selectedRange()) else {
+            NSSound.beep()
+            return
+        }
+        speakButton.title = "Stop"
+        speaker.speak(text)
     }
 
     @objc private func joinLines() {
@@ -162,6 +181,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 
     func windowWillClose(_ notification: Notification) {
         // Closing ends this text session.
+        speaker.stop()
         textView.string = ""
         if Self.current === self { Self.current = nil }
     }

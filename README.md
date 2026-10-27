@@ -95,6 +95,8 @@ Permissions switched on but not working, or asked for again after every build? S
 - **Capture Text** recognizes the text in an area on your Mac, using Apple's Vision framework. The text opens in a
   small scratch pad where you can fix it up or join the lines, then you copy it.
   Capture more text while it is open and it is added on a new line at the cursor.
+  **Speak** (Option-Command-S, in the scratch pad) reads the selection, or all the text, aloud in a voice that
+  matches its language; it turns into **Stop** until the speech ends.
 - In the editor, **Copy Text** copies the text from the whole screenshot or from a dragged area. **Redact** finds
   text, emails, phone numbers or links and pixelates them.
 
