@@ -892,6 +892,20 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         window?.makeFirstResponder(self)
     }
 
+    /// Adds each picture as its own movable layer at `frame`, in one undo step (Combine Screenshots, #273).
+    func insertImages(_ placed: [(image: NSImage, frame: NSRect)]) {
+        guard !placed.isEmpty else { return }
+        finishTextEditing()
+        cancelCrop()
+        mutate {
+            for p in placed {
+                items.append(Annotation(tool: .image, start: p.frame.origin, end: NSPoint(x: p.frame.maxX, y: p.frame.maxY),
+                                        image: p.image, style: style))
+            }
+        }
+        window?.makeFirstResponder(self)
+    }
+
     // Edit menu → Paste (⌘V): copied annotations (#125), else an image from the clipboard, onto the canvas.
     @objc func paste(_ sender: Any?) {
         if let copied = AnnotationClipboard.read() { add(copied); return }
