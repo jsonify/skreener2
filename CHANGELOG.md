@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/jsonify/skreener2/compare/v0.10.0...v0.11.0) (2026-10-27)
+
+
+### Features
+
+* **editor:** ask Claude about a screenshot ([#252](https://github.com/jsonify/skreener2/issues/252)) ([#265](https://github.com/jsonify/skreener2/issues/265)) ([c9fcc9d](https://github.com/jsonify/skreener2/commit/c9fcc9d7785d8eb758b6694b242122efb2bfd06b))
+
 ## [0.10.0](https://github.com/jsonify/skreener2/compare/v0.9.0...v0.10.0) (2026-10-26)
 
 
