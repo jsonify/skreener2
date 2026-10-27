@@ -44,7 +44,10 @@ enum Compressor {
     /// Rewrites the PNG at `url` as a palette PNG if that is smaller and looks the same. Blocking; call it off the main thread.
     static func compressImage(at url: URL) -> Savings? {
         guard let data = try? Data(contentsOf: url), let smaller = PNGQuantizer.compressed(png: data) else { return nil }
+        // An atomic write makes a new file, which would lose the page the capture came from (#269).
+        let page = SourcePage.readWhereFroms(of: url)
         do { try smaller.write(to: url, options: .atomic) } catch { NSLog("Compressing \(url.lastPathComponent) failed: \(error)"); return nil }
+        if let page { SourcePage.writeWhereFroms(page, to: url) }
         return Savings(before: data.count, after: smaller.count)
     }
 
