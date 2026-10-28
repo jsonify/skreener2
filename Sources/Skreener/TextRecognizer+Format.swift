@@ -5,14 +5,19 @@ extension TextRecognizer {
     /// Capture Text with formatting: the text in `image` as Markdown (headings, lists, bold, `code`), with its colored
     /// words for the rich-text copy. Each word's box is read from the pixels, since Vision reports no styles.
     static func formatted(_ image: NSImage) async -> FormattedText.Result {
+        FormattedText.format(await formattedLines(image))
+    }
+
+    /// Each recognized line of `image` with its words' boxes (pixels, bottom-left origin) and how they are drawn.
+    static func formattedLines(_ image: NSImage) async -> [FormattedText.Line] {
         var rect = CGRect(origin: .zero, size: image.size)
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return FormattedText.Result() }
+        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return [] }
         return await Task.detached(priority: .userInitiated) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
             let handler = VNImageRequestHandler(cgImage: cg, options: [:])
-            do { try handler.perform([request]) } catch { NSLog("OCR failed: \(error)"); return FormattedText.Result() }
+            do { try handler.perform([request]) } catch { NSLog("OCR failed: \(error)"); return [] }
             let bitmap = FormattedText.Bitmap(cg)
             let size = CGSize(width: cg.width, height: cg.height)
             // Pixels rather than points, so the measurements see every pixel; Vision's boxes are normalized with a
@@ -20,7 +25,7 @@ extension TextRecognizer {
             func pixels(_ b: CGRect) -> CGRect {
                 CGRect(x: b.minX * size.width, y: b.minY * size.height, width: b.width * size.width, height: b.height * size.height)
             }
-            let lines = (request.results ?? []).compactMap { obs -> FormattedText.Line? in
+            return (request.results ?? []).compactMap { obs -> FormattedText.Line? in
                 guard let candidate = obs.topCandidates(1).first else { return nil }
                 let line = pixels(obs.boundingBox)
                 let words = FormattedText.wordRanges(candidate.string).map { range in
@@ -30,7 +35,6 @@ extension TextRecognizer {
                 }
                 return FormattedText.Line(rect: line, words: words, bullet: bitmap?.hasBullet(leftOf: line) ?? false)
             }
-            return FormattedText.format(lines)
         }.value
     }
 

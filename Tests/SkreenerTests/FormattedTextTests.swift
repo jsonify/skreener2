@@ -316,8 +316,15 @@ final class FormattedTextTests: XCTestCase {
                 line.draw(at: NSPoint(x: 40, y: r.height - 140 - CGFloat(i) * 80))
             }
         }
-        let result = await TextRecognizer.formatted(image)
-        let md = result.text
+        let read = await TextRecognizer.formattedLines(image)
+        let result = F.format(read)
+        // What was measured, for when an assertion fails.
+        let md = result.text + "\n---\n" + read.map { line in
+            "\(line.rect.integral) " + line.words.map { w in
+                "\(w.text)[\(w.rect.integral.minY),\(w.rect.integral.height) s=\(w.look.stroke.map { String(format: "%.3f", $0) } ?? "-")"
+                    + " bg=\(w.look.background?.hex ?? "-") ink=\(w.look.ink?.hex ?? "-")]"
+            }.joined(separator: " ")
+        }.joined(separator: "\n")
         XCTAssertTrue(md.split(separator: "\n").contains { $0.hasPrefix("#") && $0.contains("Shopping list") }, md)
         XCTAssertTrue(md.contains("- Fresh apples\n- Brown bread"), md)
         XCTAssertTrue(md.contains("1. First step\n2. Second step"), md)
