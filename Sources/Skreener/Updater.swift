@@ -12,6 +12,8 @@ struct Release: Equatable {
     let zip: URL
     /// SHA256SUMS, which lists the zip's checksum.
     let checksums: URL
+    /// The release's notes body (GitHub's `body`), shown in the update window when the bundled changelog isn't there.
+    let notes: String
 }
 
 /// Check for Updates… (#34): asks GitHub for the latest release and, when it is newer, downloads it, checks its
@@ -60,7 +62,7 @@ enum Updater {
                 .flatMap { ($0["browser_download_url"] as? String).flatMap(URL.init(string:)) }
         }
         guard let zip = asset("Skreener-\(version).zip"), let checksums = asset("SHA256SUMS") else { return nil }
-        return Release(version: version, page: page, zip: zip, checksums: checksums)
+        return Release(version: version, page: page, zip: zip, checksums: checksums, notes: json["body"] as? String ?? "")
     }
 
     /// `file`'s checksum in a SHA256SUMS file (`shasum -a 256` lines: "<hex>  <name>", or "<hex> *<name>").
@@ -80,6 +82,13 @@ enum Updater {
     }
 
     // MARK: Checking
+
+    /// Whether the update window should open for `version`. A daily auto-check doesn't re-open for a version the user
+    /// chose Skip for; an explicit "Check for Updates…" always shows it, even one that was skipped before (#34).
+    static func shouldOffer(version: String, skipped: String?, userInitiated: Bool) -> Bool {
+        if userInitiated { return true }
+        return version != skipped
+    }
 
     @MainActor private static var timer: Timer?
     @MainActor private static var busy = false
@@ -118,33 +127,40 @@ enum Updater {
                     if userInitiated { tell("Skreener is up to date", "Version \(current) is the newest.") }
                     return
                 }
+                // A version the user chose Skip for isn't re-offered by the daily check; a user check still shows it.
+                guard shouldOffer(version: latest.version, skipped: Preferences.skippedVersion, userInitiated: userInitiated) else { return }
                 // Don't interrupt a capture, recording or open dialog with an update nobody asked about.
                 if !userInitiated && (postponed == latest.version || NSApp.modalWindow != nil) { return }
-                await offer(latest, current: current)
+                offer(latest, current: current)
             } catch {
                 if userInitiated { tell("Couldn't check for updates", error.localizedDescription) }
             }
         }
     }
 
-    @MainActor private static func offer(_ release: Release, current: String) async {
+    /// Opens the CleanShot-style update window: the offered version, the full changelog and Install / Skip. Install
+    /// runs the download/verify/relaunch; Skip remembers the version so the daily check stays quiet; closing the
+    /// window without choosing is Later, which only keeps the daily check quiet until the next launch.
+    @MainActor private static func offer(_ release: Release, current: String) {
         NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Skreener \(release.version) is available"
-        alert.informativeText = "You have \(current). Skreener downloads the update, checks it, replaces itself and "
-            + "opens again. Your settings and permissions stay."
-        alert.addButton(withTitle: "Install and Relaunch")
-        alert.addButton(withTitle: "Later")
-        alert.addButton(withTitle: "Release Notes")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            do { try await install(release) } catch { tell("Couldn't install the update", error.localizedDescription) }
-        case .alertThirdButtonReturn:
-            postponed = release.version
-            NSWorkspace.shared.open(release.page)
-        default:
-            postponed = release.version
-        }
+        UpdateAvailableWindow.present(
+            release: release, current: current, changelog: changelogReleases(),
+            onInstall: {
+                Task { @MainActor in
+                    do { try await install(release) }
+                    catch { tell("Couldn't install the update", error.localizedDescription) }
+                }
+            },
+            onSkip: { Preferences.skippedVersion = release.version },
+            onLater: { postponed = release.version })
+    }
+
+    /// The bundled CHANGELOG.md parsed into every version's section, newest first; empty when it isn't bundled, so the
+    /// window falls back to the offered release's own notes.
+    private static func changelogReleases() -> [ChangelogRelease] {
+        guard let url = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return ChangelogNotes.allReleases(in: text)
     }
 
     @MainActor private static func tell(_ title: String, _ text: String) {

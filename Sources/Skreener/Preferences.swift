@@ -191,6 +191,12 @@ enum Preferences {
         get { d.object(forKey: "checkForUpdates") as? Bool ?? true }
         set { d.set(newValue, forKey: "checkForUpdates") }
     }
+    /// The version the user chose Skip for in the update window (#34): the daily check doesn't offer it again. An
+    /// explicit "Check for Updates…" still shows it.
+    static var skippedVersion: String? {
+        get { d.string(forKey: "skippedVersion") }
+        set { d.set(newValue, forKey: "skippedVersion") }
+    }
     /// Open each screenshot in the editor.
     static var openEditorAfterCapture: Bool {
         get { d.object(forKey: "openEditorAfterCapture") as? Bool ?? true }

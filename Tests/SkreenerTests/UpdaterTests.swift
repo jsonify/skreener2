@@ -24,22 +24,26 @@ final class UpdaterTests: XCTestCase {
         XCTAssertFalse(Updater.isNewer("0.3.", than: "0.3.2"))
     }
 
-    private func json(tag: String = "v0.3.3", draft: Bool = false, prerelease: Bool = false,
+    private func json(tag: String = "v0.3.3", draft: Bool = false, prerelease: Bool = false, body: String = "",
                       assets: [String] = ["Skreener-0.3.3.dmg", "Skreener-0.3.3.zip", "SHA256SUMS"]) -> Data {
         let list = assets.map {
             ["name": $0, "browser_download_url": "https://github.com/jsonify/skreener2/releases/download/\(tag)/\($0)"]
         }
         let object: [String: Any] = ["tag_name": tag, "draft": draft, "prerelease": prerelease, "assets": list,
+                                     "body": body,
                                      "html_url": "https://github.com/jsonify/skreener2/releases/tag/\(tag)"]
         return try! JSONSerialization.data(withJSONObject: object)
     }
 
     func testReleaseFromJSON() {
         let base = "https://github.com/jsonify/skreener2/releases"
-        XCTAssertEqual(Updater.release(fromJSON: json()), Release(
+        XCTAssertEqual(Updater.release(fromJSON: json(body: "What's new in 0.3.3")), Release(
             version: "0.3.3", page: URL(string: "\(base)/tag/v0.3.3")!,
             zip: URL(string: "\(base)/download/v0.3.3/Skreener-0.3.3.zip")!,
-            checksums: URL(string: "\(base)/download/v0.3.3/SHA256SUMS")!))
+            checksums: URL(string: "\(base)/download/v0.3.3/SHA256SUMS")!,
+            notes: "What's new in 0.3.3"))
+        // A release with no body gives empty notes, not nil.
+        XCTAssertEqual(Updater.release(fromJSON: json())?.notes, "")
     }
 
     func testReleaseNotReadyOrNotFinal() {
@@ -68,5 +72,49 @@ final class UpdaterTests: XCTestCase {
     func testSHA256() {
         XCTAssertEqual(Updater.sha256(Data("abc".utf8)),
                        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    // MARK: Skip This Version (#34)
+
+    func testSkippedVersionNotOfferedByAutoCheck() {
+        XCTAssertFalse(Updater.shouldOffer(version: "0.5.0", skipped: "0.5.0", userInitiated: false))
+    }
+
+    func testSkippedVersionStillOfferedWhenUserAsks() {
+        XCTAssertTrue(Updater.shouldOffer(version: "0.5.0", skipped: "0.5.0", userInitiated: true))
+    }
+
+    func testNewerThanSkippedIsOfferedByAutoCheck() {
+        XCTAssertTrue(Updater.shouldOffer(version: "0.6.0", skipped: "0.5.0", userInitiated: false))
+    }
+
+    func testNothingSkippedIsOffered() {
+        XCTAssertTrue(Updater.shouldOffer(version: "0.5.0", skipped: nil, userInitiated: false))
+        XCTAssertTrue(Updater.shouldOffer(version: "0.5.0", skipped: "", userInitiated: false))
+    }
+
+    // MARK: Full changelog history (#34)
+
+    func testAllReleasesNewestFirst() {
+        let changelog = """
+            # Changelog
+
+            ## [0.5.0](https://example.com/compare) (2026-02-02)
+
+            ### Features
+
+            * **capture:** add a thing ([#10](https://example.com/10)) ([abc1234](https://example.com/abc1234))
+
+            ## [0.4.0](https://example.com/compare) (2026-01-01)
+
+            ### Bug Fixes
+
+            * **editor:** fix a thing ([#9](https://example.com/9))
+            """
+        let releases = ChangelogNotes.allReleases(in: changelog)
+        XCTAssertEqual(releases, [
+            ChangelogRelease(version: "0.5.0", groups: [ChangelogGroup(title: "Features", items: ["Capture: add a thing"])]),
+            ChangelogRelease(version: "0.4.0", groups: [ChangelogGroup(title: "Bug Fixes", items: ["Editor: fix a thing"])]),
+        ])
     }
 }
