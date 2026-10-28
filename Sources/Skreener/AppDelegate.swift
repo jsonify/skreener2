@@ -65,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .captureScrolling: { [weak self] in self?.captureScrolling() },
             .captureText: { [weak self] in self?.captureText() },
             .captureCode: { [weak self] in self?.captureCode() },
+            .scanQRCode: { [weak self] in self?.scanQRCode() },
             .timedArea: { [weak self] in self?.timedArea() },
             .timedWindow: { [weak self] in self?.timedWindow() },
             .timedFullscreen: { [weak self] in self?.timedFullscreen() },
@@ -160,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         add("Capture Scrolling", #selector(captureScrolling), .captureScrolling)
         add("Capture Text (OCR)", #selector(captureText), .captureText)
         add("Capture Code (OCR)", #selector(captureCode), .captureCode)
+        add("Scan QR Code", #selector(scanQRCode), .scanQRCode)
         let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
         let timerMenu = NSMenu()
         for (title, sel, shortcut) in [("Area…", #selector(timedArea), HotKeyAction.timedArea),
@@ -755,6 +757,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
                 guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
                 run(screen: screen, areaCapture(screen, rect, frozen)) { self.copyText($0, screen: screen) }
+            }
+        }
+    }
+
+    /// Scan QR Code: pick an area, then copy what its codes say (#243).
+    @objc func scanQRCode() {
+        prepareCapture { [weak self] in
+            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
+                run(screen: screen, areaCapture(screen, rect, frozen)) { self.copyCodes($0) }
+            }
+        }
+    }
+
+    private func copyCodes(_ image: NSImage) {
+        Task { @MainActor in
+            let codes = await BarcodeScanner.payloads(in: image)
+            guard let first = codes.first else {
+                Notifier.problem("No QR code found", detail: "Skreener couldn't find a QR code or barcode in the area.")
+                return
+            }
+            TextRecognizer.copyText(codes.joined(separator: "\n"))
+            Sound.play("Pop")
+            let shown = SmartActions.short(first, 80)
+            if let url = SmartActions.openableURL(first) {
+                MessageHUD.show("Copied QR code content", detail: shown, symbol: "qrcode",
+                                button: ("Open", { NSWorkspace.shared.open(url) }), placement: .top)
+            } else {
+                Notifier.confirm(codes.count == 1 ? "Copied QR code content" : "Copied \(codes.count) codes", detail: shown)
             }
         }
     }

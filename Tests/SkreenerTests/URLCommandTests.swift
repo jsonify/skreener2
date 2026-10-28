@@ -37,6 +37,7 @@ final class URLCommandTests: XCTestCase {
         XCTAssertEqual(parse("skreener://settings"), .success(URLCommand(command: .settings)))
         XCTAssertEqual(parse("skreener://ocr"), .success(URLCommand(command: .run(.captureText))))
         XCTAssertEqual(parse("skreener://ocr/code"), .success(URLCommand(command: .run(.captureCode))))
+        XCTAssertEqual(parse("skreener://qr"), .success(URLCommand(command: .run(.scanQRCode))))
         XCTAssertEqual(parse("skreener://load/clipboard"), .success(URLCommand(command: .run(.openClipboard))))
         XCTAssertEqual(parse("skreener://pin/live"), .success(URLCommand(command: .run(.captureAreaAndLivePin))))
         XCTAssertEqual(parse("skreener://pin/live/window"), .success(URLCommand(command: .run(.livePinWindow))))
