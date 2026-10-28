@@ -9,12 +9,18 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     @MainActor private static var current: TextScratchPad?
 
     /// Shows `text` in the scratch pad, centered on `screen`; a pad that is already open adds it at the cursor.
-    @MainActor static func show(_ text: String, on screen: NSScreen?) {
+    /// `formatted` text is Markdown, copied with rich text beside it, where `colors` paint their words.
+    @MainActor static func show(_ text: String, colors: [FormattedText.Painted] = [], formatted: Bool = false,
+                                on screen: NSScreen?) {
         let pad = current ?? TextScratchPad()
         current = pad
         if pad.window?.isVisible == true, !pad.textView.string.isEmpty {
             pad.insert(text)
+            pad.colors += colors
+            pad.formatted = pad.formatted || formatted
         } else {
+            pad.colors = colors
+            pad.formatted = formatted
             pad.textView.string = text
             pad.textView.undoManager?.removeAllActions()
             pad.textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
@@ -34,6 +40,8 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     private let count = NSTextField(labelWithString: "")
     private let speakButton = NSButton(title: "Speak", target: nil, action: nil)
     private let speaker = TextSpeaker()
+    private var colors: [FormattedText.Painted] = []
+    private var formatted = false
 
     private init() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -102,7 +110,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     @objc private func copyAndClose() {
         let text = textView.string
         guard !text.isEmpty else { NSSound.beep(); return }
-        TextRecognizer.copyText(text)
+        if formatted { TextRecognizer.copyFormatted(text, colors: colors) } else { TextRecognizer.copyText(text) }
         Sound.play("Pop")
         close()
         let lines = text.split(separator: "\n").count
@@ -183,6 +191,8 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         // Closing ends this text session.
         speaker.stop()
         textView.string = ""
+        colors = []
+        formatted = false
         if Self.current === self { Self.current = nil }
     }
 }

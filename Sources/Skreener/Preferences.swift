@@ -213,6 +213,11 @@ enum Preferences {
         get { d.object(forKey: "textScratchPad") as? Bool ?? true }
         set { d.set(newValue, forKey: "textScratchPad") }
     }
+    /// Capture Text keeps headings, lists, bold, code and colors: Markdown as text, rich text beside it.
+    static var keepTextFormatting: Bool {
+        get { d.object(forKey: "keepTextFormatting") as? Bool ?? true }
+        set { d.set(newValue, forKey: "keepTextFormatting") }
+    }
     /// Capture Code copies a Markdown fenced code block instead of plain code (#249).
     static var codeAsMarkdown: Bool {
         get { d.object(forKey: "codeAsMarkdown") as? Bool ?? false }
