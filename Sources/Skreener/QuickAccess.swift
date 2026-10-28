@@ -42,6 +42,7 @@ import AVFoundation
     nonisolated static func show(_ image: NSImage, editor: EditorWindowController?, saved: URL? = nil) {
         MainActor.assumeIsolated {
             let qa = QuickAccessController(image: image, editor: editor, saved: saved)
+            if Preferences.smartActions { qa.findSmartActions() }
             screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             live.append(qa)
             layout(animated: true)
@@ -84,6 +85,34 @@ import AVFoundation
                                  width: film.size.width, height: film.size.height))
             return true
         }
+    }
+
+    /// Looks for dates, addresses, links and QR codes in the capture off the main thread; chips appear when it is done (#243).
+    private func findSmartActions() {
+        let image = image
+        Task { @MainActor [weak self] in
+            let actions = await SmartActionDetector.detect(in: image)
+            self?.showSmartActions(actions)
+        }
+    }
+
+    /// A strip of chips under the thumbnail: the first two actions, and the rest in a menu.
+    private func showSmartActions(_ actions: [SmartAction]) {
+        guard !actions.isEmpty, Self.live.contains(where: { $0 === self }), let card, !card.hasChips else { return }
+        let rest = Array(actions.dropFirst(2))
+        let chips = actions.prefix(2).map { a in (title: a.chipTitle, symbol: a.symbol, run: { SmartActionRunner.perform(a) }) }
+        card.addChips(Array(chips), more: rest.isEmpty ? nil : { [weak self] button in self?.showMore(rest, from: button) })
+        var frame = panel.frame
+        frame.size.height += QuickAccessCard.chipBarHeight
+        panel.setFrame(frame, display: false)
+        Self.layout(animated: true)
+    }
+
+    private func showMore(_ actions: [SmartAction], from button: NSView) {
+        card?.held = true
+        SmartActionMenu.menu(for: actions).popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
+        card?.syncHover()
+        card?.held = false
     }
 
     /// Fades every preview out, so it isn't in the way of (or in) the capture about to be taken.
@@ -371,8 +400,14 @@ enum PreviewHover {
 private final class QuickAccessCard: NSView, NSDraggingSource {
     enum Corner { case topLeft, topRight, bottomLeft, bottomRight }
 
+    /// Height of the strip of smart action chips under the thumbnail (#243).
+    static let chipBarHeight: CGFloat = 30
+
     private let controls = NSView()
     private let thumb = NSImageView()
+    private let chipStrip = NSStackView()
+    private var onMore: ((PillButton) -> Void)?
+    var hasChips: Bool { chipStrip.superview != nil }
     /// A double-click anywhere but on a button.
     var onDoubleClick: (() -> Void)?
     /// The file a drag out of the preview carries.
@@ -412,11 +447,11 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
         thumb.image = image
         thumb.imageScaling = .scaleProportionallyUpOrDown
         thumb.animates = true   // a GIF recording plays
-        thumb.autoresizingMask = [.width, .height]
+        thumb.autoresizingMask = [.width, .minYMargin]   // stays at the top when the chip strip makes the card taller
         addSubview(thumb)
 
         controls.frame = bounds
-        controls.autoresizingMask = [.width, .height]
+        controls.autoresizingMask = [.width, .minYMargin]
         controls.wantsLayer = true
         controls.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
         controls.alphaValue = 0
@@ -460,6 +495,31 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
         return button
     }
 
+    /// Adds the chip strip below the thumbnail; the caller makes the card `chipBarHeight` taller. `more` opens a menu
+    /// of the actions that didn't fit.
+    func addChips(_ chips: [(title: String, symbol: String, run: () -> Void)], more: ((PillButton) -> Void)?) {
+        var views: [NSView] = chips.map { PillButton(title: $0.title, symbol: $0.symbol, style: .raised, height: 22, run: $0.run) }
+        if let more {
+            onMore = more
+            let button = PillButton(title: nil, symbol: "ellipsis", style: .raised, height: 22)
+            button.target = self
+            button.action = #selector(moreClicked(_:))
+            button.toolTip = "More actions"
+            button.setAccessibilityLabel("More actions")
+            views.append(button)
+        }
+        chipStrip.setViews(views, in: .leading)
+        chipStrip.orientation = .horizontal
+        chipStrip.spacing = 6
+        chipStrip.edgeInsets = NSEdgeInsets(top: 0, left: 7, bottom: 0, right: 7)
+        chipStrip.appearance = NSAppearance(named: .aqua)
+        chipStrip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Self.chipBarHeight)
+        chipStrip.autoresizingMask = [.width, .maxYMargin]
+        addSubview(chipStrip)
+    }
+
+    @objc private func moreClicked(_ sender: PillButton) { onMore?(sender) }
+
     func addCenter(_ actions: [(String, () -> Void)]) {
         let stack = NSStackView(views: actions.map { PillButton(title: $0.0, symbol: nil, style: .raised, height: 26, run: $0.1) })
         stack.orientation = .vertical
@@ -476,7 +536,7 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
     /// Clicks on the thumbnail or the veil land here (not on the image view), so a double-click can open the editor.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
-        return hit === thumb || hit === controls ? self : hit
+        return hit === thumb || hit === controls || hit === chipStrip ? self : hit
     }
 
     override func mouseDown(with event: NSEvent) {

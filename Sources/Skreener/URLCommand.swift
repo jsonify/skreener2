@@ -56,6 +56,7 @@ struct URLCommand: Equatable {
         ("grab/delayed/window", .run(.timedWindow)),
         ("grab/delayed/fullscreen", .run(.timedFullscreen)),
         ("ocr", .run(.captureText)),
+        ("qr", .run(.scanQRCode)),
         ("record", .run(.recordScreen)),
         ("load/clipboard", .run(.openClipboard)),
         ("load/file", .run(.openFile)),

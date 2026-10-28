@@ -96,6 +96,12 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 ### Text recognition (OCR)
 
+- **Smart actions** look through each capture for dates, addresses, phone numbers, links, flights and QR codes or
+  barcodes, off the main thread. Quick Access shows buttons for them (Add to Calendar, Open in Maps, Call, Open Link,
+  Copy or Open QR content), with more in a menu; the editor's text menu has the same under Smart Actions. Turn it
+  off in Settings → After Capture. **Scan QR Code** (no default shortcut, or `skreener://qr`) copies what the codes
+  in an area say and offers to open a link.
+
 - **Capture Text** recognizes the text in an area on your Mac, using Apple's Vision framework. The text opens in a
   small scratch pad where you can fix it up or join the lines, then you copy it.
   Capture more text while it is open and it is added on a new line at the cursor.

@@ -207,6 +207,12 @@ enum Preferences {
         get { d.object(forKey: "textScratchPad") as? Bool ?? true }
         set { d.set(newValue, forKey: "textScratchPad") }
     }
+    /// Look for dates, addresses, phone numbers, links and QR codes in each capture and offer actions on its Quick Access
+    /// preview (#243).
+    static var smartActions: Bool {
+        get { d.object(forKey: "smartActions") as? Bool ?? true }
+        set { d.set(newValue, forKey: "smartActions") }
+    }
     /// The editor's dock of open screenshots (#140): hidden with its button or ⌃⌘S, and on the left or right.
     static var editorDockCollapsed: Bool {
         get { d.bool(forKey: "editorDockCollapsed") }
