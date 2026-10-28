@@ -66,6 +66,7 @@ struct URLCommand: Equatable {
         ("pin/live", .run(.captureAreaAndLivePin)),
         ("pin/live/window", .run(.livePinWindow)),
         ("history", .run(.showHistory)),
+        ("watch/area", .run(.watchArea)),
         ("settings", .settings),
     ]
 

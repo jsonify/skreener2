@@ -43,6 +43,11 @@ final class URLCommandTests: XCTestCase {
         XCTAssertEqual(parse("skreener://pin/live/window"), .success(URLCommand(command: .run(.livePinWindow))))
     }
 
+    func testWatchArea() {
+        XCTAssertEqual(parse("skreener://watch/area"), .success(URLCommand(command: .run(.watchArea))))
+        XCTAssertEqual(parse("skreener://watch/area?then=copy"), .failure(.thenNotAllowed("watch/area")))
+    }
+
     func testEveryThenOption() {
         XCTAssertEqual(parse("skreener://grab/previous?then=copy,save,edit,pin,quickaccess"),
                        .success(URLCommand(command: .run(.capturePreviousArea),
