@@ -99,6 +99,9 @@ struct Style: Equatable {
     var handDrawn = false
     /// Pen: a stroke that is nearly a straight line, an ellipse or a rectangle becomes that shape when let go.
     var shapeCorrection = false
+    /// Closed pen polygons: how opaque the fill is (0…1), so an area can be shaded while the text under it stays
+    /// legible. The fill uses the style's `color`.
+    var fillOpacity: CGFloat = 0.35
     /// Arrows: a text label opens at the arrow's tail once it is drawn, ready for typing (#174).
     var arrowLabel = true
 
@@ -144,6 +147,7 @@ extension Style {
             "arrowStyle": arrowStyle.rawValue, "textOnly": textOnly, "magnification": Double(magnification),
             "lensShape": lensShape.rawValue, "fill": fill.rawValue, "textBox": textBox.rawValue, "tail": tail,
             "handDrawn": handDrawn, "shapeCorrection": shapeCorrection, "arrowLabel": arrowLabel,
+            "fillOpacity": Double(fillOpacity),
         ]
     }
 
@@ -169,6 +173,7 @@ extension Style {
         handDrawn = d["handDrawn"] as? Bool ?? handDrawn
         shapeCorrection = d["shapeCorrection"] as? Bool ?? shapeCorrection
         arrowLabel = d["arrowLabel"] as? Bool ?? arrowLabel
+        fillOpacity = number("fillOpacity").map { min(max($0, 0), 1) } ?? fillOpacity
     }
 }
 
@@ -193,6 +198,8 @@ struct Annotation: Equatable {
     var wrapWidth: CGFloat? = nil
     /// Arrows and lines: how far the middle of the curve sits from the straight line, to its left (#119).
     var bend: CGFloat = 0
+    /// Pen: a closed polygon whose enclosed area is filled. An open multi-segment line keeps this false.
+    var closed = false
     /// Keeps the hand-drawn wobble the same every time it is drawn.
     var seed = UInt64.random(in: 0...UInt64.max)
     var style: Style
@@ -320,7 +327,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     var tool: Tool = Preferences.editorTool {
         didSet {
             guard tool != oldValue else { return }
-            finishTextEditing(); endAreaPick()
+            finishTextEditing(); endAreaPick(); cancelPolygon()
             if tool == .redactText || oldValue == .redactText {
                 if tool == .redactText { selectedID = nil }
                 findTerms = []
@@ -343,6 +350,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private enum Drag {
         case draw
+        /// A press while a pen polygon is in progress: it places a vertex (or closes it) on release, whether the mouse
+        /// moved or not, so a freehand stroke never starts mid-polygon.
+        case polygon
         case move(last: NSPoint)
         /// ⌥-drag on an annotation: a copy is made on the first move and follows the pointer, the original stays (#137).
         case duplicate(last: NSPoint, copied: Bool)
@@ -385,6 +395,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private var draft: Annotation? {
         didSet { updateExtent() }
     }
+    /// The vertices placed so far for a pen polygon being built by clicking; empty when none is in progress.
+    private var penVertices: [NSPoint] = []
+    /// The pointer while a polygon is in progress, for the rubber-band segment and the close-point highlight.
+    private var penHover: NSPoint?
+    /// Whether a pen polygon is being built right now.
+    private var buildingPolygon: Bool { !penVertices.isEmpty }
     /// What capture history keeps to reopen this capture with its annotations still editable (#30).
     var document: EditorDocument { EditorDocument(items: items, crop: crop, background: background, deviceFrame: deviceFrame) }
     /// Typing a text annotation or choosing a crop is under way: the state isn't a finished edit yet.
@@ -392,6 +408,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     /// Replaces the annotations, crop and background with a saved document's; its undo history starts empty.
     func load(_ doc: EditorDocument) {
+        cancelPolygon()
         items = doc.items
         crop = doc.crop
         background = doc.background
@@ -443,6 +460,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// The tool whose options the attributes bar shows: the selected annotation's, else the current tool's.
     var contextTool: Tool { selectedIndex.map { items[$0].tool } ?? tool }
     var contextStyle: Style { selectedIndex.map { items[$0].style } ?? style }
+    /// Whether the selected annotation is a closed, filled pen polygon, so the attributes bar shows its fill controls.
+    var contextIsClosedPolygon: Bool { selectedIndex.map { items[$0].tool == .pen && items[$0].closed } ?? false }
 
     private func notifyContext() { onContextChange?(contextTool, contextStyle) }
 
@@ -474,6 +493,14 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return
         }
         beforeDrag = snapshot
+
+        // A pen polygon in progress takes every click as a vertex (or, on the second click of a double-click, finishes
+        // as an open line); this runs ahead of selection so vertices can land anywhere, over other annotations too.
+        if tool == .pen, buildingPolygon {
+            if event.clickCount >= 2 { commitPolygon(closed: false); return }
+            drawAnchor = p; penHover = p; drag = .polygon
+            return
+        }
 
         if let i = selectedIndex, let d = handleDrag(for: items[i], at: p) { drag = d; return }
         if let i = items.indices.reversed().first(where: { hits(items[$0], p) }) {
@@ -519,6 +546,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return
         }
         switch drag {
+        case .polygon?:
+            penHover = p   // the rubber-band segment follows the pointer; the vertex is placed on release
         case .draw?:
             draft?.end = p
             if let d = draft, d.tool.snapsToObjects {
@@ -645,6 +674,17 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         snapGuides = []
         guard let d = drag else { return }   // text add/edit records its own undo step
         if isCropping { drag = nil; return }  // the crop is recorded when it is applied
+        let up = convert(event.locationInWindow, from: nil)
+        // A press while a polygon is in progress places a vertex (or closes it) wherever the pointer ends up.
+        if case .polygon = d { addPolygonVertex(at: up); draft = nil; drag = nil; needsDisplay = true; return }
+        // A pen press that barely moved is a click, not a freehand stroke: start a polygon at the point clicked. A real
+        // drag falls through to the freehand path below, unchanged.
+        if case .draw = d, let dr = draft, dr.tool == .pen, hypot(up.x - drawAnchor.x, up.y - drawAnchor.y) <= 6 / zoom {
+            draft = nil; drag = nil
+            beginPolygon(at: dr.start)
+            needsDisplay = true
+            return
+        }
         if case .draw = d, var a = draft, isMeaningful(a) {
             if a.tool == .magnifier { a.lens = defaultLensCenter(a) }
             if a.tool.isFreehand { a = finishedStroke(a) }
@@ -681,6 +721,60 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         var a = a
         a.points = StrokeShapes.simplify(a.points, epsilon: 1.5 / zoom)
         return a
+    }
+
+    // MARK: Pen polygon
+
+    /// How close (in points, scaled for zoom) a click must land to the first vertex to close the polygon.
+    private var polygonCloseSlop: CGFloat { 12 / zoom }
+
+    /// Starts a polygon with its first vertex at `p`.
+    private func beginPolygon(at p: NSPoint) {
+        penVertices = [p]
+        penHover = p
+    }
+
+    /// Places a vertex at `p`, or closes and commits the polygon when it has three or more vertices and `p` lands near
+    /// the first. A click on (almost) the last vertex is ignored, so a double-click's extra press makes no zero-length
+    /// edge.
+    private func addPolygonVertex(at p: NSPoint) {
+        guard buildingPolygon else { return }
+        if PolygonTool.shouldClose(penVertices, at: p, within: polygonCloseSlop) { commitPolygon(closed: true); return }
+        if let last = penVertices.last, hypot(p.x - last.x, p.y - last.y) <= 1 / zoom { return }
+        penVertices.append(p)
+        penHover = p
+    }
+
+    /// Finishes the polygon in progress: a closed, filled area (three or more vertices) or an open multi-segment line
+    /// (two or more), committed as one pen annotation and one undo step. Anything smaller is discarded. Clears the state.
+    private func commitPolygon(closed: Bool) {
+        defer { penVertices = []; penHover = nil; drag = nil; needsDisplay = true }
+        let pts = penVertices
+        guard let first = pts.first, let last = pts.last, pts.count >= (closed ? 3 : 2) else { return }
+        var a = Annotation(tool: .pen, start: first, end: last, points: pts, style: style)
+        a.closed = closed
+        let before = snapshot
+        items.append(a)
+        selectedID = a.id
+        onDrawnByHand?(a.tool, bounds(of: a), a.id)
+        recordUndo(from: before)
+    }
+
+    /// ⌫ while building: takes back the last vertex placed; removing the only one ends the polygon.
+    private func removeLastPolygonVertex() {
+        guard buildingPolygon else { return }
+        penVertices.removeLast()
+        if penVertices.isEmpty { penHover = nil; if case .polygon = drag { drag = nil } }
+        needsDisplay = true
+    }
+
+    /// Drops the polygon in progress, if any (e.g. Esc, or switching tool or mode).
+    private func cancelPolygon() {
+        guard buildingPolygon else { return }
+        penVertices = []
+        penHover = nil
+        if case .polygon = drag { drag = nil }
+        needsDisplay = true
     }
 
     // MARK: Snap to objects (#123)
@@ -806,15 +900,20 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
         let step: CGFloat = shift ? 10 : 1
         switch event.keyCode {
-        case 51, 117: deleteSelection(); return                         // ⌫, ⌦
+        case 51, 117:                                                   // ⌫, ⌦
+            if buildingPolygon { removeLastPolygonVertex(); return }
+            deleteSelection(); return
         case 53:                                                        // Esc
-            if selectedID != nil {
+            if buildingPolygon {
+                cancelPolygon()
+            } else if selectedID != nil {
                 selectedID = nil; needsDisplay = true
             } else if ruler == nil {
                 onEscape?()
             }
             return
-        case 36, 76:                                                    // Return / Enter edits selected text
+        case 36, 76:                                                    // Return / Enter
+            if buildingPolygon { commitPolygon(closed: false); return }  // finish as an open multi-segment line
             if let i = selectedIndex, items[i].tool == .text { beginTextEditing(at: i) }
             return
         case 123: nudge(dx: -step, dy: 0); return
@@ -871,6 +970,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     func undo() {
         finishTextEditing()
         cancelCrop()
+        cancelPolygon()
         guard let previous = undoStack.popLast() else { NSSound.beep(); return }
         redoStack.append(snapshot)
         snapshot = previous
@@ -882,6 +982,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     func redo() {
         finishTextEditing()
         cancelCrop()
+        cancelPolygon()
         guard let next = redoStack.popLast() else { NSSound.beep(); return }
         undoStack.append(snapshot)
         snapshot = next
@@ -1491,6 +1592,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private func startAreaPick(_ kind: AreaPick) {
         finishTextEditing()
+        cancelPolygon()
         applyCrop()
         clearSelection()
         endRuler()
@@ -1573,6 +1675,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private func pointerMoved(to p: NSPoint) {
         if let c = color(at: p) { onHoverColor?(c) }
         if ruler != nil { updateRuler() }
+        if buildingPolygon { penHover = p; needsDisplay = true }
     }
 
     /// The pointer in image coordinates, while it is over the visible canvas.
@@ -1759,6 +1862,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     func beginCrop() {
         guard !isCropping else { return }
         finishTextEditing()
+        cancelPolygon()
         clearSelection()
         cropMargin = 28 / zoom
         cropDraft = crop ?? fullContentRect()
@@ -2140,6 +2244,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if a.tool == .magnifier {
             return rect(a).insetBy(dx: -slop, dy: -slop).contains(p) || lensPath(a).contains(p)
         }
+        // A closed pen polygon is hit anywhere inside its filled area, as well as on its outline.
+        if a.tool == .pen, a.closed {
+            if PolygonTool.contains(a.points, point: p) { return true }
+            return PolygonTool.path(a.points).cgPath
+                .copy(strokingWithWidth: a.style.lineWidth + slop * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
+                .contains(p)
+        }
         // A filled shape is hit anywhere inside, an outline only on its line.
         if a.tool == .rect || a.tool == .ellipse, a.style.fill != .outline, outline(a)?.contains(p) == true { return true }
         guard let path = outline(a) else { return false }
@@ -2250,7 +2361,39 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         if !exporting, tool == .redactText, !isCropping { drawFindHits() }
         if !exporting, textEditor == nil, let i = selectedIndex { drawSelection(items[i]) }
         if !exporting, let d = rulerDraft { renderShape(d) }
+        if !exporting { drawPolygonInProgress() }
         if !exporting { drawSnapGuides() }
+    }
+
+    /// The pen polygon being built: the placed edges, a rubber-band segment to the pointer, a handle at each
+    /// vertex, and a ring on the first vertex once a click there would close the shape.
+    private func drawPolygonInProgress() {
+        guard buildingPolygon else { return }
+        let px = 1 / zoom
+        let canClose = penHover.map { PolygonTool.shouldClose(penVertices, at: $0, within: polygonCloseSlop) } ?? false
+        let path = NSBezierPath()
+        path.move(to: penVertices[0])
+        for v in penVertices.dropFirst() { path.line(to: v) }
+        if canClose {
+            path.close()
+            style.color.withAlphaComponent(style.fillOpacity).setFill(); path.fill()
+        } else if let h = penHover {
+            path.line(to: h)
+        }
+        path.lineWidth = max(style.lineWidth, px)
+        path.lineCapStyle = .round; path.lineJoinStyle = .round
+        style.color.setStroke(); path.stroke()
+        for v in penVertices {
+            let r = 4 * px
+            let dot = NSBezierPath(ovalIn: NSRect(x: v.x - r, y: v.y - r, width: r * 2, height: r * 2))
+            NSColor.white.setFill(); dot.fill()
+            dot.lineWidth = 1.5 * px; style.color.setStroke(); dot.stroke()
+        }
+        if canClose {
+            let first = penVertices[0], r = 7 * px
+            let ring = NSBezierPath(ovalIn: NSRect(x: first.x - r, y: first.y - r, width: r * 2, height: r * 2))
+            ring.lineWidth = 2 * px; NSColor.controlAccentColor.setStroke(); ring.stroke()
+        }
     }
 
     /// Dims the screenshot everywhere except inside the spotlights (all of them together, so they never double-darken).
@@ -2320,6 +2463,13 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             }
             p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
         case .line, .pen:
+            if a.tool == .pen, a.closed {
+                let p = PolygonTool.path(a.points)
+                a.style.color.withAlphaComponent(a.style.fillOpacity).setFill(); p.fill()
+                a.style.color.setStroke()
+                p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
+                return
+            }
             guard let p = drawnOutline(a) else { return }
             p.lineWidth = lw; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
         case .filledRect:

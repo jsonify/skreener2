@@ -44,7 +44,14 @@ final class EditorDocumentTests: XCTestCase {
 
         var lens = Annotation(tool: .magnifier, start: .zero, end: NSPoint(x: 10, y: 10), style: Style())
         lens.lens = NSPoint(x: 20, y: 20)
-        return [arrow, text, pen, lens]
+
+        var polygonStyle = Style()
+        polygonStyle.fillOpacity = 0.6
+        var polygon = Annotation(tool: .pen, start: .zero, end: NSPoint(x: 8, y: 0), style: polygonStyle)
+        polygon.points = [.zero, NSPoint(x: 8, y: 0), NSPoint(x: 8, y: 6), NSPoint(x: 0, y: 6)]
+        polygon.closed = true
+
+        return [arrow, text, pen, lens, polygon]
     }
 
     func testAnnotationsRoundTrip() throws {
@@ -64,6 +71,7 @@ final class EditorDocumentTests: XCTestCase {
             XCTAssertEqual(a.tail, b.tail)
             XCTAssertEqual(a.wrapWidth, b.wrapWidth)
             XCTAssertEqual(a.bend, b.bend)
+            XCTAssertEqual(a.closed, b.closed)
             XCTAssertEqual(a.seed, b.seed)
             XCTAssertEqual(a.style.plist as NSDictionary, b.style.plist as NSDictionary)
         }
