@@ -650,6 +650,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     @objc func timedArea() {
+        // A countdown already running keeps going; don't open a picker over it.
+        guard !selfTimer.isRunning else { NSSound.beep(); return }
         let seconds = timerSeconds()
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
@@ -663,6 +665,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     @objc func timedWindow() {
+        // A countdown already running keeps going; don't open a picker over it.
+        guard !selfTimer.isRunning else { NSSound.beep(); return }
         let seconds = timerSeconds()
         prepareCapture { [weak self] in
             Task { @MainActor in
