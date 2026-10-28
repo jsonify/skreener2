@@ -755,7 +755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
 
     // MARK: Watch This Area (#240)
 
-    private func watchChanged() { showIdleIcon() }
+    @MainActor private func watchChanged() { showIdleIcon() }
 
     /// Watch This Area: choose the options, then drag the area (Space picks a window) or reuse the previous area. While
     /// a watch runs, the same command stops it.
