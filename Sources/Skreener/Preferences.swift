@@ -207,6 +207,11 @@ enum Preferences {
         get { d.object(forKey: "textScratchPad") as? Bool ?? true }
         set { d.set(newValue, forKey: "textScratchPad") }
     }
+    /// Capture Code copies a Markdown fenced code block instead of plain code (#249).
+    static var codeAsMarkdown: Bool {
+        get { d.object(forKey: "codeAsMarkdown") as? Bool ?? false }
+        set { d.set(newValue, forKey: "codeAsMarkdown") }
+    }
     /// The editor's dock of open screenshots (#140): hidden with its button or ⌃⌘S, and on the left or right.
     static var editorDockCollapsed: Bool {
         get { d.bool(forKey: "editorDockCollapsed") }
