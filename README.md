@@ -124,6 +124,11 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Tabs.** Each capture opens as a tab, shown as thumbnails in a dock beside the canvas.
 - **Tools.** Arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter, text, numbered counter, pixelate,
   blur, erase, spotlight and magnifier. Every tool has a single-key shortcut (V A R F O L P H T N X B E S M).
+- **Shortcut list.** Press **?** in the editor, or choose **Help > Keyboard Shortcuts**, for a searchable list of
+  every tool, editor key, capture modifier and your own global shortcuts.
+- **Variants and right-click.** Hold the Rectangle or Arrow button, or click its corner triangle, for filled, open,
+  double or tapered, and hand-drawn. Right-click an annotation to copy and paste its style or turn a rectangle into
+  a filled one; right-click the canvas for Paste, Cut Out, Remove Background, Check Contrast and Ask Claude.
 - **Styles.** Arrows come filled, open, double-headed or tapered, and they bend. Shapes can look hand-drawn. Text can
   sit on a solid box, an outlined box, or a speech bubble. Pen strokes are smoothed and can turn into clean shapes.
 - **Stays editable.** You can select, move, resize, recolor, duplicate and reorder annotations, and copy and paste

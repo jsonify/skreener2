@@ -814,6 +814,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         case 126: nudge(dx: 0, dy: step); return
         default: break
         }
+        // ? (⇧/): the shortcut list. Typing inside a text annotation never gets here: the text editor has the keys.
+        if mods.isEmpty, event.characters == "?", let w = window { ShortcutSheet.show(from: w); return }
         if mods.isEmpty, event.charactersIgnoringModifiers?.lowercased() == "c" { beginCrop(); return }
         if mods.isEmpty, let c = event.charactersIgnoringModifiers?.lowercased().first, let t = Tool.shortcuts[c] {
             tool = t
@@ -1009,6 +1011,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return selectedIndex.map { $0 > 0 } ?? false
         case #selector(deleteSelected(_:)), #selector(cut(_:)), #selector(duplicate(_:)):
             return selectedIndex != nil
+        case #selector(copyStyle(_:)):
+            return selectedIndex != nil
+        case #selector(pasteStyle(_:)):
+            return selectedIndex != nil && StyleClipboard.style != nil
+        case #selector(toggleFilledRectangle(_:)):
+            return selectedIndex.map { items[$0].tool == .rect || items[$0].tool == .filledRect } ?? false
         case #selector(repeatOnSimilarObjects(_:)):
             return selectedIndex.map { items[$0].tool.snapsToObjects } ?? false
         case #selector(toggleSnapToObjects(_:)):
@@ -1019,12 +1027,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
     }
 
-    /// Right-click an annotation: select it and offer Arrange and Delete.
+    /// Right-click: on an annotation, select it and offer its commands; on the empty canvas, Paste and image commands.
     override func menu(for event: NSEvent) -> NSMenu? {
         guard !isCropping else { return nil }
         finishTextEditing()
         let p = convert(event.locationInWindow, from: nil)
-        guard let i = items.indices.reversed().first(where: { hits(items[$0], p) }) else { return nil }
+        guard let i = items.indices.reversed().first(where: { hits(items[$0], p) }) else { return canvasMenu() }
         selectedID = items[i].id
         needsDisplay = true
         let m = NSMenu()
@@ -1034,6 +1042,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             item.target = self
             m.addItem(item)
         }
+        m.addItem(.separator())
+        m.addItem(contextItem("Copy Style", #selector(copyStyle(_:))))
+        m.addItem(contextItem("Paste Style", #selector(pasteStyle(_:))))
+        if items[i].tool.snapsToObjects { m.addItem(contextItem("Repeat on Similar Objects", #selector(repeatOnSimilarObjects(_:)))) }
+        if items[i].tool == .rect { m.addItem(contextItem("Convert to Filled Rectangle", #selector(toggleFilledRectangle(_:)))) }
+        if items[i].tool == .filledRect { m.addItem(contextItem("Convert to Rectangle", #selector(toggleFilledRectangle(_:)))) }
         m.addItem(.separator())
         for (title, action, key, mods) in CanvasView.arrangeCommands {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
@@ -1046,6 +1060,55 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         delete.target = self
         m.addItem(delete)
         return m
+    }
+
+    private func contextItem(_ title: String, _ action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    /// Right-click on empty canvas: Paste, then the image commands, each through the action the toolbar uses.
+    private func canvasMenu() -> NSMenu? {
+        guard areaPick == nil, ruler == nil else { return nil }
+        let m = NSMenu()
+        let paste = NSMenuItem(title: "Paste", action: #selector(paste(_:)), keyEquivalent: "v")
+        paste.target = self
+        m.addItem(paste)
+        m.addItem(.separator())
+        m.addItem(contextItem("Cut Out…", #selector(cutOut(_:))))
+        m.addItem(contextItem("Remove Background", #selector(removeBackground(_:))))
+        m.addItem(contextItem("Check Contrast…", #selector(checkContrast(_:))))
+        m.addItem(.separator())
+        // The window controller's action (reached along the responder chain, like the toolbar's own button).
+        m.addItem(NSMenuItem(title: "Ask Claude…", action: #selector(EditorWindowController.askClaudeIt), keyEquivalent: ""))
+        return m
+    }
+
+    // MARK: Copy / paste style (right-click an annotation)
+
+    /// The look copied with Copy Style, for Paste Style on another annotation (any editor window).
+    @MainActor private enum StyleClipboard { static var style: Style? }
+
+    @objc func copyStyle(_ sender: Any?) {
+        guard let i = selectedIndex else { NSSound.beep(); return }
+        StyleClipboard.style = items[i].style
+    }
+
+    @objc func pasteStyle(_ sender: Any?) {
+        finishTextEditing()
+        guard let i = selectedIndex, let s = StyleClipboard.style else { NSSound.beep(); return }
+        guard s != items[i].style else { return }
+        mutate { items[i].style = s }
+        notifyContext()
+    }
+
+    /// Rectangle ⇄ filled rectangle, keeping its box and look. One undo step.
+    @objc func toggleFilledRectangle(_ sender: Any?) {
+        finishTextEditing()
+        guard let i = selectedIndex, items[i].tool == .rect || items[i].tool == .filledRect else { NSSound.beep(); return }
+        mutate { items[i].tool = items[i].tool == .rect ? .filledRect : .rect }
+        notifyContext()
     }
 
     /// Arrange commands for menus: title, action, key, modifiers.
