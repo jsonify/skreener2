@@ -78,7 +78,7 @@ final class TipsTests: XCTestCase {
         XCTAssertEqual(NewFeature.running(#selector(CanvasView.cutOut(_:))), .cutOut)
         XCTAssertEqual(NewFeature.running(#selector(CanvasView.repeatOnSimilarObjects(_:))), .repeatOnSimilarObjects)
         XCTAssertEqual(NewFeature.running(#selector(EditorWindow.combineScreenshots(_:))), .combineScreenshots)
-        XCTAssertEqual(NewFeature.running(Selector(("combineScreenshots"))), .combineScreenshots)
+        XCTAssertEqual(NewFeature.running(#selector(EditorWindowController.combineScreenshots)), .combineScreenshots)
         XCTAssertNil(NewFeature.running(#selector(CanvasView.rotateLeft(_:))))
     }
 
