@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jsonify/skreener2/compare/v1.0.0...v1.1.0) (2026-10-28)
+
+
+### Features
+
+* **capture:** keep text formatting as Markdown in Capture Text ([#321](https://github.com/jsonify/skreener2/issues/321)) ([#322](https://github.com/jsonify/skreener2/issues/322)) ([f09deb2](https://github.com/jsonify/skreener2/commit/f09deb2b769cda3da1cdf5f8ba4151e1c82e902e))
+
 ## [1.0.0](https://github.com/jsonify/skreener2/compare/v0.17.0...v1.0.0) (2026-10-28)
 
 
