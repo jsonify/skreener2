@@ -11,7 +11,7 @@ final class AnnotationStyleTests: XCTestCase {
         s.lineWidth = 7; s.fontSize = 31; s.fontName = "Menlo"; s.bold = false; s.pixelSize = 18; s.cornerRadius = 0
         s.arrowStyle = .tapered; s.textOnly = true; s.magnification = 3; s.lensShape = .rectangle; s.fill = .solid
         s.textBox = .outline; s.tail = true; s.handDrawn = true; s.shapeCorrection = true
-        s.arrowLabel = false
+        s.arrowLabel = false; s.fillOpacity = 0.7
         // Through a property list, as user defaults store it.
         let data = try PropertyListSerialization.data(fromPropertyList: s.plist, format: .binary, options: 0)
         let back = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])

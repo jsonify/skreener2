@@ -39,12 +39,26 @@ final class EditorDocumentTests: XCTestCase {
         text.wrapWidth = 120
         text.tail = NSPoint(x: 9, y: 3)
 
+        // A freehand stroke: its points are smoothed, so it must stay non-polygonal through a round-trip.
         var pen = Annotation(tool: .pen, start: .zero, end: NSPoint(x: 3, y: 3), style: Style())
         pen.points = [.zero, NSPoint(x: 1, y: 2), NSPoint(x: 3, y: 3)]
 
+        // An open polygonal line: vertices joined by straight segments, not closed or filled.
+        var polyline = Annotation(tool: .pen, start: .zero, end: NSPoint(x: 10, y: 2), style: Style())
+        polyline.points = [.zero, NSPoint(x: 5, y: 7), NSPoint(x: 10, y: 2)]
+        polyline.polygonal = true
+
         var lens = Annotation(tool: .magnifier, start: .zero, end: NSPoint(x: 10, y: 10), style: Style())
         lens.lens = NSPoint(x: 20, y: 20)
-        return [arrow, text, pen, lens]
+
+        var polygonStyle = Style()
+        polygonStyle.fillOpacity = 0.6
+        var polygon = Annotation(tool: .pen, start: .zero, end: NSPoint(x: 8, y: 0), style: polygonStyle)
+        polygon.points = [.zero, NSPoint(x: 8, y: 0), NSPoint(x: 8, y: 6), NSPoint(x: 0, y: 6)]
+        polygon.closed = true
+        polygon.polygonal = true
+
+        return [arrow, text, pen, lens, polyline, polygon]
     }
 
     func testAnnotationsRoundTrip() throws {
@@ -64,9 +78,36 @@ final class EditorDocumentTests: XCTestCase {
             XCTAssertEqual(a.tail, b.tail)
             XCTAssertEqual(a.wrapWidth, b.wrapWidth)
             XCTAssertEqual(a.bend, b.bend)
+            XCTAssertEqual(a.closed, b.closed)
+            XCTAssertEqual(a.polygonal, b.polygonal)
             XCTAssertEqual(a.seed, b.seed)
             XCTAssertEqual(a.style.plist as NSDictionary, b.style.plist as NSDictionary)
         }
+    }
+
+    func testPolygonalFlagDistinguishesVertexLinesFromFreehand() throws {
+        var freehand = Annotation(tool: .pen, start: .zero, end: NSPoint(x: 3, y: 3), style: Style())
+        freehand.points = [.zero, NSPoint(x: 1, y: 2), NSPoint(x: 3, y: 3)]
+        var polyline = Annotation(tool: .pen, start: .zero, end: NSPoint(x: 6, y: 0), style: Style())
+        polyline.points = [.zero, NSPoint(x: 3, y: 4), NSPoint(x: 6, y: 0)]
+        polyline.polygonal = true
+
+        try EditorDocument(items: [freehand, polyline]).write(to: folder, base: base())
+        let read = try XCTUnwrap(EditorDocument.read(from: folder)).document
+        XCTAssertEqual(read.items.first?.polygonal, false)
+        XCTAssertEqual(read.items.last?.polygonal, true)
+    }
+
+    func testOlderClosedPolygonsDecodeAsPolygonal() throws {
+        // A document written before the flag existed: a closed polygon carries no "polygonal" key.
+        let d: [String: Any] = [
+            "id": UUID().uuidString, "seq": 1, "tool": Tool.pen.rawValue,
+            "start": [0.0, 0.0], "end": [8.0, 0.0], "bend": 0.0, "seed": "1", "style": Style().plist,
+            "points": [[0.0, 0.0], [8.0, 0.0], [8.0, 6.0]], "closed": true,
+        ]
+        let a = try XCTUnwrap(EditorDocument.decode(d))
+        XCTAssertTrue(a.closed)
+        XCTAssertTrue(a.polygonal)
     }
 
     func testCropAndBackgroundRoundTrip() throws {

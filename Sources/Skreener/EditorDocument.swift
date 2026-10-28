@@ -80,6 +80,8 @@ struct EditorDocument {
             "bend": Double(a.bend), "seed": String(a.seed), "style": a.style.plist,
         ]
         if !a.points.isEmpty { d["points"] = a.points.map(point) }
+        if a.closed { d["closed"] = true }
+        if a.polygonal { d["polygonal"] = true }
         if !a.text.isEmpty { d["text"] = a.text }
         if a.image != nil { d["image"] = true }
         if let lens = a.lens { d["lens"] = point(lens) }
@@ -96,6 +98,9 @@ struct EditorDocument {
         a.id = id
         a.seq = d["seq"] as? Int ?? a.seq
         a.points = (d["points"] as? [[Double]] ?? []).compactMap { point($0) }
+        a.closed = d["closed"] as? Bool ?? false
+        // Older documents predate the flag; a closed polygon was always vertex-placed, so keep that invariant.
+        a.polygonal = d["polygonal"] as? Bool ?? a.closed
         a.text = d["text"] as? String ?? ""
         a.lens = point(d["lens"])
         a.tail = point(d["tail"])

@@ -6,6 +6,12 @@ struct ChangelogGroup: Equatable {
     let items: [String]
 }
 
+/// One version's section of the changelog: its version and groups, for the update window's full history (#34).
+struct ChangelogRelease: Equatable {
+    let version: String
+    let groups: [ChangelogGroup]
+}
+
 /// Reads one version's section out of CHANGELOG.md (release-please's format: `## [0.14.0](compare link) (date)`,
 /// `### Features` headings, `* **scope:** text ([#12](link)) ([abc1234](commit link))` bullets) for What's New (#302).
 enum ChangelogNotes {
@@ -41,6 +47,18 @@ enum ChangelogNotes {
         }
         flush()
         return result.isEmpty ? nil : result
+    }
+
+    /// Every version's section in the changelog, newest first (release-please writes them that way), for the update
+    /// window's full history (#34). Versions with no bullets are left out.
+    static func allReleases(in changelog: String) -> [ChangelogRelease] {
+        var versions: [String] = []
+        for raw in changelog.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("## "), let v = sectionVersion(line), !versions.contains(v) else { continue }
+            versions.append(v)
+        }
+        return versions.compactMap { v in groups(for: v, in: changelog).map { ChangelogRelease(version: v, groups: $0) } }
     }
 
     /// "## [0.14.0](https://…) (2026-10-27)" or "## 0.14.0 (date)" gives "0.14.0".
