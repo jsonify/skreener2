@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.0](https://github.com/jsonify/skreener2/compare/v0.14.0...v0.15.0) (2026-10-28)
+
+
+### Features
+
+* **help:** keyboard shortcut sheet, context menus and tool variants ([#300](https://github.com/jsonify/skreener2/issues/300), [#303](https://github.com/jsonify/skreener2/issues/303)) ([#305](https://github.com/jsonify/skreener2/issues/305)) ([097822e](https://github.com/jsonify/skreener2/commit/097822e3e8ea2837c039c66246c5505a8d985cbe))
+* **help:** one-time tips, editor hint line, New badges and Repeat nudge ([#301](https://github.com/jsonify/skreener2/issues/301), [#303](https://github.com/jsonify/skreener2/issues/303)) ([#306](https://github.com/jsonify/skreener2/issues/306)) ([68cfd98](https://github.com/jsonify/skreener2/commit/68cfd986dcf7a91ee18871475b0092fac968f7cc))
+* **help:** Welcome Guide and What's New with launch logic ([#302](https://github.com/jsonify/skreener2/issues/302)) ([#304](https://github.com/jsonify/skreener2/issues/304)) ([544ba08](https://github.com/jsonify/skreener2/commit/544ba0885e930e6347d13a5285ee4f4aa8458f40))
+
 ## [0.14.0](https://github.com/jsonify/skreener2/compare/v0.13.0...v0.14.0) (2026-10-27)
 
 
