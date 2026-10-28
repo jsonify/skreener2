@@ -377,6 +377,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away.",
                            Preferences.textScratchPad) { Preferences.textScratchPad = $0 },
                 ]),
+                group("Capture Code", [
+                    toggle("Copy as a Markdown code block",
+                           "Wraps the code in ``` fences. Off: copied as plain code.",
+                           Preferences.codeAsMarkdown) { Preferences.codeAsMarkdown = $0 },
+                ]),
                 group("Confirmation", [
                     row("Confirmation style", "When a capture opens no editor, Quick Access preview or pin (for example "
                         + "with only Copy or Save on, or Capture Text).", confirmationPopup()),

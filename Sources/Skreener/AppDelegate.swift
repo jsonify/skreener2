@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .captureActiveWindow: { [weak self] in self?.captureActiveWindow() },
             .captureScrolling: { [weak self] in self?.captureScrolling() },
             .captureText: { [weak self] in self?.captureText() },
+            .captureCode: { [weak self] in self?.captureCode() },
             .timedArea: { [weak self] in self?.timedArea() },
             .timedWindow: { [weak self] in self?.timedWindow() },
             .timedFullscreen: { [weak self] in self?.timedFullscreen() },
@@ -158,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         add("Capture Active Window", #selector(captureActiveWindow), .captureActiveWindow)
         add("Capture Scrolling", #selector(captureScrolling), .captureScrolling)
         add("Capture Text (OCR)", #selector(captureText), .captureText)
+        add("Capture Code (OCR)", #selector(captureCode), .captureCode)
         let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
         let timerMenu = NSMenu()
         for (title, sel, shortcut) in [("Area…", #selector(timedArea), HotKeyAction.timedArea),
@@ -717,6 +719,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     @objc func timedArea() {
+        // A countdown already running keeps going; don't open a picker over it.
+        guard !selfTimer.isRunning else { NSSound.beep(); return }
         let seconds = timerSeconds()
         prepareCapture { [weak self] in
             self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
@@ -730,6 +734,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     @objc func timedWindow() {
+        // A countdown already running keeps going; don't open a picker over it.
+        guard !selfTimer.isRunning else { NSSound.beep(); return }
         let seconds = timerSeconds()
         prepareCapture { [weak self] in
             Task { @MainActor in
@@ -769,6 +775,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             Sound.play("Pop")
             let lines = text.split(separator: "\n").count
             Notifier.confirm(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+        }
+    }
+
+    /// Capture Code: OCR an area and copy it as code, with the indentation kept (#249).
+    @objc func captureCode() {
+        prepareCapture { [weak self] in
+            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
+                run(screen: screen, areaCapture(screen, rect, frozen)) { self.copyCode($0) }
+            }
+        }
+    }
+
+    private func copyCode(_ image: NSImage) {
+        Task { @MainActor in
+            let code = CodeText.format(await TextRecognizer.codeLines(in: image), fenced: Preferences.codeAsMarkdown)
+            guard !code.isEmpty else {
+                Notifier.problem("No code found", detail: "Skreener couldn't find any text in the area.")
+                return
+            }
+            TextRecognizer.copyText(code)
+            Sound.play("Pop")
+            let lines = code.split(separator: "\n").count
+            Notifier.confirm(lines == 1 ? "Copied 1 line of code" : "Copied \(lines) lines of code")
         }
     }
 
