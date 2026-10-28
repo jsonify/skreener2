@@ -493,6 +493,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return
         }
         beforeDrag = snapshot
+        moveSnap = .zero
 
         // A pen polygon in progress takes every click as a vertex (or, on the second click of a double-click, finishes
         // as an open line); this runs ahead of selection so vertices can land anywhere, over other annotations too.
@@ -564,8 +565,12 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             guard let i = selectedIndex else { return }
             // Dragging a magnifier's area leaves its lens where it is.
             let lens = items[i].lens
-            items[i].translate(dx: p.x - last.x, dy: p.y - last.y)
+            // Take back last frame's alignment snap, move by the raw pointer delta, then snap again, so the snap never
+            // accumulates and the object comes free of a guide once the pointer leaves it.
+            items[i].translate(dx: (p.x - last.x) - moveSnap.x, dy: (p.y - last.y) - moveSnap.y)
             if items[i].tool == .magnifier { items[i].lens = lens }
+            moveSnap = alignmentSnap(for: i, free: event.modifierFlags.contains(.command))
+            items[i].translate(dx: moveSnap.x, dy: moveSnap.y)
             drag = .move(last: p)
         case .duplicate(let last, let copied)?:
             guard let i = selectedIndex else { return }
@@ -783,6 +788,9 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private var drawAnchor = NSPoint.zero
     /// The sides of the box that are on an edge of the screenshot's content, drawn as guides while dragging.
     private var snapGuides: [(NSPoint, NSPoint)] = []
+    /// The alignment-guide offset currently baked into the object being moved, so the next drag frame can undo it
+    /// before snapping afresh.
+    private var moveSnap = NSPoint.zero
 
     /// The corners of the box from `a` to `b` with its sides moved onto the edges of what's in the screenshot within a
     /// few points (Settings → Annotate → Snap to objects; `free`, ⌘ held, draws without). `a` stays the first corner.
@@ -818,6 +826,21 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         path.setLineDash([4 / zoom, 3 / zoom], count: 2, phase: 0)
         NSColor.systemPink.setStroke()
         path.stroke()
+    }
+
+    /// The alignment-guide offset for the image being moved at `index` when one of its edges or centers lines up with
+    /// another object on the canvas, or zero; also loads the guide segments into `snapGuides` so `drawSnapGuides()`
+    /// shows them. Only images line up (the feature is about placing images); the candidates are every other
+    /// annotation's box. Gated on Settings → Annotate → Snap to objects and bypassed while ⌘ is held (`free`), like
+    /// `snapped(...)`, so both object-snapping features behave the same.
+    private func alignmentSnap(for index: Int, free: Bool) -> NSPoint {
+        snapGuides = []
+        guard items[index].tool == .image, Preferences.snapToObjects, !free else { return .zero }
+        let others = items.indices.filter { $0 != index }.map { bounds(of: items[$0]) }
+        guard !others.isEmpty else { return .zero }
+        let found = AlignmentGuides.align(rect(items[index]), to: others, threshold: 8 / zoom)
+        snapGuides = found.guides.map { ($0.from, $0.to) }
+        return NSPoint(x: found.dx, y: found.dy)
     }
 
     /// Image → Repeat on Similar Objects: copies of the selected box over every other place in the screenshot that looks
