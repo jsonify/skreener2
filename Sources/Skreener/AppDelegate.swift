@@ -169,6 +169,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         }
         m.addItem(ContinuityCamera.menuItem(title: "Open from iPhone or iPad"))
         m.addItem(.separator())
+        let helpItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        let helpMenu = NSMenu()
+        for (title, sel) in [("Keyboard Shortcuts…", #selector(showKeyboardShortcuts)),
+                             ("Welcome Guide…", #selector(showWelcomeGuide)),
+                             ("What's New…", #selector(showWhatsNew))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; helpMenu.addItem(i)
+        }
+        helpItem.submenu = helpMenu; m.addItem(helpItem)
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.keyEquivalentModifierMask = [.command]; settings.target = self; m.addItem(settings)
         m.addItem(withTitle: "About Skreener", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
@@ -182,6 +190,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
+    @MainActor @objc private func showKeyboardShortcuts() { ShortcutSheet.show() }
+    @MainActor @objc private func showWelcomeGuide() { WelcomeGuide.show() }
+    @MainActor @objc private func showWhatsNew() { WelcomeGuide.showWhatsNew() }
     @MainActor @objc private func checkForUpdates() { Updater.check(userInitiated: true) }
 
     // MARK: skreener:// links

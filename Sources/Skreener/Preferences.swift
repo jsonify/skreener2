@@ -160,6 +160,11 @@ enum Preferences {
         get { d.object(forKey: "snapToObjects") as? Bool ?? true }
         set { d.set(newValue, forKey: "snapToObjects") }
     }
+    /// Tips, the editor's hint line, "New" dots and usage nudges. The shortcut sheet and context menus ignore it.
+    static var showTipsAndHints: Bool {
+        get { d.object(forKey: "showTipsAndHints") as? Bool ?? true }
+        set { d.set(newValue, forKey: "showTipsAndHints") }
+    }
     /// Fill the area an annotation grows the canvas into with the image's top-left pixel colour instead of white.
     static var matchExtensionColor: Bool {
         get { d.bool(forKey: "matchExtensionColor") }
