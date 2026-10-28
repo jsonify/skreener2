@@ -106,6 +106,14 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   (several at once, with Match Case, Whole Word, Regex and Fuzzy options), highlights every match so you can click
   away false positives, and covers the rest with a solid box, pixelation, blur or erase in one undoable step.
 
+### Watch This Area
+
+- **Watch This Area** checks an area (or the previous area) every 5 s, 30 s, 1 min or 5 min and notifies you when it
+  changes (Low, Medium or High sensitivity), or when a text you type appears or disappears (on-device OCR), e.g.
+  "Build succeeded". Press Space in the picker to watch a window instead: it keeps working while other windows cover it.
+- The notification shows before and after side by side; click it to open both in the editor. While a watch runs the
+  menu-bar icon is an eye, and the menu offers **Stop Watching**.
+
 ### Screen recording
 
 - Record an area or a window to **MP4** or **GIF** at 30 or 60 fps.
@@ -225,7 +233,7 @@ open "skreener://ocr"
 | Group | Commands |
 |---|---|
 | Capture | `grab/area`, `grab/previous`, `grab/fullscreen`, `grab/window`, `grab/window/active`, `grab/scrolling`, `grab/delayed[/area\|/window\|/fullscreen]?delay=N` |
-| Other actions | `ocr`, `record`, `history`, `settings` |
+| Other actions | `ocr`, `record`, `watch/area`, `history`, `settings` |
 | Open and pin | `load/clipboard`, `load/file`, `pin/clipboard`, `pin/file` |
 
 `then=` (`copy`, `save`, `edit`, `pin`, `quickaccess`) overrides the After Capture settings for that one capture.

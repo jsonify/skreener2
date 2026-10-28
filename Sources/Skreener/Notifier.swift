@@ -88,7 +88,7 @@ enum Notifier {
     }
 
     /// Notifications only work from the .app bundle (not `swift run`), where the notification center exists.
-    private static var canNotify: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+    static var canNotify: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 
     private static let delegate = NotificationDelegate()
 
@@ -107,7 +107,13 @@ private final class NotificationDelegate: NSObject, UNUserNotificationCenterDele
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let path = response.notification.request.content.userInfo["file"] as? String else { return }
+        let info = response.notification.request.content.userInfo
+        // A Watch This Area notification opens its before and after pictures (#240).
+        if let before = info[AreaWatcher.beforeKey] as? String, let after = info[AreaWatcher.afterKey] as? String {
+            await MainActor.run { AreaWatcher.openComparison(before: before, after: after) }
+            return
+        }
+        guard let path = info["file"] as? String else { return }
         let url = URL(fileURLWithPath: path)
         await MainActor.run { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     }

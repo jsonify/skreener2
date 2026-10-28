@@ -155,6 +155,7 @@ enum HotKeyAction: String, CaseIterable {
     case captureArea, allInOne, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureActiveWindow,
          captureScrolling, captureText, timedArea, timedWindow, timedFullscreen
     case recordScreen, presenter, spotlight
+    case watchArea
     case showHistory, toggleDesktopIcons, openFile, openClipboard, pinFile, pinClipboard, pinClickThrough
 
     /// The groups of Settings → Shortcuts.
@@ -175,7 +176,8 @@ enum HotKeyAction: String, CaseIterable {
         case .captureArea, .allInOne, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow,
              .captureActiveWindow, .captureScrolling, .captureText, .timedArea, .timedWindow, .timedFullscreen: return .screenshots
         case .recordScreen, .presenter, .spotlight: return .recording
-        case .showHistory, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile, .pinClipboard, .pinClickThrough: return .other
+        case .watchArea, .showHistory, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile, .pinClipboard,
+             .pinClickThrough: return .other
         }
     }
 
@@ -196,6 +198,7 @@ enum HotKeyAction: String, CaseIterable {
         case .recordScreen: return "Record Screen"
         case .presenter: return "Zoom & Draw on Screen"
         case .spotlight: return "Cursor Spotlight"
+        case .watchArea: return "Watch This Area"
         case .showHistory: return "Capture History"
         case .toggleDesktopIcons: return "Show / Hide Desktop Icons"
         case .openFile: return "Open…"
@@ -215,6 +218,7 @@ enum HotKeyAction: String, CaseIterable {
         case .presenter: return "Press again, or Esc twice, to leave."
         case .spotlight: return "While recording: dims all but a circle around the pointer. Press again to turn off."
         case .showHistory: return "Opens and closes the history panel."
+        case .watchArea: return "Notifies when an area or window changes. Press again to stop watching."
         case .pinClickThrough: return "Off on every pin, or on for the pin under the pointer."
         default: return nil
         }
@@ -239,7 +243,7 @@ enum HotKeyAction: String, CaseIterable {
         case .presenter: return KeyCombo(keyCode: kVK_ANSI_Z, modifiers: mods)
         case .spotlight: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: mods)
         case .captureActiveWindow, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
-             .openClipboard, .pinFile, .pinClipboard: return nil
+             .openClipboard, .pinFile, .pinClipboard, .watchArea: return nil
         }
     }
 }
