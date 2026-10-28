@@ -176,6 +176,37 @@ final class FormattedTextTests: XCTestCase {
         XCTAssertNil(F.marker("—"))
     }
 
+    // MARK: Plain text
+
+    func testPlainTextForHeadingsListsAndInlineMarkup() {
+        let md = "# Title\n\n- one\n  - inner\n    - deep\n      - deeper\n- two\n\n\n\n2) second\n   wrapped\n3) third\n\n"
+            + "Plain **bold** and `code`\n\\#tag \\* star"
+        XCTAssertEqual(F.plain(markdown: md),
+                       "Title\n\n• one\n   ◦ inner\n      ▪ deep\n         • deeper\n• two\n\n2. second\n   wrapped\n3. third\n\n"
+                       + "Plain bold and code\n#tag * star")
+    }
+
+    func testPlainTextIndentsCodeAndDropsFences() {
+        XCTAssertEqual(F.plain(markdown: "Run:\n```\nif a {\n\n  b()\n}\n```\nDone"), "Run:\n    if a {\n\n      b()\n    }\nDone")
+    }
+
+    func testPlainTextNestedUnderANumberLinesUpWithItsText() {
+        XCTAssertEqual(F.plain(markdown: "1. Mix\n   - flour\n     more\n2. Bake"), "1. Mix\n   ◦ flour\n     more\n2. Bake")
+    }
+
+    func testPlainTextRoundTripFromBlocks() {
+        let lines = [
+            line("Shopping", row: 0, height: 40),
+            line("• Fruit", row: 2),
+            line("◦ Apples", row: 3, x: 130),
+            line("• Bread", row: 4),
+            line("1. Mix", row: 6),
+            line("2) Bake", row: 7),
+        ]
+        let md = markdown(lines)
+        XCTAssertEqual(F.plain(markdown: md), "Shopping\n\n• Fruit\n   ◦ Apples\n• Bread\n\n1. Mix\n2. Bake")
+    }
+
     // MARK: HTML
 
     func testHTMLForListsHeadingsAndParagraphs() {

@@ -38,18 +38,30 @@ extension TextRecognizer {
         }.value
     }
 
-    /// Copies Capture Text's Markdown as plain text, with HTML and RTF beside it so apps that take rich text (Notes,
+    /// What a formatted copy puts on the clipboard.
+    enum CopyKind {
+        /// Rich text (HTML and RTF) with clean plain text beside it, for fields that don't read Markdown.
+        case standard
+        /// Rich text with the Markdown as the plain text, for GitHub and code editors.
+        case markdown
+        /// Clean plain text and nothing else.
+        case plainOnly
+    }
+
+    /// Copies Capture Text's `markdown` as `kind`. The rich flavors (HTML, RTF) let apps that take rich text (Notes,
     /// Mail, Pages, Google Docs) get the headings, lists, bold, code and colors.
-    @MainActor static func copyFormatted(_ markdown: String, colors: [FormattedText.Painted]) {
-        let body = FormattedText.html(markdown: markdown, colors: colors)
+    @MainActor static func copyFormatted(_ markdown: String, colors: [FormattedText.Painted], as kind: CopyKind = .standard) {
         let item = NSPasteboardItem()
-        item.setString(markdown, forType: .string)
-        item.setString("<meta charset=\"utf-8\">" + body, forType: .html)
-        // RTF in the system font rather than the HTML default (Times).
-        let styled = "<meta charset=\"utf-8\"><style>body { font-family: -apple-system, 'Helvetica Neue'; font-size: 13px }</style>" + body
-        if let rich = NSAttributedString(html: Data(styled.utf8), documentAttributes: nil),
-           let rtf = rich.rtf(from: NSRange(location: 0, length: rich.length), documentAttributes: [:]) {
-            item.setData(rtf, forType: .rtf)
+        item.setString(kind == .markdown ? markdown : FormattedText.plain(markdown: markdown), forType: .string)
+        if kind != .plainOnly {
+            let body = FormattedText.html(markdown: markdown, colors: colors)
+            item.setString("<meta charset=\"utf-8\">" + body, forType: .html)
+            // RTF in the system font rather than the HTML default (Times).
+            let styled = "<meta charset=\"utf-8\"><style>body { font-family: -apple-system, 'Helvetica Neue'; font-size: 13px }</style>" + body
+            if let rich = NSAttributedString(html: Data(styled.utf8), documentAttributes: nil),
+               let rtf = rich.rtf(from: NSRange(location: 0, length: rich.length), documentAttributes: [:]) {
+                item.setData(rtf, forType: .rtf)
+            }
         }
         let pb = NSPasteboard.general
         pb.clearContents()

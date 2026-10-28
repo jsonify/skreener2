@@ -433,6 +433,73 @@ enum FormattedText {
         }.compactMap { run in run.style.color.map { Painted(text: run.text, hex: $0.hex) } }
     }
 
+    // MARK: Plain text
+
+    private static let headingPattern = "^(#{1,6})\\s+(.*)$"
+    private static let itemPattern = "^( *)([-*+]|(\\d{1,9})[.)])\\s+(.*)$"
+
+    /// The capture groups of `pattern` matched against all of `line`, nil when it doesn't match.
+    private static func groups(_ pattern: String, in line: String) -> [String?]? {
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) else { return nil }
+        return (0..<m.numberOfRanges).map { Range(m.range(at: $0), in: line).map { String(line[$0]) } }
+    }
+
+    /// `markdown` as clean plain text for fields that don't read Markdown: headings as their text, lists with `•` `◦` `▪`
+    /// bullets (3 spaces per level) or their numbers, code indented 4 spaces, and no `**`, backticks or escapes.
+    static func plain(markdown: String) -> String {
+        var out: [String] = []
+        var indents: [Int] = []   // the open lists' indents, outermost first
+        var textIndent = 0        // where the current item's text starts, for its wrapped lines
+        var fence: String?
+        let bullets = ["•", "◦", "▪"]
+
+        func text(_ markdown: String) -> String { segments(markdown).map(\.text).joined() }
+        func blank() { if let last = out.last, !last.isEmpty { out.append("") } }
+
+        for line in markdown.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let open = fence {
+                if trimmed.hasPrefix(open), trimmed.allSatisfy({ $0 == "`" }) {
+                    fence = nil
+                } else {
+                    out.append(line.isEmpty ? "" : "    " + line)
+                }
+                continue
+            }
+            if trimmed.hasPrefix("```") {
+                indents = []
+                fence = String(trimmed.prefix { $0 == "`" })
+                continue
+            }
+            if trimmed.isEmpty { blank(); continue }
+            if let g = groups(headingPattern, in: line), let content = g[2] {
+                indents = []
+                out.append(text(content))
+                continue
+            }
+            if let g = groups(itemPattern, in: line), let spaces = g[1], let content = g[4] {
+                let indent = spaces.count
+                while let last = indents.last, last > indent { indents.removeLast() }
+                if indents.last.map({ $0 < indent }) ?? true { indents.append(indent) }
+                let depth = indents.count - 1
+                let marker = g[3].map { "\($0)." } ?? bullets[depth % bullets.count]
+                let pad = String(repeating: "   ", count: depth)
+                out.append(pad + marker + " " + text(content))
+                textIndent = pad.count + marker.count + 1
+                continue
+            }
+            if !indents.isEmpty, line.hasPrefix("  ") {
+                out.append(String(repeating: " ", count: textIndent) + text(trimmed))
+                continue
+            }
+            indents = []
+            out.append(text(trimmed))
+        }
+        while out.last?.isEmpty == true { out.removeLast() }
+        return out.joined(separator: "\n")
+    }
+
     // MARK: HTML
 
     /// `markdown` (as written by `markdown(_:)`, or edited in the scratch pad) as HTML for rich-text paste: headings,
@@ -455,12 +522,7 @@ enum FormattedText {
                 lists.removeLast()
             }
         }
-        let heading = try? NSRegularExpression(pattern: "^(#{1,6})\\s+(.*)$")
-        let item = try? NSRegularExpression(pattern: "^( *)([-*+]|(\\d{1,9})[.)])\\s+(.*)$")
-        func groups(_ re: NSRegularExpression?, _ line: String) -> [String?]? {
-            guard let m = re?.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) else { return nil }
-            return (0..<m.numberOfRanges).map { Range(m.range(at: $0), in: line).map { String(line[$0]) } }
-        }
+        let heading = headingPattern, item = itemPattern
 
         for line in markdown.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -481,13 +543,13 @@ enum FormattedText {
                 continue
             }
             if trimmed.isEmpty { closeParagraph(); continue }
-            if let g = groups(heading, line), let marks = g[1], let text = g[2] {
+            if let g = groups(heading, in: line), let marks = g[1], let text = g[2] {
                 closeParagraph()
                 closeLists()
                 html += "<h\(marks.count)>" + paint.inline(text) + "</h\(marks.count)>"
                 continue
             }
-            if let g = groups(item, line), let spaces = g[1], let text = g[4] {
+            if let g = groups(item, in: line), let spaces = g[1], let text = g[4] {
                 closeParagraph()
                 let indent = spaces.count
                 let tag = g[3] == nil ? "ul" : "ol"
