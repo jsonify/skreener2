@@ -180,7 +180,7 @@ final class RecordAreaPicker: NSObject {
             p.isReleasedWhenClosed = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             let v = OtherScreenView(frame: NSRect(origin: .zero, size: s.frame.size))
-            v.hint = purpose.areaHint
+            v.hint = purpose == .record ? purpose.areaHint : nil   // the banner is for Record Screen only
             v.onSelect = { [weak self] r in self?.moveSelection(to: s, rect: r.offsetBy(dx: s.frame.minX, dy: s.frame.minY)) }
             p.contentView = v
             p.orderFrontRegardless()

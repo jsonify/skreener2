@@ -43,6 +43,8 @@ final class SelectionOverlay {
     /// Banner text shown in the middle of every screen, per mode (nil = no banner). With two or more set, Space
     /// (before a drag starts) cycles through those modes.
     private var hints: [Mode: String] = [:]
+    /// Whether the `hints` banner is drawn; off, the hints only set which modes Space cycles through.
+    private var showsHint = true
     /// The selection stays adjustable after the drag; Return or a double-click takes it (#102).
     private var adjustable = false
 
@@ -50,13 +52,14 @@ final class SelectionOverlay {
     var isActive: Bool { completion != nil }
 
     /// `adjustable` keeps the dragged area on screen to refine it before it is taken (Settings → General).
-    func begin(mode: Mode, windows: [SCWindow], hints: [Mode: String] = [:],
+    func begin(mode: Mode, windows: [SCWindow], hints: [Mode: String] = [:], showsHint: Bool = true,
                adjustable: Bool = Preferences.adjustAreaBeforeCapture, completion: @escaping (Selection?) -> Void) {
         // One selection at a time: a second hotkey press while picking would stack another set of panels.
         guard self.completion == nil else { return }
         self.mode = mode
         self.windows = windows
         self.hints = hints
+        self.showsHint = showsHint
         self.adjustable = adjustable
         self.completion = completion
         guard mode != .window, Preferences.showMagnifier || Preferences.freezeScreen else { show(snapshots: [:]); return }
@@ -95,7 +98,7 @@ final class SelectionOverlay {
             v.adjustable = adjustable
             v.onSelectionStarted = { [weak self, weak v] in self?.selectionStarted(in: v) }
             v.keyHeldElsewhere = { [weak self, weak v] in self?.isAdjusting(besides: v) ?? false }
-            v.hint = hints[mode]
+            v.hint = showsHint ? hints[mode] : nil
             if hints.count >= 2 { v.onToggleMode = { [weak self] in self?.toggleMode() } }
             p.contentView = v
             p.makeKeyAndOrderFront(nil)
@@ -143,7 +146,7 @@ final class SelectionOverlay {
                 guard let v = p.contentView as? SelectionView else { continue }
                 v.windows = windows
                 v.mode = next
-                v.hint = hints[next]
+                v.hint = showsHint ? hints[next] : nil
                 v.updateHoverWindow()
                 v.needsDisplay = true
             }

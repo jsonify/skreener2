@@ -577,7 +577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     @objc func captureScrolling() {
         if scrollCapture.isRunning { scrollCapture.finish(); return }
         prepareCapture { [weak self] in
-            self?.overlay.begin(mode: .scrolling, windows: [], hints: Self.captureHints) { [weak self] sel in self?.handle(sel) }
+            self?.overlay.begin(mode: .scrolling, windows: [], hints: Self.captureHints, showsHint: false) { [weak self] sel in self?.handle(sel) }
         }
     }
 
@@ -628,7 +628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         ]
         Task { @MainActor [weak self] in
             let windows = mode == .window ? await CaptureService.onScreenWindows() : []
-            self?.overlay.begin(mode: mode, windows: windows, hints: hints, adjustable: false) { [weak self] sel in
+            self?.overlay.begin(mode: mode, windows: windows, hints: hints, showsHint: !allInOne, adjustable: false) { [weak self] sel in
                 guard let self else { return }
                 switch sel {
                 case .area(let screen, let rect, _)?, .scrolling(let screen, let rect)?:
@@ -835,11 +835,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
 
     @objc func captureArea() {
         prepareCapture { [weak self] in
-            self?.overlay.begin(mode: .area, windows: [], hints: Self.captureHints) { [weak self] sel in self?.handle(sel) }
+            self?.overlay.begin(mode: .area, windows: [], hints: Self.captureHints, showsHint: false) { [weak self] sel in self?.handle(sel) }
         }
     }
 
     /// Capture Area, Capture Window and Capture Scrolling: Space before a drag cycles area → window → scrolling (#171).
+    /// The text isn't shown: the instruction banner is for Record Screen only.
     private static let captureHints: [SelectionOverlay.Mode: String] = [
         .area: "Drag to capture an area. Press Space to pick a window.",
         .window: "Click a window to capture it. Press Space for a scrolling capture.",
@@ -862,7 +863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             Notifier.problem("No windows are present", detail: "Try a fullscreen screenshot instead.")
             return
         }
-        overlay.begin(mode: .window, windows: windows, hints: Self.captureHints) { [weak self] sel in self?.handle(sel) }
+        overlay.begin(mode: .window, windows: windows, hints: Self.captureHints, showsHint: false) { [weak self] sel in self?.handle(sel) }
     }
 
     /// Captures the front window of the app in front, without picking it (#110). Choosing this from Skreener's menu
