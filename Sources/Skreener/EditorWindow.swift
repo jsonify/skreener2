@@ -966,10 +966,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         case .toolsItem:
             // One pill per tool; the current one is filled.
             toolPills = toolButtons.map { b in
-                let key = Tool.shortcuts.first { $0.value == b.tool }.map { " (\($0.key.uppercased()))" } ?? ""
-                let tip = b.tool == .redactText ? "Redact Text: find words and redact every match" : b.tool.name + key
-                let pill = iconButton(b.symbol, tip, self, #selector(toolChanged(_:)), style: .plain)
+                let hasVariants = b.tool == .rect || b.tool == .arrow
+                let pill = iconButton(b.symbol, b.tool.tooltip(variants: hasVariants), self, #selector(toolChanged(_:)), style: .plain)
                 pill.isOn = b.tool == canvas.tool
+                // Rectangle and Arrow: a corner triangle, or a long press, opens their variants.
+                if b.tool == .rect { pill.variantMenu = { [weak self] in self?.rectangleVariantMenu() } }
+                if b.tool == .arrow { pill.variantMenu = { [weak self] in self?.arrowVariantMenu() } }
                 return pill
             }
             let item = groupItem(id, "Tools", toolPills, grouped: true)
@@ -1481,9 +1483,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     @objc private func toolChanged(_ sender: PillButton) {
         guard let i = toolPills.firstIndex(where: { $0 === sender }) else { return }
-        selectToolButton(toolButtons[i].tool)
+        chooseTool(toolButtons[i].tool)
+    }
+    fileprivate func chooseTool(_ t: Tool) {
+        selectToolButton(t)
         canvas.applyCrop()
-        canvas.tool = toolButtons[i].tool
+        canvas.tool = t
         if stripMode == .background || stripMode == .deviceFrame { stripMode = restingStrip }
         if canvas.tool == .redactText { focusFindField() } else { window?.makeFirstResponder(canvas) }
     }
@@ -1549,7 +1554,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func saveIt() { saveScreenshot() }
     @objc private func saveAsIt() { saveScreenshotAs() }
     @objc private func pinIt() { PinnedScreenshotController.pin(canvas.flattened()) }
-    @MainActor @objc private func askClaudeIt() { AskClaudePanel.show(canvas.flattened(), from: window) }
+    @MainActor @objc func askClaudeIt() { AskClaudePanel.show(canvas.flattened(), from: window) }
     @objc private func shareIt(_ sender: NSButton) { Output.share(canvas.flattened(), from: sender) }
     /// The Send To menu (#276): the screenshot as the file the destination picked gets, annotations included.
     @MainActor @objc private func sendToIt(_ sender: NSButton) {
@@ -1925,5 +1930,54 @@ extension EditorWindowController: NSTokenFieldDelegate {
         default:
             return false
         }
+    }
+}
+
+// Variants of Rectangle and Arrow (#303): the same tool and style changes as the tool strip, from a menu on the tool button.
+extension EditorWindowController {
+    fileprivate func variantItem(_ title: String, _ action: Selector, tag: Int, on: Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.tag = tag
+        item.state = on ? .on : .off
+        return item
+    }
+
+    fileprivate func rectangleVariantMenu() -> NSMenu {
+        let m = NSMenu()
+        m.addItem(variantItem("Outline (R)", #selector(toolVariantPicked(_:)), tag: Tool.rect.rawValue, on: canvas.tool == .rect))
+        m.addItem(variantItem("Filled (F)", #selector(toolVariantPicked(_:)), tag: Tool.filledRect.rawValue, on: canvas.tool == .filledRect))
+        m.addItem(.separator())
+        m.addItem(variantItem("Hand-Drawn", #selector(rectangleHandDrawnPicked(_:)), tag: 0, on: canvas.contextStyle.handDrawn))
+        return m
+    }
+
+    fileprivate func arrowVariantMenu() -> NSMenu {
+        let m = NSMenu()
+        let current = canvas.tool == .arrow ? canvas.contextStyle.arrowStyle : nil
+        let styles: [(String, ArrowStyle)] = [("Filled Head", .filled), ("Open Head", .open), ("Double-Headed", .double), ("Tapered", .tapered)]
+        for (title, style) in styles {
+            m.addItem(variantItem(title, #selector(arrowVariantPicked(_:)), tag: style.rawValue, on: current == style))
+        }
+        return m
+    }
+
+    @objc fileprivate func toolVariantPicked(_ item: NSMenuItem) {
+        guard let t = Tool(rawValue: item.tag) else { return }
+        chooseTool(t)
+    }
+
+    @objc fileprivate func rectangleHandDrawnPicked(_ item: NSMenuItem) {
+        let on = item.state != .on
+        chooseTool(.rect)
+        canvas.updateStyle { $0.handDrawn = on }
+        contextChanged()
+    }
+
+    @objc fileprivate func arrowVariantPicked(_ item: NSMenuItem) {
+        let style = ArrowStyle(rawValue: item.tag) ?? .filled
+        chooseTool(.arrow)
+        canvas.updateStyle { $0.arrowStyle = style }
+        contextChanged()
     }
 }
