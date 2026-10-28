@@ -87,6 +87,9 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Freeze screen.** This optionally freezes the screen while you pick, so menus and hover states stay put.
 - **Self-timer.** Pick an area, window or the full screen, then wait a 3, 5 or 10 second countdown.
 - **Capture Area & Pin.** This captures an area and pins it in place at 100%.
+- **Live Pin.** A pin that keeps updating, like picture-in-picture for an area (**Capture Area & Live Pin**, or the
+  All-in-One bar) or a window (**Live Pin Window…**, which keeps showing it when other windows cover it). It runs at
+  5 fps by default (10 or 15 in Settings or the pin's right-click menu). **Freeze** turns it into a regular pin.
 - **Desktop icons.** You can hide them with a toggle, or only while capturing.
 
 ### Scrolling capture
@@ -229,7 +232,7 @@ open "skreener://ocr"
 |---|---|
 | Capture | `grab/area`, `grab/previous`, `grab/fullscreen`, `grab/window`, `grab/window/active`, `grab/scrolling`, `grab/delayed[/area\|/window\|/fullscreen]?delay=N` |
 | Other actions | `ocr`, `record`, `history`, `settings` |
-| Open and pin | `load/clipboard`, `load/file`, `pin/clipboard`, `pin/file` |
+| Open and pin | `load/clipboard`, `load/file`, `pin/clipboard`, `pin/file`, `pin/live`, `pin/live/window` |
 
 `then=` (`copy`, `save`, `edit`, `pin`, `quickaccess`) overrides the After Capture settings for that one capture.
 Links are off until you allow them in **Settings > General**, or from the prompt the first link shows.

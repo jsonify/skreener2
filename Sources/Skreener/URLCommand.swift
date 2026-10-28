@@ -62,6 +62,8 @@ struct URLCommand: Equatable {
         ("load/file", .run(.openFile)),
         ("pin/clipboard", .run(.pinClipboard)),
         ("pin/file", .run(.pinFile)),
+        ("pin/live", .run(.captureAreaAndLivePin)),
+        ("pin/live/window", .run(.livePinWindow)),
         ("history", .run(.showHistory)),
         ("settings", .settings),
     ]

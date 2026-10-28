@@ -4,7 +4,7 @@ import AppKit
 enum RecordPick {
     case video(NSScreen, CGRect), gif(NSScreen, CGRect)        // global, bottom-left origin coordinates
     case screenshot(NSScreen, CGRect), text(NSScreen, CGRect), timer(NSScreen, CGRect)
-    case scrolling(NSScreen, CGRect)
+    case scrolling(NSScreen, CGRect), livePin(NSScreen, CGRect)
     case fullscreenShot, window
     /// Space in the picker: pick a window to record instead.
     case selectWindow
@@ -418,7 +418,8 @@ final class RecordAreaPicker: NSObject {
     private func buildModeBar() -> NSView {
         let modes: [(String, String, RecordPick?)] = [
             ("viewfinder", "Area", nil), ("display", "Fullscreen", .fullscreenShot), ("macwindow", "Window", .window),
-            ("arrow.down", "Scrolling", nil), ("timer", "Timer", nil), ("textformat", "OCR", nil), ("video", "Recording", nil),
+            ("arrow.down", "Scrolling", nil), ("timer", "Timer", nil), ("textformat", "OCR", nil),
+            ("pip", "Live Pin", nil), ("video", "Recording", nil),
         ]
         var buttons: [NSView] = []
         for (sym, title, pick) in modes {
@@ -436,6 +437,9 @@ final class RecordAreaPicker: NSObject {
             case "Scrolling":
                 b.toolTip = "Scrolling capture of the selected area"
                 bind(b) { [weak self] _ in guard let self else { return }; finish(.scrolling(screen, globalSelection)) }
+            case "Live Pin":
+                b.toolTip = "Pin the selected area, updating as it changes"
+                bind(b) { [weak self] _ in guard let self else { return }; finish(.livePin(screen, globalSelection)) }
             case "Recording":
                 b.toolTip = "Record the selected area (↩)"
                 bind(b) { [weak self] _ in self?.showRecording() }

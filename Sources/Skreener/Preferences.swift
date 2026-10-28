@@ -299,6 +299,11 @@ enum Preferences {
         get { d.object(forKey: "recordShowsCursor") as? Bool ?? true }
         set { d.set(newValue, forKey: "recordShowsCursor") }
     }
+    /// Live Pins: frames per second (5, 10 or 15; 5 by default to keep the CPU low) (#241).
+    static var livePinFrameRate: Int {
+        get { LivePinGeometry.frameRate(d.integer(forKey: "livePinFrameRate")) }
+        set { d.set(newValue, forKey: "livePinFrameRate") }
+    }
     /// Screen recordings: frames per second (30 or 60).
     static var recordFrameRate: Int {
         get { d.integer(forKey: "recordFrameRate") == 60 ? 60 : 30 }
