@@ -9,9 +9,11 @@ private final class PinnedPanel: NSPanel {
 /// copy, zoom); right-click for 50/100/200%, copy, edit, save, share, blend mode, click-through and close (#116).
 /// Tracing (#244): Onion Skin shows the pin at half opacity, Difference lights up every pixel that differs from what is
 /// under it, Click-Through lets clicks reach the app below, and the arrow keys nudge the pin 1 pt (Shift: 10 pt).
+/// A Live Pin (#241) shows a `LivePinFeed`'s frames instead, until Freeze leaves it a regular pin.
 final class PinnedScreenshotController: NSObject {
     private static var live: [PinnedScreenshotController] = []
     private var panel: PinnedPanel?
+    private var feed: LivePinFeed?
 
     /// `rect` (global coordinates) puts the pin exactly over the area it was captured from, at 100%. Otherwise it
     /// opens at 100% in the middle of the screen under the pointer, smaller if it would cover most of that screen.
@@ -19,6 +21,30 @@ final class PinnedScreenshotController: NSObject {
         let c = PinnedScreenshotController()
         c.show(image, at: rect)
         live.append(c)
+    }
+
+    /// A Live Pin (#241): opens with `first` (at `rect` like `pin`), then shows each of `feed`'s frames until it is
+    /// frozen or closed. When the stream stops by itself (the window closed), the pin keeps its last frame.
+    static func livePin(_ feed: LivePinFeed, first: NSImage, at rect: CGRect? = nil) {
+        let c = PinnedScreenshotController()
+        c.feed = feed
+        c.show(first, at: rect)
+        live.append(c)
+        feed.onFrame = { [weak c] in c?.view?.showFrame($0) }
+        feed.onStop = { [weak c] error in
+            c?.freeze()
+            Notifier.problem("Live Pin stopped", detail: "It keeps the last frame. \(error.localizedDescription)")
+        }
+        feed.start()
+    }
+
+    private var view: PinnedView? { panel?.contentView as? PinnedView }
+
+    /// Stops the stream; the pin stays, with the last frame.
+    private func freeze() {
+        feed?.stop()
+        feed = nil
+        view?.isLive = false
     }
 
     private func show(_ image: NSImage, at rect: CGRect?) {
@@ -45,9 +71,11 @@ final class PinnedScreenshotController: NSObject {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isReleasedWhenClosed = false
 
-        let v = PinnedView(image: image, frame: NSRect(origin: .zero, size: frame.size))
+        let v = PinnedView(image: image, frame: NSRect(origin: .zero, size: frame.size), live: feed != nil)
         v.autoresizingMask = [.width, .height]
         v.onClose = { [weak self] in self?.close() }
+        v.onFreeze = { [weak self] in self?.freeze() }
+        v.onFrameRate = { [weak self] in self?.feed?.setFrameRate($0) }
         p.contentView = v
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(v)
@@ -68,7 +96,9 @@ final class PinnedScreenshotController: NSObject {
     }
 
     private func close() {
-        (panel?.contentView as? PinnedView)?.stopTracing()
+        feed?.stop()
+        feed = nil
+        view?.stopTracing()
         panel?.orderOut(nil)
         panel = nil
         PinnedScreenshotController.live.removeAll { $0 === self }
@@ -76,8 +106,20 @@ final class PinnedScreenshotController: NSObject {
 }
 
 private final class PinnedView: NSView {
-    let image: NSImage
+    /// The pinned image, or a Live Pin's latest frame.
+    private(set) var image: NSImage
     var onClose: (() -> Void)?
+    var onFreeze: (() -> Void)?
+    var onFrameRate: ((Int) -> Void)?
+
+    /// A Live Pin that is still updating (#241).
+    var isLive: Bool {
+        didSet {
+            freezeButton?.isHidden = !isLive
+            liveDot.isHidden = !isLive
+        }
+    }
+    private var frameRate = Preferences.livePinFrameRate
 
     /// Difference blending: the pin shows how far each of its pixels is from what is under it.
     private var difference = false
@@ -88,13 +130,22 @@ private final class PinnedView: NSView {
     private let toolbar = PinToolbar()
     private let zoomLabel = NSTextField(labelWithString: "100%")
     private var hideToolbar: DispatchWorkItem?
+    private var freezeButton: NSView?
+    private let liveDot = NSImageView()
 
-    init(image: NSImage, frame: NSRect) {
+    init(image: NSImage, frame: NSRect, live: Bool = false) {
         self.image = image
+        isLive = live
         super.init(frame: frame)
         buildToolbar()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// A Live Pin's new frame; it is drawn at the pin's size, like the first one.
+    func showFrame(_ frame: NSImage) {
+        image = frame
+        needsDisplay = true
+    }
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -177,16 +228,30 @@ private final class PinnedView: NSView {
 
         zoomLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         zoomLabel.textColor = NSColor.white.withAlphaComponent(0.8)
-        let drag = PinDragHandle(image: image)
+        let drag = PinDragHandle { [weak self] in self?.image ?? NSImage() }
+        let freeze = PinButton(symbol: "snowflake", tip: "Freeze: stop updating, keep this frame") { [weak self] in
+            self?.onFreeze?()
+        }
+        freeze.isHidden = !isLive
+        freezeButton = freeze
+        liveDot.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "Live")?
+            .withSymbolConfiguration(.init(pointSize: 7, weight: .regular))
+        liveDot.contentTintColor = .systemRed
+        liveDot.toolTip = "Live Pin: updates as the screen changes"
+        liveDot.isHidden = !isLive
+        let copy = PinButton(symbol: "doc.on.doc", tip: "Copy (⌘C)") { [weak self] in self?.copyImage() }
         let row = NSStackView(views: [
             PinButton(symbol: "xmark", tip: "Close (Esc)") { [weak self] in self?.onClose?() },
+            freeze,
             drag,
             PinButton(symbol: "pencil", tip: "Edit") { [weak self] in self?.edit() },
-            PinButton(symbol: "doc.on.doc", tip: "Copy (⌘C)") { [weak self] in self?.copyImage() },
+            copy,
+            liveDot,
             zoomLabel,
         ])
         row.spacing = 2
-        row.setCustomSpacing(6, after: row.arrangedSubviews[3])
+        row.setCustomSpacing(6, after: copy)
+        row.setCustomSpacing(4, after: liveDot)
         row.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 10)
         row.translatesAutoresizingMaskIntoConstraints = false
         toolbar.addSubview(row)
@@ -244,6 +309,22 @@ private final class PinnedView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let m = NSMenu()
+        if isLive {
+            let freeze = NSMenuItem(title: "Freeze", action: #selector(freezeItem), keyEquivalent: "")
+            freeze.target = self
+            m.addItem(freeze)
+            let rates = NSMenu()
+            for fps in LivePinGeometry.frameRates {
+                let i = NSMenuItem(title: "\(fps) fps", action: #selector(frameRatePicked(_:)), keyEquivalent: "")
+                i.target = self; i.tag = fps
+                i.state = fps == frameRate ? .on : .off
+                rates.addItem(i)
+            }
+            let rate = NSMenuItem(title: "Frame Rate", action: nil, keyEquivalent: "")
+            rate.submenu = rates
+            m.addItem(rate)
+            m.addItem(.separator())
+        }
         let current = Int((zoom * 100).rounded())
         for percent in [50, 100, 200] {
             let i = NSMenuItem(title: "\(percent)%", action: #selector(zoomPicked(_:)), keyEquivalent: "")
@@ -296,6 +377,11 @@ private final class PinnedView: NSView {
     }
     @objc private func clickThroughPicked() { setClickThrough(true) }
     @objc private func closeItem() { onClose?() }
+    @objc private func freezeItem() { onFreeze?() }
+    @objc private func frameRatePicked(_ item: NSMenuItem) {
+        frameRate = item.tag
+        onFrameRate?(item.tag)
+    }
 
     // MARK: Tracing (#244)
 
@@ -409,10 +495,11 @@ private final class PinButton: NSButton {
 /// Drag it out of the pin to drop the image as a file (into Finder, Mail, Slack…); dragging the image itself still
 /// moves the pin.
 private final class PinDragHandle: NSView, NSDraggingSource {
-    private let image: NSImage
+    /// The pin's image when the drag starts (a Live Pin's changes).
+    private let image: () -> NSImage
     private var downEvent: NSEvent?
 
-    init(image: NSImage) {
+    init(image: @escaping () -> NSImage) {
         self.image = image
         super.init(frame: .zero)
         let icon = NSImageView()
@@ -439,6 +526,7 @@ private final class PinDragHandle: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) { downEvent = event }
 
     override func mouseDragged(with event: NSEvent) {
+        let image = self.image()
         guard let down = downEvent, let url = Output.temporaryFile(image) else { return }
         downEvent = nil
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)

@@ -57,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .allInOne: { [weak self] in self?.allInOne() },
             .capturePreviousArea: { [weak self] in self?.capturePreviousArea() },
             .captureAreaAndPin: { [weak self] in self?.captureAreaAndPin() },
+            .captureAreaAndLivePin: { [weak self] in self?.captureAreaAndLivePin() },
+            .livePinWindow: { [weak self] in self?.livePinWindow() },
             .captureFullscreen: { [weak self] in self?.captureFullscreen() },
             .captureWindow: { [weak self] in self?.captureWindow() },
             .captureActiveWindow: { [weak self] in self?.captureActiveWindow() },
@@ -151,6 +153,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         add("All-in-One", #selector(allInOne), .allInOne)
         add("Capture Previous Area", #selector(capturePreviousArea), .capturePreviousArea)
         add("Capture Area & Pin", #selector(captureAreaAndPin), .captureAreaAndPin)
+        add("Capture Area & Live Pin", #selector(captureAreaAndLivePin), .captureAreaAndLivePin)
+        add("Live Pin Window…", #selector(livePinWindow), .livePinWindow)
         add("Capture Fullscreen", #selector(captureFullscreen), .captureFullscreen)
         add("Capture Window", #selector(captureWindow), .captureWindow)
         add("Capture Active Window", #selector(captureActiveWindow), .captureActiveWindow)
@@ -506,6 +510,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         }
     }
 
+    // MARK: Live Pin (#241)
+
+    /// Pick an area, then pin it live: the pin opens over the area and keeps showing what is there.
+    @objc func captureAreaAndLivePin() {
+        prepareCapture { [weak self] in
+            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, _)? = sel else { self?.endCapture(); return }
+                lastArea = (screen, rect)
+                startLivePin(screen, rect)
+            }
+        }
+    }
+
+    private func startLivePin(_ screen: NSScreen, _ rect: CGRect) {
+        Task { @MainActor [weak self] in
+            do {
+                let feed = try await LivePinFeed(screen: screen, rect: rect)
+                let first = try await feed.snapshot()
+                PinnedScreenshotController.livePin(feed, first: first, at: rect)
+            } catch {
+                Self.livePinFailed(error)
+            }
+            self?.endCapture()
+        }
+    }
+
+    /// Click a window, then pin it live; the pin keeps showing it when other windows cover it.
+    @objc func livePinWindow() {
+        prepareCapture { [weak self] in
+            Task { @MainActor [weak self] in
+                let wins = await CaptureService.onScreenWindows()
+                guard let self else { return }
+                guard !wins.isEmpty else {
+                    endCapture()
+                    Notifier.problem("No windows are present", detail: "Try Capture Area & Live Pin instead.")
+                    return
+                }
+                overlay.begin(mode: .window, windows: wins) { [weak self] sel in
+                    guard let self, case .window(let w)? = sel else { self?.endCapture(); return }
+                    let feed = LivePinFeed(window: w, scale: Self.screen(for: w)?.backingScaleFactor ?? 2)
+                    Task { @MainActor [weak self] in
+                        do {
+                            let first = try await feed.snapshot()
+                            PinnedScreenshotController.livePin(feed, first: first)
+                        } catch {
+                            Self.livePinFailed(error)
+                        }
+                        self?.endCapture()
+                    }
+                }
+            }
+        }
+    }
+
+    private static func livePinFailed(_ error: Error) {
+        NSLog("Live Pin failed: \(error)")
+        Notifier.problem("Couldn't start the Live Pin", detail: error.localizedDescription,
+                         permission: CGPreflightScreenCaptureAccess() ? nil : .screenRecording)
+    }
+
     // MARK: Scrolling capture
 
     /// Pick an area, then scroll its content while Skreener stitches it into one tall image. The same command
@@ -608,6 +672,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             }, cancelled: { [weak self] in self?.endCapture() })
         case .scrolling(let screen, let rect)?:
             startScrollCapture(screen, rect)
+        case .livePin(let screen, let rect)?:
+            lastArea = (screen, rect)
+            startLivePin(screen, rect)
         case .fullscreenShot?:
             captureFullscreen()
         case .window?:
