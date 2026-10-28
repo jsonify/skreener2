@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     /// Whether the picker on screen was opened by Record Screen or by All-in-One (#29).
     private var pickerPurpose = PickerPurpose.record
     private let scrollCapture = ScrollCaptureController()
+    /// Watch This Area (#240), and its menu item, which turns into Stop Watching while a watch runs.
+    private let watcher = AreaWatcher()
+    private var watchItem: NSMenuItem?
     /// After-capture steps a skreener:// link chose (`then=`) for the capture it started; nil uses Settings.
     /// `endCapture()` clears it, so it never carries over to a later capture.
     private var linkActions: CaptureActions?
@@ -73,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .presenter: { [weak self] in self?.togglePresenter() },
             .spotlight: { [weak self] in self?.recording.toggleSpotlight() },
             .stepRecorder: { [weak self] in self?.toggleStepRecorder() },
+            .watchArea: { [weak self] in self?.watchArea() },
             .showHistory: { [weak self] in self?.showHistory() },
             .toggleDesktopIcons: { [weak self] in self?.toggleDesktopIcons() },
             .openFile: { [weak self] in self?.openFile() },
@@ -86,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         updateMenuShortcuts()
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
         StepRecorder.shared.onStateChange = { [weak self] on in self?.stepRecorderChanged(on) }
+        watcher.onStateChange = { [weak self] _ in self?.watchChanged() }
         // The presenter overlay is meant to be seen, so a recording keeps it in the video (#266).
         presenter.onWindowsChange = { [weak self] ids in self?.recording.alsoRecorded = ids }
         recording.onTick = { [weak self] time in
@@ -185,6 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         add("Start Step Recorder", #selector(toggleStepRecorder), .stepRecorder)
         let guide = NSMenuItem(title: "Step Guide…", action: #selector(showStepGuide), keyEquivalent: "")
         guide.target = self; m.addItem(guide)
+        add("Watch This Area…", #selector(watchArea), .watchArea)
+        watchItem = shortcutItems[.watchArea]
         m.addItem(.separator())
         add("Capture History", #selector(showHistory), .showHistory)
         m.addItem(.separator())
@@ -328,7 +335,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     func menuNeedsUpdate(_ menu: NSMenu) {
         // No activation here: it would take focus from the app in front on every menu use. The editor that
         // opens the picture activates Skreener itself.
-        if menu === self.menu { ContinuityCamera.opensInNewTab = true }
+        if menu === self.menu {
+            ContinuityCamera.opensInNewTab = true
+            watchItem?.title = watcher.isWatching ? "Stop Watching" : "Watch This Area…"
+        }
         for i in menu.items where i.action == #selector(timerDelayPicked(_:)) {
             i.state = i.tag == Preferences.selfTimerSeconds ? .on : .off
         }
@@ -704,14 +714,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         if !recording.isRecording { showIdleIcon() }
     }
 
-    /// The menu bar icon when no screen recording runs: Skreener's, or Step Recorder's while it is on.
+    /// The menu bar icon when no screen recording runs (its stop button comes first): Step Recorder's while it is on,
+    /// else an eye while a watch runs (#240), else Skreener's.
     @MainActor private func showIdleIcon() {
-        guard let button = statusItem.button else { return }
-        let stepping = StepRecorder.shared.isOn
-        button.image = stepping
-            ? NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "Step Recorder is on") : menuBarIcon
-        button.contentTintColor = stepping ? .systemRed : nil
-        button.toolTip = stepping ? "Step Recorder is on: each click becomes a step" : nil
+        guard let button = statusItem.button, !recording.isRecording else { return }
+        if StepRecorder.shared.isOn {
+            button.image = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "Step Recorder is on")
+            button.contentTintColor = .systemRed
+            button.toolTip = "Step Recorder is on: each click becomes a step"
+        } else if watcher.isWatching {
+            button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Skreener: Watching")
+            button.contentTintColor = nil
+            button.toolTip = "Skreener is watching the \(watcher.target?.noun ?? "area"). Choose Stop Watching in the menu to stop."
+        } else {
+            button.image = menuBarIcon
+            button.contentTintColor = nil
+            button.toolTip = nil
+        }
     }
 
     /// While recording, the menu bar icon becomes a stop button (⌃⇧7 also stops).
@@ -727,10 +746,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             button.target = self; button.action = #selector(stopRecording)
         } else {
             endCapture()
-            showIdleIcon()
             button.title = ""
             button.target = nil; button.action = nil
             statusItem.menu = menu
+            showIdleIcon()
+        }
+    }
+
+    // MARK: Watch This Area (#240)
+
+    private func watchChanged() { showIdleIcon() }
+
+    /// Watch This Area: choose the options, then drag the area (Space picks a window) or reuse the previous area. While
+    /// a watch runs, the same command stops it.
+    @objc func watchArea() {
+        if watcher.isWatching { watcher.stop(); return }
+        guard !overlay.isActive, !recordPicker.isActive, !scrollCapture.isRunning else { return }
+        let previous = lastArea.flatMap { NSScreen.screens.contains($0.0) ? $0 : nil }
+        guard let (pick, settings) = WatchSetup.run(hasPreviousArea: previous != nil) else { return }
+        if pick == .previousArea, let (screen, rect) = previous {
+            startWatch(.area(screen, rect, frozen: nil), settings)
+            return
+        }
+        let hints: [SelectionOverlay.Mode: String] = [
+            .area: "Drag over the area to watch. Press Space to watch a window instead.",
+            .window: "Click the window to watch; it's watched even when covered. Press Space to drag an area.",
+        ]
+        let mode: SelectionOverlay.Mode = pick == .window ? .window : .area
+        Task { @MainActor [weak self] in
+            let windows = mode == .window ? await CaptureService.onScreenWindows() : []
+            self?.overlay.begin(mode: mode, windows: windows, hints: hints) { [weak self] sel in
+                if let sel { self?.startWatch(sel, settings) }
+            }
+        }
+    }
+
+    private func startWatch(_ sel: Selection, _ settings: WatchSettings) {
+        switch sel {
+        case .area(let screen, let rect, _):
+            guard let id = AreaWatcher.displayID(of: screen) else { return }
+            lastArea = (screen, rect)
+            watcher.start(.area(displayID: id, rect: rect), settings: settings)
+        case .window(let w):
+            let name = [w.owningApplication?.applicationName, w.title].compactMap { $0?.isEmpty == false ? $0 : nil }
+                .joined(separator: ": ")
+            watcher.start(.window(id: w.windowID, name: name.isEmpty ? "The window" : name), settings: settings)
+        case .scrolling:
+            break
         }
     }
 

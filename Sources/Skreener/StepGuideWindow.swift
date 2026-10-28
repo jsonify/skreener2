@@ -164,8 +164,8 @@ final class StepGuideWindow: NSWindowController, NSWindowDelegate, NSTableViewDa
         store.setText(field.stringValue, for: found.step.id)
     }
 
-    @objc fileprivate func moveUp(_ sender: NSButton) { if let s = step(of: sender) { store.move(s.step.id, by: -1) } }
-    @objc fileprivate func moveDown(_ sender: NSButton) { if let s = step(of: sender) { store.move(s.step.id, by: 1) } }
+    @objc fileprivate func moveStepUp(_ sender: NSButton) { if let s = step(of: sender) { store.move(s.step.id, by: -1) } }
+    @objc fileprivate func moveStepDown(_ sender: NSButton) { if let s = step(of: sender) { store.move(s.step.id, by: 1) } }
 
     @objc fileprivate func deleteStep(_ sender: NSButton) {
         guard let s = step(of: sender) else { return }
@@ -325,8 +325,8 @@ private final class StepRow: NSTableCellView {
             b.toolTip = tip
             return b
         }
-        up = button("chevron.up", "Move Up", #selector(StepGuideWindow.moveUp(_:)))
-        down = button("chevron.down", "Move Down", #selector(StepGuideWindow.moveDown(_:)))
+        up = button("chevron.up", "Move Up", #selector(StepGuideWindow.moveStepUp(_:)))
+        down = button("chevron.down", "Move Down", #selector(StepGuideWindow.moveStepDown(_:)))
         let annotate = NSButton(title: "Annotate", target: target, action: #selector(StepGuideWindow.annotate(_:)))
         annotate.bezelStyle = .texturedRounded
         annotate.toolTip = "Open the screenshot in the editor"
