@@ -292,6 +292,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
+    /// The Smart Actions submenu of the text menu (#243): the last result shows while a fresh scan runs.
+    private let smartMenu = NSMenu(title: "Smart Actions")
+    private var smartActions: [SmartAction]?
+    private var smartTask: Task<Void, Never>?
     // Crop, Background and the area picks (Copy Text from Area, average color, contrast) replace the tool options in
     // the same strip while they are active.
     private enum StripMode { case tools, crop, areaPick, background, deviceFrame, redactText }
@@ -965,7 +969,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                 iconButton("photo", "Background", self, #selector(backgroundIt)),
                 iconButton("macwindow", "Device or browser frame", self, #selector(deviceFrameIt)),
                 iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands)),
-                iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR)", commands(CanvasView.textCommands)),
+                iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR), or act on dates, addresses, links and QR codes",
+                               textMenu(commands(CanvasView.textCommands))),
             ])
         case .toolsItem:
             // One pill per tool; the current one is filled.
@@ -993,6 +998,42 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             return groupItem(id, "Save as…", [b])
         default: return nil
         }
+    }
+
+    /// The text menu with Smart Actions (#243) added below the copy commands.
+    private func textMenu(_ menu: NSMenu) -> NSMenu {
+        menu.addItem(.separator())
+        let smart = NSMenuItem(title: "Smart Actions", action: nil, keyEquivalent: "")
+        smart.image = symbol("wand.and.stars", "Smart Actions")
+        smart.submenu = smartMenu
+        smartMenu.delegate = self
+        menu.addItem(smart)
+        return menu
+    }
+
+    /// Shows the last result at once and scans the screenshot as it is now; the menu updates when the scan is done.
+    private func updateSmartMenu() {
+        fillSmartMenu()
+        smartTask?.cancel()
+        let image = canvas.flattened()
+        smartTask = Task { @MainActor [weak self] in
+            let actions = await SmartActionDetector.detect(in: image)
+            guard !Task.isCancelled, let self else { return }
+            smartActions = actions
+            fillSmartMenu()
+        }
+    }
+
+    private func fillSmartMenu() {
+        smartMenu.removeAllItems()
+        guard let actions = smartActions, !actions.isEmpty else {
+            let note = NSMenuItem(title: smartActions == nil ? "Looking for actions…" : "No dates, addresses, links or codes found",
+                                  action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            smartMenu.addItem(note)
+            return
+        }
+        SmartActionMenu.items(for: actions).forEach(smartMenu.addItem)
     }
 
     // MARK: Attributes bar
@@ -1670,6 +1711,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     /// Fills Add Image → From Capture History with the newest captures, as thumbnails.
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu !== historyMenu { ContinuityCamera.opensInNewTab = false }
+        if menu === smartMenu { updateSmartMenu(); return }
         guard menu === historyMenu else { return }
         menu.removeAllItems()
         let entries = CaptureHistory.entries().prefix(20)

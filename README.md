@@ -87,6 +87,9 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Freeze screen.** This optionally freezes the screen while you pick, so menus and hover states stay put.
 - **Self-timer.** Pick an area, window or the full screen, then wait a 3, 5 or 10 second countdown.
 - **Capture Area & Pin.** This captures an area and pins it in place at 100%.
+- **Live Pin.** A pin that keeps updating, like picture-in-picture for an area (**Capture Area & Live Pin**, or the
+  All-in-One bar) or a window (**Live Pin Window…**, which keeps showing it when other windows cover it). It runs at
+  5 fps by default (10 or 15 in Settings or the pin's right-click menu). **Freeze** turns it into a regular pin.
 - **Desktop icons.** You can hide them with a toggle, or only while capturing.
 
 ### Scrolling capture
@@ -96,11 +99,20 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 ### Text recognition (OCR)
 
+- **Smart actions** look through each capture for dates, addresses, phone numbers, links, flights and QR codes or
+  barcodes, off the main thread. Quick Access shows buttons for them (Add to Calendar, Open in Maps, Call, Open Link,
+  Copy or Open QR content), with more in a menu; the editor's text menu has the same under Smart Actions. Turn it
+  off in Settings → After Capture. **Scan QR Code** (no default shortcut, or `skreener://qr`) copies what the codes
+  in an area say and offers to open a link.
+
 - **Capture Text** recognizes the text in an area on your Mac, using Apple's Vision framework. The text opens in a
   small scratch pad where you can fix it up or join the lines, then you copy it.
   Capture more text while it is open and it is added on a new line at the cursor.
   **Speak** (Option-Command-S, in the scratch pad) reads the selection, or all the text, aloud in a voice that
   matches its language; it turns into **Stop** until the speech ends.
+- **Capture Code** (menu bar or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
+  copies the text with its indentation kept and common OCR mistakes fixed (curly quotes, `l`/`O` inside numbers).
+  Settings can copy it as a Markdown code block.
 - In the editor, **Copy Text** copies the text from the whole screenshot or from a dragged area. **Redact** finds
   text, emails, phone numbers or links and pixelates them. The **Redact Text** tool finds the words you type
   (several at once, with Match Case, Whole Word, Regex and Fuzzy options), highlights every match so you can click
@@ -234,7 +246,7 @@ open "skreener://ocr"
 |---|---|
 | Capture | `grab/area`, `grab/previous`, `grab/fullscreen`, `grab/window`, `grab/window/active`, `grab/scrolling`, `grab/delayed[/area\|/window\|/fullscreen]?delay=N` |
 | Other actions | `ocr`, `record`, `watch/area`, `history`, `settings` |
-| Open and pin | `load/clipboard`, `load/file`, `pin/clipboard`, `pin/file` |
+| Open and pin | `load/clipboard`, `load/file`, `pin/clipboard`, `pin/file`, `pin/live`, `pin/live/window` |
 
 `then=` (`copy`, `save`, `edit`, `pin`, `quickaccess`) overrides the After Capture settings for that one capture.
 Links are off until you allow them in **Settings > General**, or from the prompt the first link shows.

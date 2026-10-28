@@ -352,7 +352,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     row("Allow URL scheme", "For Raycast, Alfred, Shortcuts and scripts.", urlSchemeSwitch),
                 ], note: "Links like skreener://grab/area?then=copy,save start a capture; then= picks copy, save, edit, pin "
                     + "and quickaccess for that capture. Other commands: grab/fullscreen, grab/window, grab/previous, "
-                    + "grab/window/active, grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, history, settings."),
+                    + "grab/window/active, grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, pin/live, history, settings."),
             ]
 
         case .afterCapture:
@@ -365,6 +365,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     toggle("Show Quick Access preview",
                            "A thumbnail in a bottom corner that stays until you copy, save, edit, pin, share or close it.",
                            Preferences.showQuickAccess) { Preferences.showQuickAccess = $0 },
+                    toggle("Smart actions after capture",
+                           "Finds dates, addresses, phone numbers, links and QR codes in the screenshot, and adds buttons for them to its Quick Access preview. The editor's text menu always has Smart Actions.",
+                           Preferences.smartActions) { Preferences.smartActions = $0 },
                     toggle("Remember the web page of browser captures",
                            "Safari, Chrome, Arc, Edge and Brave are asked for the tab's address, so Saved Files can open and search it. Needs Automation access, asked once per browser.",
                            Preferences.rememberSourcePage) { Preferences.rememberSourcePage = $0 },
@@ -376,6 +379,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     toggle("Edit the text before copying",
                            "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away.",
                            Preferences.textScratchPad) { Preferences.textScratchPad = $0 },
+                ]),
+                group("Capture Code", [
+                    toggle("Copy as a Markdown code block",
+                           "Wraps the code in ``` fences. Off: copied as plain code.",
+                           Preferences.codeAsMarkdown) { Preferences.codeAsMarkdown = $0 },
                 ]),
                 group("Confirmation", [
                     row("Confirmation style", "When a capture opens no editor, Quick Access preview or pin (for example "
@@ -439,6 +447,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             highlight.supportsAlpha = false
             bind(highlight) { Preferences.windowHighlightColor = ($0 as? NSColorWell)?.color ?? .systemBlue }
 
+            let liveRate = NSPopUpButton(frame: .zero, pullsDown: false)
+            for rate in LivePinGeometry.frameRates { liveRate.addItem(withTitle: "\(rate) fps"); liveRate.lastItem?.tag = rate }
+            liveRate.selectItem(withTag: Preferences.livePinFrameRate)
+            bind(liveRate) { Preferences.livePinFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 5 }
+
             return [
                 group("File", [
                     row("Format", "JPEG has no transparency: transparent areas become white.", format),
@@ -460,6 +473,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     },
                     row("Padding", padding),
                     row("Highlight color", "Tints the window under the pointer while you pick one.", highlight),
+                ]),
+                group("Live Pin", [
+                    row("Frame rate", "New Live Pins update this often. Lower uses less CPU; a pin's right-click menu changes its own.",
+                        liveRate),
                 ]),
             ]
 

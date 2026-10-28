@@ -153,7 +153,8 @@ struct KeyCombo: Hashable {
 /// Everything that can have a global shortcut, in Settings → Shortcuts order.
 enum HotKeyAction: String, CaseIterable {
     case captureArea, allInOne, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureActiveWindow,
-         captureScrolling, captureText, timedArea, timedWindow, timedFullscreen
+         captureScrolling, captureText, captureCode, scanQRCode, timedArea, timedWindow, timedFullscreen
+    case captureAreaAndLivePin, livePinWindow
     case recordScreen, presenter, spotlight
     case watchArea
     case showHistory, toggleDesktopIcons, openFile, openClipboard, pinFile, pinClipboard, pinClickThrough
@@ -174,7 +175,8 @@ enum HotKeyAction: String, CaseIterable {
     var section: Section {
         switch self {
         case .captureArea, .allInOne, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow,
-             .captureActiveWindow, .captureScrolling, .captureText, .timedArea, .timedWindow, .timedFullscreen: return .screenshots
+             .captureActiveWindow, .captureScrolling, .captureText, .captureCode, .scanQRCode, .timedArea, .timedWindow, .timedFullscreen,
+             .captureAreaAndLivePin, .livePinWindow: return .screenshots
         case .recordScreen, .presenter, .spotlight: return .recording
         case .watchArea, .showHistory, .toggleDesktopIcons, .openFile, .openClipboard, .pinFile, .pinClipboard,
              .pinClickThrough: return .other
@@ -192,9 +194,13 @@ enum HotKeyAction: String, CaseIterable {
         case .captureActiveWindow: return "Capture Active Window"
         case .captureScrolling: return "Capture Scrolling"
         case .captureText: return "Capture Text (OCR)"
+        case .captureCode: return "Capture Code (OCR)"
+        case .scanQRCode: return "Scan QR Code"
         case .timedArea: return "Self-Timer: Area"
         case .timedWindow: return "Self-Timer: Window"
         case .timedFullscreen: return "Self-Timer: Fullscreen"
+        case .captureAreaAndLivePin: return "Capture Area & Live Pin"
+        case .livePinWindow: return "Live Pin Window"
         case .recordScreen: return "Record Screen"
         case .presenter: return "Zoom & Draw on Screen"
         case .spotlight: return "Cursor Spotlight"
@@ -213,7 +219,11 @@ enum HotKeyAction: String, CaseIterable {
         switch self {
         case .allInOne: return "Select an area, then choose what to do with it."
         case .captureActiveWindow: return "The frontmost window, without picking it."
+        case .scanQRCode: return "Select an area; the code's content is copied, and a link can be opened."
         case .captureScrolling: return "Press again to finish."
+        case .captureCode: return "Copies text from a screen or video with its indentation kept."
+        case .captureAreaAndLivePin: return "A pin that keeps showing the area as it changes."
+        case .livePinWindow: return "A pin that keeps showing a window, even when it is covered."
         case .recordScreen: return "Press again to stop recording."
         case .presenter: return "Press again, or Esc twice, to leave."
         case .spotlight: return "While recording: dims all but a circle around the pointer. Press again to turn off."
@@ -242,8 +252,8 @@ enum HotKeyAction: String, CaseIterable {
         case .pinClickThrough: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: mods)
         case .presenter: return KeyCombo(keyCode: kVK_ANSI_Z, modifiers: mods)
         case .spotlight: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: mods)
-        case .captureActiveWindow, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
-             .openClipboard, .pinFile, .pinClipboard, .watchArea: return nil
+        case .captureActiveWindow, .captureCode, .scanQRCode, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
+             .openClipboard, .pinFile, .pinClipboard, .captureAreaAndLivePin, .livePinWindow, .watchArea: return nil
         }
     }
 }
