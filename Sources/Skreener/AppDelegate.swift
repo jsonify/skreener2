@@ -112,6 +112,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         Updater.start()
 
         if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
+
+        // Welcome Guide on a new install, What's New after an update (#302), once, a moment after launch.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            self?.showLaunchHelp()
+        }
+    }
+
+    /// Shows what `LaunchHelp` decides and remembers the version. The Welcome Guide skips a running capture.
+    @MainActor private func showLaunchHelp() {
+        let defaults = UserDefaults.standard
+        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        let earlier = LaunchHelp.hasEarlierUse(defaults: defaults, historyHasFiles: LaunchHelp.historyHasFiles())
+        let action = LaunchHelp.decide(stored: defaults.string(forKey: LaunchHelp.storageKey), current: current,
+                                       hasEarlierUse: earlier)
+        defaults.set(current, forKey: LaunchHelp.storageKey)
+        let busy = overlay.isActive || recordPicker.isActive || scrollCapture.isRunning || recording.isRecording
+        switch action {
+        case .nothing: break
+        case .welcome: if !busy { WelcomeGuide.show() }
+        case .whatsNew: WelcomeGuide.showWhatsNew()
+        }
     }
 
     private func buildMenu() -> NSMenu {
