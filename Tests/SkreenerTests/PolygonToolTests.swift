@@ -22,7 +22,7 @@ final class PolygonToolTests: XCTestCase {
         let notched = [CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 100),
                        CGPoint(x: 50, y: 50), CGPoint(x: 0, y: 100)]
         XCTAssertTrue(PolygonTool.contains(notched, point: CGPoint(x: 20, y: 50)))
-        XCTAssertFalse(PolygonTool.contains(notched, point: CGPoint(x: 70, y: 70)))
+        XCTAssertFalse(PolygonTool.contains(notched, point: CGPoint(x: 70, y: 80)))
     }
 
     func testFewerThanThreeVerticesEncloseNothing() {
@@ -47,8 +47,9 @@ final class PolygonToolTests: XCTestCase {
 
     func testPathClosesOnlyWhenAsked() {
         let triangle = [CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 100)]
-        // Closed (the default): move, two lines and a closing edge back to the first vertex.
-        XCTAssertEqual(PolygonTool.path(triangle).elementCount, 4)
+        // Closed (the default): move, two lines, then the closing edge back to the first vertex and
+        // the close marker that NSBezierPath.close() appends.
+        XCTAssertEqual(PolygonTool.path(triangle).elementCount, 5)
         // Open: move and two lines, with no closing edge.
         XCTAssertEqual(PolygonTool.path(triangle, closed: false).elementCount, 3)
     }
