@@ -169,6 +169,7 @@ final class SelectionOverlay {
         // We may be inside one of these panels' mouseUp; keep them alive until that returns.
         DispatchQueue.main.async { withExtendedLifetime(old) {} }
         let c = completion; completion = nil
+        if case .area? = sel { MainActor.assumeIsolated { Tips.record(.areaCaptured) } }
         c?(sel)
     }
 }
@@ -232,6 +233,10 @@ private final class SelectionView: NSView {
     private var hoverWindow: SCWindow?
     private var spaceDown = false
     private var dismantled = false
+    /// The one-time "Hold Space to move the selection" tip (#301), beside a new selection while it is dragged: how
+    /// visible it is, and the fade that hides it after a few seconds or the first Space.
+    private var tipAlpha: CGFloat = 0
+    private var tipFade: Task<Void, Never>?
     /// Scrolling not yet applied: the selection changes by whole points.
     private var scrollRemainder: CGFloat = 0
     private static let grab: CGFloat = 8
@@ -251,6 +256,7 @@ private final class SelectionView: NSView {
         onSelectionStarted = nil
         keyHeldElsewhere = nil
         trackingAreas.forEach(removeTrackingArea)
+        tipFade?.cancel()
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -367,6 +373,7 @@ private final class SelectionView: NSView {
         drag = .new
         start = p
         current = p
+        showMoveTip()
         onSelectionStarted?()
         needsDisplay = true
     }
@@ -466,7 +473,7 @@ private final class SelectionView: NSView {
         switch event.keyCode {
         case 53: onFinish?(nil)
         case 49:
-            if let toggle = onToggleMode, start == nil, !event.isARepeat { hoverWindow = nil; toggle() } else { spaceDown = true }
+            if let toggle = onToggleMode, start == nil, !event.isARepeat { hoverWindow = nil; toggle() } else { spaceDown = true; fadeMoveTip(after: 0) }
         case 123: nudgePointer(dx: -step, dy: 0)
         case 124: nudgePointer(dx: step, dy: 0)
         case 125: nudgePointer(dx: 0, dy: -step)
@@ -529,6 +536,7 @@ private final class SelectionView: NSView {
         if adjusted != nil { drawHandles(around: h) }
         if case .new? = drag, let c = current {
             drawDragSize(of: h, at: c)
+            if tipAlpha > 0 { drawMoveTip(beside: h) }
             return
         }
         do {
@@ -656,5 +664,49 @@ private final class SelectionView: NSView {
         NSColor.black.withAlphaComponent(0.75).setFill()
         NSBezierPath(roundedRect: pill, xRadius: 5, yRadius: 5).fill()
         label.draw(at: NSPoint(x: pill.minX + 6, y: pill.minY + 2), withAttributes: attrs)
+    }
+}
+
+// MARK: The "Hold Space" tip (#301)
+
+extension SelectionView {
+    /// On the first area drag after two area captures, once ever: the tip beside the selection, faded after 4 s.
+    fileprivate func showMoveTip() {
+        // The drag itself is under way, so the tip is shown regardless of the mouse button.
+        guard mode == .area, tipAlpha == 0, Tips.canShow(.moveSelection, busy: false) else { return }
+        Tips.markShown(.moveSelection)
+        tipAlpha = 1
+        fadeMoveTip(after: 4)
+    }
+
+    fileprivate func fadeMoveTip(after delay: Double) {
+        guard tipAlpha > 0 else { return }
+        tipFade?.cancel()
+        tipFade = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            for step: CGFloat in [0.75, 0.5, 0.25, 0] {
+                guard !Task.isCancelled, let self else { return }
+                self.tipAlpha = step
+                self.needsDisplay = true
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+        }
+    }
+
+    /// A small dark label above the selection (below it at the top of the screen). The overlay is never in the capture.
+    fileprivate func drawMoveTip(beside r: NSRect) {
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                                                    .foregroundColor: NSColor.white.withAlphaComponent(tipAlpha)]
+        let label = TipText.plain(TipID.moveSelection.line) as NSString
+        let size = label.size(withAttributes: attrs)
+        let pill = NSSize(width: size.width + 14, height: size.height + 6)
+        var origin = NSPoint(x: r.minX, y: r.maxY + 8)
+        if origin.y + pill.height > bounds.maxY - 2 { origin.y = r.minY - 8 - pill.height }
+        origin.y = min(max(origin.y, bounds.minY + 2), bounds.maxY - pill.height - 2)
+        origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
+        let box = NSRect(origin: origin, size: pill)
+        NSColor.black.withAlphaComponent(0.75 * tipAlpha).setFill()
+        NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
+        label.draw(at: NSPoint(x: box.minX + 7, y: box.minY + 3), withAttributes: attrs)
     }
 }

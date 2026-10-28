@@ -149,6 +149,10 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   or an iPad, light or dark. It sits inside the background and is saved with the capture.
 - **Measure and pick colors.** Measure runs of color under the pointer, and copy colors in HEX, CSS, RGB,
   UIColor, Android, OKLCH and more. **Check Contrast** shows the WCAG 2 ratio or APCA value.
+- **Tips and hints.** A few one-time tips point out shortcuts as you go (one per session at most). A faint line
+  under the canvas says what the handle or drag under the pointer does, such as "Drag to bend". A small dot or a
+  "New" badge marks features you haven't tried yet. Turn these off, or show them all again with Reset Tips, in
+  Settings → General.
 - **Export.** Save, Save As, copy, or drag a small preview straight into another app.
 - **Compress.** Optionally shrink PNGs (a palette of up to 256 colors, only when it looks the same) and recordings
   (HEVC) when saving, or press Compress in Quick Access or the saved-files menu. It shows the size before and after.

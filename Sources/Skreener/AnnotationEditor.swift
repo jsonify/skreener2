@@ -446,12 +446,18 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     private func notifyContext() { onContextChange?(contextTool, contextStyle) }
 
+    /// The editor's live hint line (#303): what the pointer is doing now, or nil; `dragging` shows it at once.
+    var onHint: ((_ text: String?, _ dragging: Bool) -> Void)?
+    /// A rectangle or other annotation was just drawn by hand, for the tips that count them (#301, #303).
+    var onDrawnByHand: ((_ tool: Tool, _ box: NSRect, _ id: UUID) -> Void)?
+
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
         if textEditor != nil { finishTextEditing(); return }   // a click outside the text box ends typing
         window?.makeFirstResponder(self)
         let p = convert(event.locationInWindow, from: nil)
+        defer { reportHint(at: p) }
         if let kind = areaPick {
             if kind == .contrast, event.modifierFlags.contains(.option) { toggleContrastMethod(); return }
             areaAnchor = p; areaDraft = nil; return
@@ -502,6 +508,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
 
     override func mouseDragged(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
+        defer { reportHint(at: p) }
         pointerMoved(to: p)
         if let a = areaAnchor {
             if areaPick == .cutOut {
@@ -610,6 +617,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     override func mouseUp(with event: NSEvent) {
+        defer { reportHint(at: convert(event.locationInWindow, from: nil)) }
         if let kind = areaPick, areaAnchor != nil {
             let r = areaDraft
             areaAnchor = nil; areaDraft = nil
@@ -642,6 +650,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             if a.tool.isFreehand { a = finishedStroke(a) }
             items.append(a)
             selectedID = a.id
+            onDrawnByHand?(a.tool, rect(a), a.id)
         }
         recordUndo(from: beforeDrag)
         // New text starts at the size a label was last scaled to, like a size picked in the attributes bar.
@@ -1551,11 +1560,14 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        pointerMoved(to: convert(event.locationInWindow, from: nil))
+        let p = convert(event.locationInWindow, from: nil)
+        pointerMoved(to: p)
+        reportHint(at: p)
     }
 
     override func mouseExited(with event: NSEvent) {
         rulerDraft = nil
+        if drag == nil { onHint?(nil, false) }
     }
 
     private func pointerMoved(to p: NSPoint) {
@@ -2740,5 +2752,45 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         img.unlockFocus()
         exporting = false
         return img
+    }
+}
+
+// MARK: Tips and the live hint line (#301, #303)
+
+extension CanvasView {
+    /// Tells the hint line what the pointer is doing at `p`: the drag under way, or hovering a handle of the selection.
+    fileprivate func reportHint(at p: NSPoint) {
+        guard let onHint else { return }
+        guard areaPick == nil, !isCropping, textEditor == nil, ruler == nil, tool != .redactText else {
+            onHint(nil, false); return
+        }
+        if let d = drag { onHint(hint(for: d)?.text, true); return }
+        let hover = selectedIndex.flatMap { i in handleDrag(for: items[i], at: p) }.flatMap { hint(for: $0) }
+        onHint(hover?.text, false)
+    }
+
+    /// The hint for a drag, matching what `mouseDragged` does with it.
+    private func hint(for d: Drag) -> EditorHint? {
+        switch d {
+        case .draw:
+            guard let t = draft?.tool else { return nil }
+            if t.isFreehand { return .straightStroke }   // Shift keeps the stroke straight
+            return t.snapsToObjects && Preferences.snapToObjects ? .snapping : nil   // ⌘ draws without snapping
+        case .resizeCorner:
+            guard let i = selectedIndex, items[i].tool.snapsToObjects, Preferences.snapToObjects else { return nil }
+            return .snapping
+        case .bend: return .bend
+        case .textWidth: return .wrapWidth
+        case .textTail: return .tail
+        default: return nil
+        }
+    }
+
+    /// Selects the annotation `id`, e.g. for the Repeat on Similar Objects nudge's button.
+    func selectAnnotation(_ id: UUID) {
+        guard index(of: id) != nil else { return }
+        finishTextEditing()
+        selectedID = id
+        needsDisplay = true
     }
 }
