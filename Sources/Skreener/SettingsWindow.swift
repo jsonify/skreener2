@@ -352,7 +352,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     row("Allow URL scheme", "For Raycast, Alfred, Shortcuts and scripts.", urlSchemeSwitch),
                 ], note: "Links like skreener://grab/area?then=copy,save start a capture; then= picks copy, save, edit, pin "
                     + "and quickaccess for that capture. Other commands: grab/fullscreen, grab/window, grab/previous, "
-                    + "grab/window/active, grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, history, settings."),
+                    + "grab/window/active, grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, pin/live, history, settings."),
             ]
 
         case .afterCapture:
@@ -439,6 +439,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             highlight.supportsAlpha = false
             bind(highlight) { Preferences.windowHighlightColor = ($0 as? NSColorWell)?.color ?? .systemBlue }
 
+            let liveRate = NSPopUpButton(frame: .zero, pullsDown: false)
+            for rate in LivePinGeometry.frameRates { liveRate.addItem(withTitle: "\(rate) fps"); liveRate.lastItem?.tag = rate }
+            liveRate.selectItem(withTag: Preferences.livePinFrameRate)
+            bind(liveRate) { Preferences.livePinFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 5 }
+
             return [
                 group("File", [
                     row("Format", "JPEG has no transparency: transparent areas become white.", format),
@@ -460,6 +465,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     },
                     row("Padding", padding),
                     row("Highlight color", "Tints the window under the pointer while you pick one.", highlight),
+                ]),
+                group("Live Pin", [
+                    row("Frame rate", "New Live Pins update this often. Lower uses less CPU; a pin's right-click menu changes its own.",
+                        liveRate),
                 ]),
             ]
 
