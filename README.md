@@ -110,6 +110,10 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   Capture more text while it is open and it is added on a new line at the cursor.
   **Speak** (Option-Command-S, in the scratch pad) reads the selection, or all the text, aloud in a voice that
   matches its language; it turns into **Stop** until the speech ends.
+  The formatting comes along as Markdown: headings, bullet and numbered lists (nested by indentation), **bold**
+  words, `code` on a shaded chip and code blocks. Apps that take rich text (Notes, Mail, Pages, Google Docs) get
+  the formatting itself when you paste, colored words included. Bold, code and colors are read from the pixels, so
+  they can be missed; Settings → After Capture → Capture Text → **Keep formatting as Markdown** turns it off.
 - **Capture Code** (menu bar or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
   copies the text with its indentation kept and common OCR mistakes fixed (curly quotes, `l`/`O` inside numbers).
   Settings can copy it as a Markdown code block.

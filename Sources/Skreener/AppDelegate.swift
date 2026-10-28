@@ -875,19 +875,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         }
     }
 
-    /// Capture Text: OCR the image and copy what it says, or open it in the scratch pad to edit first (#134).
+    /// Capture Text: OCR the image and copy what it says, or open it in the scratch pad to edit first (#134). With
+    /// formatting kept it is Markdown, with rich text beside it on the clipboard.
     private func copyText(_ image: NSImage, screen: NSScreen?) {
         Task { @MainActor in
-            let text = await TextRecognizer.recognize(image)
+            let formatted = Preferences.keepTextFormatting
+            var result = FormattedText.Result()
+            if formatted { result = await TextRecognizer.formatted(image) } else { result.text = await TextRecognizer.recognize(image) }
+            let text = result.text
             guard !text.isEmpty else {
                 Notifier.problem("No text found", detail: "Skreener couldn't find any text in the area.")
                 return
             }
             if Preferences.textScratchPad {
-                TextScratchPad.show(text, on: screen)
+                TextScratchPad.show(text, colors: result.colors, formatted: formatted, on: screen)
                 return
             }
-            TextRecognizer.copyText(text)
+            if formatted { TextRecognizer.copyFormatted(text, colors: result.colors) } else { TextRecognizer.copyText(text) }
             Sound.play("Pop")
             let lines = text.split(separator: "\n").count
             Notifier.confirm(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")

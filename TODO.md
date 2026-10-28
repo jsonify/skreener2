@@ -13,6 +13,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 ## Batch 1 — in this branch (needs a build + manual test on macOS)
 - [~] Capture Text / OCR (⌃⇧2, Vision) — S (#39)
 - [~] Capture Text scratch pad: the text opens in a floating window to edit (Join Lines mends hyphenated words), Copy to Clipboard / ⌘Return copies and closes, Esc closes; closing forgets it; Settings → After Capture → Capture Text toggle, on by default — S (#134); while open, another Capture Text adds its text on its own line at the cursor (#261); Speak / Stop (⌥⌘S) reads the selection or all the text aloud in a voice matching its language (#268)
+- [~] Capture Text keeps formatting as Markdown: headings (taller lines), bullet/numbered lists nested by indentation (bullets Vision leaves out are found in the pixels), bold (stroke width), `code` (shaded chip; runs of code lines → fenced block); the clipboard also gets HTML/RTF with colored words; Settings → Capture Text toggle, on by default (`FormattedText`, unit-tested) — M (#321)
 - [~] Self-timer fullscreen capture (3/5/10 s) — S (#40)
 - [~] Pinned screenshots (floating, opacity, zoom) — S (#41)
 
