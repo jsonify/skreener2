@@ -44,4 +44,12 @@ final class PolygonToolTests: XCTestCase {
         XCTAssertFalse(PolygonTool.shouldClose(twoNearStart, at: CGPoint(x: 1, y: 1), within: 12))
         XCTAssertFalse(PolygonTool.shouldClose([], at: .zero, within: 12))
     }
+
+    func testPathClosesOnlyWhenAsked() {
+        let triangle = [CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 100)]
+        // Closed (the default): move, two lines and a closing edge back to the first vertex.
+        XCTAssertEqual(PolygonTool.path(triangle).elementCount, 4)
+        // Open: move and two lines, with no closing edge.
+        XCTAssertEqual(PolygonTool.path(triangle, closed: false).elementCount, 3)
+    }
 }

@@ -200,6 +200,9 @@ struct Annotation: Equatable {
     var bend: CGFloat = 0
     /// Pen: a closed polygon whose enclosed area is filled. An open multi-segment line keeps this false.
     var closed = false
+    /// Pen: the points are explicit vertices to join with straight segments (the polygon tool), not a freehand stroke
+    /// to smooth. Set for both the open polygonal line and the closed polygon; a freehand stroke keeps this false.
+    var polygonal = false
     /// Keeps the hand-drawn wobble the same every time it is drawn.
     var seed = UInt64.random(in: 0...UInt64.max)
     var style: Style
@@ -758,6 +761,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         guard let first = pts.first, let last = pts.last, pts.count >= (closed ? 3 : 2) else { return }
         var a = Annotation(tool: .pen, start: first, end: last, points: pts, style: style)
         a.closed = closed
+        a.polygonal = true
         let before = snapshot
         items.append(a)
         selectedID = a.id
@@ -2218,6 +2222,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             return p
         case .pen, .highlighter:
             guard !a.points.isEmpty else { return nil }
+            // A polygon-tool line joins its vertices with straight segments; only a freehand stroke is smoothed.
+            if a.tool == .pen, a.polygonal { return PolygonTool.path(a.points, closed: a.closed) }
             return StrokeShapes.smoothPath(a.points)
         case .text, .pixelate, .blur, .erase, .magnifier, .select, .counter, .image, .redactText: return nil
         }

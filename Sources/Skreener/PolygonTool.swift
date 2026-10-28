@@ -27,13 +27,14 @@ enum PolygonTool {
         return hypot(p.x - first.x, p.y - first.y) <= distance
     }
 
-    /// The polygon through `vertices` as a closed path of straight edges (its fill and outline).
-    static func path(_ vertices: [CGPoint]) -> NSBezierPath {
+    /// The vertices joined by straight edges. `closed` appends the edge back to the first vertex (a closed polygon's
+    /// fill and outline); otherwise the path stays an open multi-segment line.
+    static func path(_ vertices: [CGPoint], closed: Bool = true) -> NSBezierPath {
         let p = NSBezierPath()
         guard let first = vertices.first else { return p }
         p.move(to: first)
         for v in vertices.dropFirst() { p.line(to: v) }
-        p.close()
+        if closed { p.close() }
         return p
     }
 }
