@@ -43,6 +43,12 @@ class PillButton: NSButton {
         didSet { chevron.isHidden = !showsChevron; updateWidth() }
     }
 
+    /// Tools with variants (Rectangle, Arrow): a small triangle in the corner. A long press, or a click on the
+    /// triangle, opens this menu; a plain click still picks the tool.
+    var variantMenu: (() -> NSMenu?)? {
+        didSet { needsDisplay = true }
+    }
+
     override var isEnabled: Bool {
         didSet { alphaValue = isEnabled ? 1 : 0.4 }
     }
@@ -121,9 +127,43 @@ class PillButton: NSButton {
     override func hitTest(_ point: NSPoint) -> NSView? { !isHidden && frame.contains(point) ? self : nil }
 
     override func mouseDown(with event: NSEvent) {
+        if isEnabled, variantMenu != nil, openVariants(for: event) { return }
         pressed = true
         super.mouseDown(with: event)   // tracks the click until the button is released
         pressed = false
+    }
+
+    /// Shows the variants menu for a press on the corner triangle, or one held for 0.4 s. True if it did.
+    private func openVariants(for event: NSEvent) -> Bool {
+        guard let menu = variantMenu?() else { return false }
+        let p = convert(event.locationInWindow, from: nil)
+        let inCorner = p.x > bounds.width - 12 && (isFlipped ? p.y > bounds.height - 12 : p.y < 12)
+        if !inCorner {
+            let release = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: Date(timeIntervalSinceNow: 0.4),
+                                            inMode: .eventTracking, dequeue: false)
+            if release != nil { return false }
+        }
+        pressed = true
+        _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: isFlipped ? bounds.height + 4 : -4), in: self)
+        pressed = false
+        return true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard variantMenu != nil else { return }
+        // A triangle in the lower right corner, just inside the circle.
+        let w = bounds.width, h = bounds.height
+        func y(_ fromBottom: CGFloat) -> CGFloat { isFlipped ? h - fromBottom : fromBottom }
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: w - 4.5, y: y(5)))
+        path.line(to: NSPoint(x: w - 4.5, y: y(10)))
+        path.line(to: NSPoint(x: w - 9.5, y: y(5)))
+        path.close()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            (isOn ? NSColor.white.withAlphaComponent(0.8) : NSColor.secondaryLabelColor).setFill()
+            path.fill()
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -132,6 +172,7 @@ class PillButton: NSButton {
     }
 
     private func applyColors() {
+        needsDisplay = true   // the variants triangle follows the colors
         let accent = style == .filled || isOn
         let onDark = accent || style == .tinted
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua

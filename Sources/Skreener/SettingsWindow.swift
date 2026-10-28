@@ -132,10 +132,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     required init?(coder: NSCoder) { fatalError() }
 
     /// Brings Settings to the front; `askClaude` opens it on the Ask Claude pane, where the API key goes.
-    func present(askClaude: Bool = false, sendTo: Bool = false) {
+    func present(askClaude: Bool = false, sendTo: Bool = false, shortcuts: Bool = false) {
         if askClaude, let row = Pane.listed.firstIndex(of: .askClaude) {
             sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         } else if sendTo, let row = Pane.listed.firstIndex(of: .sendTo) {
+            sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        } else if shortcuts, let row = Pane.listed.firstIndex(of: .shortcuts) {
             sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
         refreshFolder()
