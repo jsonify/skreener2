@@ -1,8 +1,10 @@
 import AppKit
 import ScreenCaptureKit
 
-/// CleanShot-style instruction pill ("Drag to record a part of the screen…"), drawn in the current view.
+/// CleanShot-style instruction pill ("Drag to record a part of the screen…"), drawn in the current view. An empty
+/// string draws nothing, so a mode can take part in Space-cycling without showing a banner.
 func drawHintBanner(_ text: String, centeredAt c: NSPoint) {
+    guard !text.isEmpty else { return }
     let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 20, weight: .regular),
                                                 .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
     let s = text as NSString

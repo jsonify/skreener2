@@ -925,8 +925,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     /// Capture Area, Capture Window and Capture Scrolling: Space before a drag cycles area → window → scrolling (#171).
+    /// The keys also decide which modes Space cycles through, so `.area` stays in the map; its empty banner just means
+    /// area capture shows no instruction pill (the one the user asked to drop).
     private static let captureHints: [SelectionOverlay.Mode: String] = [
-        .area: "Drag to capture an area. Press Space to pick a window.",
+        .area: "",
         .window: "Click a window to capture it. Press Space for a scrolling capture.",
         .scrolling: "Drag over the content to scroll and capture. Press Space for an area.",
     ]
