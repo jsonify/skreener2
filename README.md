@@ -61,7 +61,7 @@ the right pane.
 | Permission | Needed for |
 |---|---|
 | Screen Recording | All screenshots and recordings |
-| Accessibility | Auto-Scroll in scrolling capture |
+| Accessibility | Auto-Scroll in scrolling capture; naming steps by the clicked button in Step Recorder |
 | Microphone | Recordings with the microphone turned on (macOS asks the first time) |
 
 Permissions switched on but not working, or asked for again after every build? See
@@ -118,6 +118,15 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
   Command-Z undoes), scroll or press Command-Plus / Command-Minus to zoom in around the pointer, and move the pointer
   to pan. Esc clears, a second Esc leaves. The marks and the zoom show up in an ongoing recording.
+
+### Step Recorder
+
+- **Start Step Recorder** in the menu, then click through a task. Each click takes a screenshot of the window under
+  the pointer with a numbered marker where you clicked, and names the step from the clicked button's title or the
+  text around it ("Click **Save**"). The menu bar icon turns red while it is on.
+- **Stop Step Recorder** opens the **Step Guide**: edit each step's text, move steps up or down, delete them, or
+  annotate a screenshot in the editor. Export the guide as Markdown with an images folder, one HTML file or a PDF.
+  Everything stays on your Mac.
 
 ### Annotation editor
 

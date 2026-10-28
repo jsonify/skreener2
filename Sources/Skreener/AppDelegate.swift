@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .recordScreen: { [weak self] in self?.recordScreen() },
             .presenter: { [weak self] in self?.togglePresenter() },
             .spotlight: { [weak self] in self?.recording.toggleSpotlight() },
+            .stepRecorder: { [weak self] in self?.toggleStepRecorder() },
             .showHistory: { [weak self] in self?.showHistory() },
             .toggleDesktopIcons: { [weak self] in self?.toggleDesktopIcons() },
             .openFile: { [weak self] in self?.openFile() },
@@ -80,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         shortcuts.register()
         updateMenuShortcuts()
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
+        StepRecorder.shared.onStateChange = { [weak self] on in self?.stepRecorderChanged(on) }
         // The presenter overlay is meant to be seen, so a recording keeps it in the video (#266).
         presenter.onWindowsChange = { [weak self] ids in self?.recording.alsoRecorded = ids }
         recording.onTick = { [weak self] time in
@@ -172,6 +174,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         m.addItem(.separator())
         add("Record Screen", #selector(recordScreen), .recordScreen)
         add("Zoom & Draw on Screen", #selector(togglePresenter), .presenter)
+        add("Start Step Recorder", #selector(toggleStepRecorder), .stepRecorder)
+        let guide = NSMenuItem(title: "Step Guide…", action: #selector(showStepGuide), keyEquivalent: "")
+        guide.target = self; m.addItem(guide)
         m.addItem(.separator())
         add("Capture History", #selector(showHistory), .showHistory)
         m.addItem(.separator())
@@ -618,8 +623,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     /// Presenter mode (#266): zoom and draw on the live screen; the same command leaves.
     @objc private func togglePresenter() { presenter.toggle() }
 
+    /// Step Recorder (#242): the menu item says Stop while it is on, and the menu bar icon becomes a red click.
+    @MainActor @objc private func toggleStepRecorder() { StepRecorder.shared.toggle() }
+    @MainActor @objc private func showStepGuide() { StepGuideWindow.show() }
+
+    @MainActor private func stepRecorderChanged(_ on: Bool) {
+        shortcutItems[.stepRecorder]?.title = on ? "Stop Step Recorder" : "Start Step Recorder"
+        // A screen recording's stop button stays until the recording ends.
+        if !recording.isRecording { showIdleIcon() }
+    }
+
+    /// The menu bar icon when no screen recording runs: Skreener's, or Step Recorder's while it is on.
+    @MainActor private func showIdleIcon() {
+        guard let button = statusItem.button else { return }
+        let stepping = StepRecorder.shared.isOn
+        button.image = stepping
+            ? NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "Step Recorder is on") : menuBarIcon
+        button.contentTintColor = stepping ? .systemRed : nil
+        button.toolTip = stepping ? "Step Recorder is on: each click becomes a step" : nil
+    }
+
     /// While recording, the menu bar icon becomes a stop button (⌃⇧7 also stops).
-    private func recordingChanged(_ on: Bool) {
+    @MainActor private func recordingChanged(_ on: Bool) {
         guard let button = statusItem.button else { return }
         if on {
             statusItem.menu = nil
@@ -631,10 +656,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             button.target = self; button.action = #selector(stopRecording)
         } else {
             endCapture()
-            button.image = menuBarIcon
-            button.contentTintColor = nil
+            showIdleIcon()
             button.title = ""
-            button.toolTip = nil
             button.target = nil; button.action = nil
             statusItem.menu = menu
         }
