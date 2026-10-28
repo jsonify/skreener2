@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .recordScreen: { [weak self] in self?.recordScreen() },
             .presenter: { [weak self] in self?.togglePresenter() },
             .spotlight: { [weak self] in self?.recording.toggleSpotlight() },
+            .stepRecorder: { [weak self] in self?.toggleStepRecorder() },
             .watchArea: { [weak self] in self?.watchArea() },
             .showHistory: { [weak self] in self?.showHistory() },
             .toggleDesktopIcons: { [weak self] in self?.toggleDesktopIcons() },
@@ -88,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         shortcuts.register()
         updateMenuShortcuts()
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
+        StepRecorder.shared.onStateChange = { [weak self] on in self?.stepRecorderChanged(on) }
         watcher.onStateChange = { [weak self] _ in self?.watchChanged() }
         // The presenter overlay is meant to be seen, so a recording keeps it in the video (#266).
         presenter.onWindowsChange = { [weak self] ids in self?.recording.alsoRecorded = ids }
@@ -185,6 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         m.addItem(.separator())
         add("Record Screen", #selector(recordScreen), .recordScreen)
         add("Zoom & Draw on Screen", #selector(togglePresenter), .presenter)
+        add("Start Step Recorder", #selector(toggleStepRecorder), .stepRecorder)
+        let guide = NSMenuItem(title: "Step Guide…", action: #selector(showStepGuide), keyEquivalent: "")
+        guide.target = self; m.addItem(guide)
         add("Watch This Area…", #selector(watchArea), .watchArea)
         watchItem = shortcutItems[.watchArea]
         m.addItem(.separator())
@@ -699,8 +704,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     /// Presenter mode (#266): zoom and draw on the live screen; the same command leaves.
     @objc private func togglePresenter() { presenter.toggle() }
 
+    /// Step Recorder (#242): the menu item says Stop while it is on, and the menu bar icon becomes a red click.
+    @MainActor @objc private func toggleStepRecorder() { StepRecorder.shared.toggle() }
+    @MainActor @objc private func showStepGuide() { StepGuideWindow.show() }
+
+    @MainActor private func stepRecorderChanged(_ on: Bool) {
+        shortcutItems[.stepRecorder]?.title = on ? "Stop Step Recorder" : "Start Step Recorder"
+        // A screen recording's stop button stays until the recording ends.
+        if !recording.isRecording { showIdleIcon() }
+    }
+
+    /// The menu bar icon when no screen recording runs (its stop button comes first): Step Recorder's while it is on,
+    /// else an eye while a watch runs (#240), else Skreener's.
+    @MainActor private func showIdleIcon() {
+        guard let button = statusItem.button, !recording.isRecording else { return }
+        if StepRecorder.shared.isOn {
+            button.image = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "Step Recorder is on")
+            button.contentTintColor = .systemRed
+            button.toolTip = "Step Recorder is on: each click becomes a step"
+        } else if watcher.isWatching {
+            button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Skreener: Watching")
+            button.contentTintColor = nil
+            button.toolTip = "Skreener is watching the \(watcher.target?.noun ?? "area"). Choose Stop Watching in the menu to stop."
+        } else {
+            button.image = menuBarIcon
+            button.contentTintColor = nil
+            button.toolTip = nil
+        }
+    }
+
     /// While recording, the menu bar icon becomes a stop button (⌃⇧7 also stops).
-    private func recordingChanged(_ on: Bool) {
+    @MainActor private func recordingChanged(_ on: Bool) {
         guard let button = statusItem.button else { return }
         if on {
             statusItem.menu = nil
@@ -712,7 +746,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             button.target = self; button.action = #selector(stopRecording)
         } else {
             endCapture()
-            button.contentTintColor = nil
             button.title = ""
             button.target = nil; button.action = nil
             statusItem.menu = menu
@@ -722,19 +755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
 
     // MARK: Watch This Area (#240)
 
-    /// The menu-bar icon when not recording: an eye while a watch runs (the recording's stop button comes first).
-    private func showIdleIcon() {
-        guard let button = statusItem.button, !recording.isRecording else { return }
-        if watcher.isWatching {
-            button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Skreener: Watching")
-            button.toolTip = "Skreener is watching the \(watcher.target?.noun ?? "area"). Choose Stop Watching in the menu to stop."
-        } else {
-            button.image = menuBarIcon
-            button.toolTip = nil
-        }
-    }
-
-    private func watchChanged() { showIdleIcon() }
+    @MainActor private func watchChanged() { showIdleIcon() }
 
     /// Watch This Area: choose the options, then drag the area (Space picks a window) or reuse the previous area. While
     /// a watch runs, the same command stops it.

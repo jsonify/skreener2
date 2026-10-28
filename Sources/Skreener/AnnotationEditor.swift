@@ -2485,11 +2485,11 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
 
     /// Filled badge with the counter's number: its place among the counters in creation order, so deleting one
-    /// renumbers the rest.
+    /// renumbers the rest. A counter with its own `text` shows that instead (Step Recorder's step markers, #242).
     private func drawCounter(_ a: Annotation) {
         let box = bounds(of: a)
         NSBezierPath(ovalIn: box).fill()
-        let n = items.filter { $0.tool == .counter && $0.seq < a.seq }.count + 1
+        let n = a.text.isEmpty ? "\(items.filter { $0.tool == .counter && $0.seq < a.seq }.count + 1)" : a.text
         let light = (a.style.color.usingColorSpace(.sRGB)?.brightnessComponent ?? 0) > 0.85
             && (a.style.color.usingColorSpace(.sRGB)?.saturationComponent ?? 0) < 0.5
         let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: a.style.counterRadius * 1.1, weight: .bold),
