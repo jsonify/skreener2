@@ -288,6 +288,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let tailButton = PillButton(title: "Tail", symbol: "bubble.left", style: .raised, height: pillHeight)
     private let handDrawnButton = PillButton(title: "Hand-Drawn", symbol: "scribble", style: .raised, height: pillHeight)
     private let shapeCorrectionButton = PillButton(title: "Shapes", symbol: "pencil.and.outline", style: .raised, height: pillHeight)
+    /// Fill opacity for closed pen polygons: shade an area while the text under it stays readable.
+    private let opacityLabel = NSTextField(labelWithString: "Opacity")
+    private let opacitySlider = NSSlider(value: 0.35, minValue: 0, maxValue: 1, target: nil, action: nil)
     private let arrowLabelButton = PillButton(title: "Label", symbol: "text.bubble", style: .raised, height: pillHeight)
     private let arrangeButton = PillPopUp(pullsDown: true)
     /// Add Image → From Capture History; filled in each time it opens.
@@ -1090,6 +1093,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         arrowLabelButton.toolTip = "Label: type a note at the arrow's tail as soon as it is drawn, in the last text style. Esc without typing keeps just the arrow."
         arrowLabelButton.target = self; arrowLabelButton.action = #selector(arrowLabelToggled(_:))
 
+        opacityLabel.font = .systemFont(ofSize: 12)
+        opacityLabel.textColor = .secondaryLabelColor
+        opacitySlider.controlSize = .small
+        opacitySlider.isContinuous = false
+        opacitySlider.toolTip = "How opaque a closed pen polygon's fill is"
+        opacitySlider.target = self; opacitySlider.action = #selector(opacityChanged)
+        opacitySlider.widthAnchor.constraint(equalToConstant: 80).isActive = true
+
         arrangeButton.toolTip = "Arrange: move the selection in front of or behind other annotations"
         arrangeButton.addItem(withTitle: "Arrange")
         arrangeButton.lastItem?.image = symbol("square.3.layers.3d", "Arrange")
@@ -1103,7 +1114,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
         [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, arrowLabelButton, handDrawnButton, shapeCorrectionButton, cornerStylePopup,
          fontPopup, sizePopup, boldButton, textBoxPopup, tailButton, pixelPopup, textOnlyButton, magnificationPopup, lensShapePopup,
-         arrangeButton].forEach(attributesBar.addArrangedSubview)
+         opacityLabel, opacitySlider, arrangeButton].forEach(attributesBar.addArrangedSubview)
+        attributesBar.setCustomSpacing(4, after: opacityLabel)
         refreshStrip()
     }
 
@@ -1428,6 +1440,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         shapeFillPopup.isHidden = tool != .rect && tool != .ellipse
         handDrawnButton.isHidden = ![.arrow, .line, .rect, .ellipse].contains(tool)
         shapeCorrectionButton.isHidden = tool != .pen
+        // The fill controls show for a selected closed polygon, and for the pen tool with nothing selected (to set the
+        // fill used by the next polygon drawn).
+        let showFill = tool == .pen && (canvas.contextIsClosedPolygon || !canvas.hasSelection)
+        opacityLabel.isHidden = !showFill
+        opacitySlider.isHidden = !showFill
         sizePopup.isHidden = tool != .text && tool != .counter
         pixelPopup.isHidden = !tool.hasStrength
         textOnlyButton.isHidden = !tool.obscures
@@ -1456,6 +1473,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         handDrawnButton.isOn = style.handDrawn
         shapeCorrectionButton.isOn = style.shapeCorrection
         arrowLabelButton.isOn = style.arrowLabel
+        opacitySlider.doubleValue = Double(style.fillOpacity)
     }
 
     /// The usual font sizes, plus `size` when a label's corner handle scaled it to another one.
@@ -1469,6 +1487,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     }
 
     @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
+    @objc private func opacityChanged() { canvas.updateStyle { $0.fillOpacity = CGFloat(opacitySlider.doubleValue) } }
     @objc private func strokePicked(_ p: PillPopUp) { canvas.updateStyle { $0.lineWidth = CGFloat(p.selectedTag()) } }
     @objc private func sizePicked(_ p: PillPopUp) { canvas.updateStyle { $0.fontSize = CGFloat(p.selectedTag()) } }
     @objc private func pixelPicked(_ p: PillPopUp) { canvas.updateStyle { $0.pixelSize = CGFloat(p.selectedTag()) } }
