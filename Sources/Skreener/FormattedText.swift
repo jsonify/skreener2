@@ -16,11 +16,11 @@ enum FormattedText {
 
     /// How a word is drawn; nil where the pixels can't tell.
     struct Look: Equatable, Sendable {
-        /// Average stroke width over the line height: bold strokes are thicker.
+        /// Average stroke width in pixels: bold strokes are thicker.
         var stroke: Double?
         /// The color of the letters.
         var ink: RGB?
-        /// The background right around the word, when it is even.
+        /// The background behind the word, when it is even.
         var background: RGB?
     }
 
@@ -31,6 +31,9 @@ enum FormattedText {
         /// A bullet is drawn just left of the box that Vision didn't read as text.
         var bullet = false
         var text: String { words.map(\.text).joined(separator: " ") }
+        /// How tall the text is: the median height of its words. Vision sometimes reads a line as slanted, which makes
+        /// the line's box much taller than its words.
+        var size: CGFloat { FormattedText.median(words.map(\.rect.height)) }
     }
 
     struct RGB: Equatable, Hashable, Sendable {
@@ -118,7 +121,7 @@ enum FormattedText {
     static func blocks(_ input: [Line]) -> [Block] {
         let lines = joinStrayBullets(input.filter { !$0.words.isEmpty && $0.rect.height > 0 })
         guard !lines.isEmpty else { return [] }
-        let body = median(lines.map(\.rect.height))
+        let body = median(lines.map(\.size))
         let levels = lines.map { headingLevel($0, body: body, count: lines.count) }
         let styles = self.styles(lines, headings: levels.map { $0 != nil })
         let isCode = lines.indices.map { levels[$0] == nil && styles[$0].allSatisfy(\.code) }
@@ -169,7 +172,7 @@ enum FormattedText {
     /// Level 1 or 2 for a short line well taller than the usual one; nil for body text.
     static func headingLevel(_ line: Line, body: CGFloat, count: Int) -> Int? {
         guard count >= 3, body > 0, line.words.count <= 12 else { return nil }
-        let ratio = line.rect.height / body
+        let ratio = line.size / body
         return ratio >= headingRatios.0 ? 1 : ratio >= headingRatios.1 ? 2 : nil
     }
 
@@ -259,22 +262,26 @@ enum FormattedText {
 
     /// Each word's style, from how it is drawn compared to the rest: a background unlike the page's is a code chip,
     /// strokes well thicker than the usual are bold (never in headings), ink unlike the usual and not grey is colored.
+    /// Strokes are measured against the text size; the usual stroke is the line's own when it has enough words (the
+    /// measurements vary from line to line), or the page's when that is thinner (a line that is all bold).
     static func styles(_ lines: [Line], headings: [Bool]) -> [[Style]] {
         let page = mostCommon(lines.flatMap(\.words).compactMap(\.look.background))
         func onChip(_ w: Word) -> Bool {
             guard let page, let bg = w.look.background else { return false }
             return bg.distance(to: page) > chipContrast
         }
-        var inks: [RGB] = []
-        var strokes: [Double] = []
-        for (line, heading) in zip(lines, headings) where !heading {
-            for w in line.words where !onChip(w) {
-                if let ink = w.look.ink { inks.append(ink) }
-                if let s = w.look.stroke, letters(w.text) >= 2 { strokes.append(s) }
+        /// Plain-text strokes over the text size, by word (nil where not measured or not counted).
+        func strokes(_ line: Line, heading: Bool) -> [Double?] {
+            line.words.map { w in
+                guard !heading, !onChip(w), letters(w.text) >= 2, let s = w.look.stroke, line.size > 0 else { return nil }
+                return s / Double(line.size)
             }
         }
+        let byLine = zip(lines, headings).map { strokes($0, heading: $1) }
+        let all = byLine.flatMap { $0.compactMap { $0 } }
+        let pageStroke = all.count >= 5 ? median(all) : nil
+        let inks = zip(lines, headings).filter { !$0.1 }.flatMap { $0.0.words.filter { !onChip($0) }.compactMap(\.look.ink) }
         let usualInk = inks.isEmpty ? nil : median(inks)
-        let usualStroke = strokes.count >= 5 ? median(strokes) : nil
         // Colors close to one already seen take its value, so a colored phrase stays one run.
         var palette: [RGB] = []
         func colored(_ ink: RGB?) -> RGB? {
@@ -283,12 +290,14 @@ enum FormattedText {
             palette.append(ink)
             return ink
         }
-        return zip(lines, headings).map { line, heading in
-            var out = line.words.map { w -> Style in
+        return lines.indices.map { i in
+            let line = lines[i]
+            let own = byLine[i].compactMap { $0 }
+            let usual = own.count >= 4 ? min(median(own), pageStroke ?? .infinity) : pageStroke
+            var out = line.words.indices.map { k -> Style in
+                let w = line.words[k]
                 var s = Style(code: onChip(w), color: colored(w.look.ink))
-                if !heading, !s.code, let usual = usualStroke, let stroke = w.look.stroke, letters(w.text) >= 2 {
-                    s.bold = stroke >= usual * boldRatio
-                }
+                if let usual, let stroke = byLine[i][k] { s.bold = stroke >= usual * boldRatio }
                 return s
             }
             // A short word between two bold ones ("a", "&") is bold too, so the bold run isn't broken.

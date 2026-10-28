@@ -236,18 +236,18 @@ final class FormattedTextTests: XCTestCase {
 
     private let word = CGRect(x: 20, y: 20, width: 100, height: 20)
 
-    func testStrokeWidthOverLineHeight() throws {
-        let thin = bitmap(200, 60, bars(2)).look(word, lineHeight: 20)
-        let thick = bitmap(200, 60, bars(4)).look(word, lineHeight: 20)
-        XCTAssertEqual(try XCTUnwrap(thin.stroke), 0.1, accuracy: 0.01)
-        XCTAssertEqual(try XCTUnwrap(thick.stroke), 0.2, accuracy: 0.01)
+    func testStrokeWidthInPixels() throws {
+        let thin = bitmap(200, 60, bars(2)).look(word)
+        let thick = bitmap(200, 60, bars(4)).look(word)
+        XCTAssertEqual(try XCTUnwrap(thin.stroke), 2, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(thick.stroke), 4, accuracy: 0.01)
         XCTAssertEqual(thin.background, white)
         XCTAssertEqual(thin.ink, black)
     }
 
     func testChipBackgroundAndInkColor() throws {
         let chip: Paint = (CGRect(x: 14, y: 14, width: 112, height: 32), (230, 230, 230))
-        let look = bitmap(200, 60, [chip] + bars(3, (220, 30, 30))).look(word, lineHeight: 20)
+        let look = bitmap(200, 60, [chip] + bars(3, (220, 30, 30))).look(word)
         let bg = try XCTUnwrap(look.background)
         XCTAssertEqual(bg.r, 230.0 / 255, accuracy: 0.001)
         let ink = try XCTUnwrap(look.ink)
@@ -256,13 +256,14 @@ final class FormattedTextTests: XCTestCase {
     }
 
     func testUnevenSurroundingsHaveNoBackground() {
-        // Half the ring runs through a dark block.
-        let block: Paint = (CGRect(x: 0, y: 0, width: 70, height: 60), (40, 40, 40))
-        XCTAssertNil(bitmap(200, 60, [block] + bars(2, (255, 0, 0))).look(word, lineHeight: 20).background)
+        // Dark, grey and white thirds: no color fills half the box.
+        let dark: Paint = (CGRect(x: 0, y: 0, width: 54, height: 60), (40, 40, 40))
+        let grey: Paint = (CGRect(x: 54, y: 0, width: 33, height: 60), (150, 150, 150))
+        XCTAssertNil(bitmap(200, 60, [dark, grey]).look(word).background)
     }
 
     func testBlankWordHasNoInk() {
-        let look = bitmap(200, 60, []).look(word, lineHeight: 20)
+        let look = bitmap(200, 60, []).look(word)
         XCTAssertNil(look.stroke)
         XCTAssertNil(look.ink)
         XCTAssertEqual(look.background, white)

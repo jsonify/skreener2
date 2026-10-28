@@ -31,7 +31,7 @@ extension TextRecognizer {
                 let words = FormattedText.wordRanges(candidate.string).map { range in
                     let box = (try? candidate.boundingBox(for: range)).map { pixels($0.boundingBox) }
                     return FormattedText.Word(text: String(candidate.string[range]), rect: box ?? line,
-                                              look: box.flatMap { bitmap?.look($0, lineHeight: line.height) } ?? .init())
+                                              look: box.flatMap { bitmap?.look($0) } ?? .init())
                 }
                 return FormattedText.Line(rect: line, words: words, bullet: bitmap?.hasBullet(leftOf: line) ?? false)
             }

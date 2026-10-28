@@ -36,8 +36,6 @@ extension FormattedText {
             return RGB(r: Double(bytes[i]) / 255, g: Double(bytes[i + 1]) / 255, b: Double(bytes[i + 2]) / 255)
         }
 
-        private func contains(_ x: Int, _ y: Int) -> Bool { x >= 0 && y >= 0 && x < width && y < height }
-
         /// The pixel bounds of `rect` (pixels, bottom-left origin) inside the bitmap, as half-open ranges.
         private func pixels(_ rect: CGRect) -> (x: Range<Int>, y: Range<Int>)? {
             let box = rect.integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
@@ -45,25 +43,18 @@ extension FormattedText {
             return (Int(box.minX)..<Int(box.maxX), Int(box.minY)..<Int(box.maxY))
         }
 
-        /// What the pixels say about the word in `rect` (pixels, bottom-left origin) on a line `lineHeight` pixels
-        /// tall: the background on a ring just outside the box (when it is even), the ink's color (its strongest
-        /// pixels) and its stroke width (ink per crossing of a letter stroke on the middle rows).
-        func look(_ rect: CGRect, lineHeight: CGFloat) -> Look {
-            guard lineHeight > 0, let box = pixels(rect), box.x.count >= 2, box.y.count >= 6 else { return Look() }
+        /// What the pixels say about the word in `rect` (pixels, bottom-left origin): the background (the most common
+        /// color in the box, when it fills at least half of it), the ink's color (its strongest pixels) and its stroke
+        /// width in pixels (ink per crossing of a letter stroke on the middle rows).
+        func look(_ rect: CGRect) -> Look {
+            guard let box = pixels(rect), box.x.count >= 2, box.y.count >= 6 else { return Look() }
             let xs = box.x, ys = box.y
 
-            let pad = max(1, Int((lineHeight * 0.08).rounded()))
-            let left = xs.lowerBound - pad, right = xs.upperBound - 1 + pad
-            let bottom = ys.lowerBound - pad, top = ys.upperBound - 1 + pad
-            var ring: [RGB] = []
-            for x in left...right { for y in [bottom, top] where contains(x, y) { ring.append(color(x, y)) } }
-            for y in (bottom + 1)..<top { for x in [left, right] where contains(x, y) { ring.append(color(x, y)) } }
-            guard ring.count >= 8 else { return Look() }
-            let bg = FormattedText.median(ring)
-            let even = ring.filter { $0.distance(to: bg) <= 0.04 }.count * 10 >= ring.count * 7
+            let inside = ys.flatMap { y in xs.map { x in color(x, y) } }
+            guard let bg = FormattedText.mostCommon(inside) else { return Look() }
+            let even = inside.filter { $0.distance(to: bg) <= 0.04 }.count * 2 >= inside.count
 
-            var far = 0.0
-            for y in ys { for x in xs { far = max(far, color(x, y).distance(to: bg)) } }
+            let far = inside.map { $0.distance(to: bg) }.max() ?? 0
             guard far >= 0.2 else { return Look(background: even ? bg : nil) }
 
             var ink = 0.0, crossings = 0
@@ -86,7 +77,7 @@ extension FormattedText {
                     n += 1
                 }
             }
-            return Look(stroke: crossings > 0 ? ink / Double(crossings) / Double(lineHeight) : nil,
+            return Look(stroke: crossings > 0 ? ink / Double(crossings) : nil,
                         ink: n > 0 ? RGB(r: sum.r / n, g: sum.g / n, b: sum.b / n) : nil,
                         background: even ? bg : nil)
         }
