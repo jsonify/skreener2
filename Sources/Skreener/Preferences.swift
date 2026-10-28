@@ -207,6 +207,17 @@ enum Preferences {
         get { d.object(forKey: "textScratchPad") as? Bool ?? true }
         set { d.set(newValue, forKey: "textScratchPad") }
     }
+    /// Capture Code copies a Markdown fenced code block instead of plain code (#249).
+    static var codeAsMarkdown: Bool {
+        get { d.object(forKey: "codeAsMarkdown") as? Bool ?? false }
+        set { d.set(newValue, forKey: "codeAsMarkdown") }
+    }
+    /// Look for dates, addresses, phone numbers, links and QR codes in each capture and offer actions on its Quick Access
+    /// preview (#243).
+    static var smartActions: Bool {
+        get { d.object(forKey: "smartActions") as? Bool ?? true }
+        set { d.set(newValue, forKey: "smartActions") }
+    }
     /// The editor's dock of open screenshots (#140): hidden with its button or ⌃⌘S, and on the left or right.
     static var editorDockCollapsed: Bool {
         get { d.bool(forKey: "editorDockCollapsed") }
@@ -293,6 +304,11 @@ enum Preferences {
     static var recordShowsCursor: Bool {
         get { d.object(forKey: "recordShowsCursor") as? Bool ?? true }
         set { d.set(newValue, forKey: "recordShowsCursor") }
+    }
+    /// Live Pins: frames per second (5, 10 or 15; 5 by default to keep the CPU low) (#241).
+    static var livePinFrameRate: Int {
+        get { LivePinGeometry.frameRate(d.integer(forKey: "livePinFrameRate")) }
+        set { d.set(newValue, forKey: "livePinFrameRate") }
     }
     /// Screen recordings: frames per second (30 or 60).
     static var recordFrameRate: Int {
