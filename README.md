@@ -101,6 +101,9 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   Capture more text while it is open and it is added on a new line at the cursor.
   **Speak** (Option-Command-S, in the scratch pad) reads the selection, or all the text, aloud in a voice that
   matches its language; it turns into **Stop** until the speech ends.
+- **Capture Code** (menu bar or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
+  copies the text with its indentation kept and common OCR mistakes fixed (curly quotes, `l`/`O` inside numbers).
+  Settings can copy it as a Markdown code block.
 - In the editor, **Copy Text** copies the text from the whole screenshot or from a dragged area. **Redact** finds
   text, emails, phone numbers or links and pixelates them. The **Redact Text** tool finds the words you type
   (several at once, with Match Case, Whole Word, Regex and Fuzzy options), highlights every match so you can click

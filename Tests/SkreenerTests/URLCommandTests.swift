@@ -36,6 +36,7 @@ final class URLCommandTests: XCTestCase {
     func testSettingsAndOtherCommands() {
         XCTAssertEqual(parse("skreener://settings"), .success(URLCommand(command: .settings)))
         XCTAssertEqual(parse("skreener://ocr"), .success(URLCommand(command: .run(.captureText))))
+        XCTAssertEqual(parse("skreener://ocr/code"), .success(URLCommand(command: .run(.captureCode))))
         XCTAssertEqual(parse("skreener://load/clipboard"), .success(URLCommand(command: .run(.openClipboard))))
     }
 
