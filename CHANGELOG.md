@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.0](https://github.com/jsonify/skreener2/compare/v0.16.0...v0.17.0) (2026-10-28)
+
+
+### Features
+
+* **capture:** Step Recorder turns clicks into a step-by-step guide (… ([#315](https://github.com/jsonify/skreener2/issues/315)) ([a08803d](https://github.com/jsonify/skreener2/commit/a08803d757c4d4a0365a50594ff97c27ebb753b7))
+* **capture:** watch an area and notify when it changes ([#240](https://github.com/jsonify/skreener2/issues/240)) ([#314](https://github.com/jsonify/skreener2/issues/314)) ([8b857f3](https://github.com/jsonify/skreener2/commit/8b857f329640fd40ab6a7138952689943756c836))
+* **ocr:** smart actions for dates, addresses, links and QR codes in captures ([#243](https://github.com/jsonify/skreener2/issues/243)) ([#313](https://github.com/jsonify/skreener2/issues/313)) ([93ca5fc](https://github.com/jsonify/skreener2/commit/93ca5fc044a95aacf65cefd9c01896e7602fb3b0))
+
 ## [0.16.0](https://github.com/jsonify/skreener2/compare/v0.15.0...v0.16.0) (2026-10-28)
 
 
