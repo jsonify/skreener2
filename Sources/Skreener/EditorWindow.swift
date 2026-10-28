@@ -359,6 +359,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let toastBox = NSView()
     private let toastLabel = NSTextField(labelWithString: "")
     private var toastTask: Task<Void, Never>?
+    /// Tips, the hint line under the canvas and "New" dots (#301, #303).
+    private var help: EditorHelp?
 
     /// The file this screenshot was saved to or opened from: Save writes the edited image over it (#118).
     private(set) var fileURL: URL? {
@@ -497,6 +499,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         buildFindBar()
         buildBackgroundBar()
         buildDeviceFrameBar()
+        setUpHelp()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -524,6 +527,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         window?.layoutIfNeeded()
         window?.makeFirstResponder(canvas)
         applyFit()
+        help?.editorShown()
     }
 
     /// A window fitting `imageSize` with room for the toolbar and footer (within the screen, but never smaller than
@@ -1925,5 +1929,32 @@ extension EditorWindowController: NSTokenFieldDelegate {
         default:
             return false
         }
+    }
+}
+
+// MARK: Tips, the hint line and "New" dots (#301, #303)
+
+extension EditorWindowController {
+    private func setUpHelp() {
+        guard let content = window?.contentView else { return }
+        help = EditorHelp(canvas: canvas, over: scroll, in: content,
+                          toolPill: { [weak self] t in self?.toolPill(for: t) },
+                          featurePills: { [weak self] in self?.featurePills() ?? [] })
+    }
+
+    /// The toolbar button of tool `t`.
+    private func toolPill(for t: Tool) -> NSView? {
+        guard let i = toolButtons.firstIndex(where: { $0.tool == t }), toolPills.indices.contains(i) else { return nil }
+        return toolPills[i]
+    }
+
+    /// The toolbar's pull-downs whose menus run a feature that can wear a "New" dot.
+    private func featurePills() -> [PillPopUp] {
+        func popUps(in v: NSView) -> [PillPopUp] {
+            if let p = v as? PillPopUp { return [p] }
+            return v.subviews.flatMap(popUps)
+        }
+        let pills = (window?.toolbar?.items ?? []).compactMap(\.view).flatMap(popUps)
+        return pills.filter { p in (p.menu?.items ?? []).contains { $0.action.flatMap(NewFeature.running) != nil } }
     }
 }

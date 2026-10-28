@@ -305,6 +305,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             refreshFolder()
             let folder = NSStackView(views: [folderLabel, choose])
             folder.spacing = 10
+            let resetTips = NSButton(title: "Reset Tips", target: nil, action: nil)
+            bind(resetTips) { _ in Tips.resetAll() }
 
             return [
                 group("App", [
@@ -312,6 +314,14 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     toggle("Check for updates automatically",
                            "Looks for a new version once a day and asks before installing it.",
                            Preferences.checkForUpdates) { Preferences.checkForUpdates = $0; Updater.start() },
+                ]),
+                group("Tips", [
+                    toggle("Show tips and hints", "One-time tips, a hint line under the editor's canvas, and \"New\" dots on "
+                        + "features you haven't tried yet.", Preferences.showTipsAndHints) {
+                        Preferences.showTipsAndHints = $0
+                        NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
+                    },
+                    row("Reset tips", "Shows every tip and \"New\" dot again.", resetTips),
                 ]),
                 group("Capture", [
                     toggle("Freeze screen while selecting", "Shows a still frame while you pick an area and captures from it.",
