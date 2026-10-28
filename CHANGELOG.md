@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/jsonify/skreener2/compare/v0.15.0...v0.16.0) (2026-10-28)
+
+
+### Features
+
+* **ocr:** Capture Code keeps indentation and fixes OCR mistakes ([#249](https://github.com/jsonify/skreener2/issues/249)) ([#311](https://github.com/jsonify/skreener2/issues/311)) ([6c8ea2c](https://github.com/jsonify/skreener2/commit/6c8ea2cb7f3f44971a4c9305a3295222aaa2ecaa))
+* **pins:** Live Pin, a pin that mirrors an area or window in real time ([#241](https://github.com/jsonify/skreener2/issues/241)) ([#312](https://github.com/jsonify/skreener2/issues/312)) ([393cf4b](https://github.com/jsonify/skreener2/commit/393cf4b21a8e5f04fcce8e4eea9167cae94af477))
+
+
+### Bug Fixes
+
+* **capture:** keep the self-timer counting and round its corners ([#308](https://github.com/jsonify/skreener2/issues/308)) ([#309](https://github.com/jsonify/skreener2/issues/309)) ([e86c27d](https://github.com/jsonify/skreener2/commit/e86c27dca29885357c0ecf1aeedb1e0a2928b35f))
+
 ## [0.15.0](https://github.com/jsonify/skreener2/compare/v0.14.0...v0.15.0) (2026-10-28)
 
 
