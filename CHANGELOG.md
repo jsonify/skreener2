@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/jsonify/skreener2/compare/v0.17.0...v1.0.0) (2026-10-28)
+
+
+### Features
+
+* promote Skreener to its 1.0.0 stable release ([#319](https://github.com/jsonify/skreener2/issues/319)) ([1388e0e](https://github.com/jsonify/skreener2/commit/1388e0ee727172b3415d0e5bdb04a3e92f9feb89))
+
 ## [0.17.0](https://github.com/jsonify/skreener2/compare/v0.16.0...v0.17.0) (2026-10-28)
 
 
