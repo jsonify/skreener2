@@ -207,6 +207,11 @@ enum Preferences {
         get { d.object(forKey: "textScratchPad") as? Bool ?? true }
         set { d.set(newValue, forKey: "textScratchPad") }
     }
+    /// Capture Code copies a Markdown fenced code block instead of plain code (#249).
+    static var codeAsMarkdown: Bool {
+        get { d.object(forKey: "codeAsMarkdown") as? Bool ?? false }
+        set { d.set(newValue, forKey: "codeAsMarkdown") }
+    }
     /// Look for dates, addresses, phone numbers, links and QR codes in each capture and offer actions on its Quick Access
     /// preview (#243).
     static var smartActions: Bool {
