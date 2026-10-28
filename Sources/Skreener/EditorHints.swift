@@ -121,10 +121,7 @@ private final class NewDot: NSView {
             guard !Task.isCancelled, let self else { return }
             let line = self.hintLine
             line.stringValue = text
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.15
-                line.animator().alphaValue = 1
-            }
+            line.animator().alphaValue = 1   // fades in over the default animation duration
         }
     }
 
