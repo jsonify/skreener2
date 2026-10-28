@@ -67,6 +67,9 @@ the right pane.
 Permissions switched on but not working, or asked for again after every build? See
 [Resetting permissions](docs/resetting-permissions.md).
 
+A new install opens a short **Welcome Guide** that walks through the permission, the capture shortcut and the
+selection keys. After an update, **What's New** lists the changes. Both are also under **Help** in the menu-bar menu.
+
 ## Major features
 
 ### Screenshots
