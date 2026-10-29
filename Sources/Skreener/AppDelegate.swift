@@ -876,7 +876,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     /// Capture Text: OCR the image and copy what it says, or open it in the scratch pad to edit first (#134). With
-    /// formatting kept it is Markdown, with rich text beside it on the clipboard.
+    /// formatting kept it is Markdown, with rich text beside it on the clipboard, and the scratch pad edits it as rich
+    /// text (#326).
     private func copyText(_ image: NSImage, screen: NSScreen?) {
         Task { @MainActor in
             let formatted = Preferences.keepTextFormatting
@@ -888,7 +889,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
                 return
             }
             if Preferences.textScratchPad {
-                TextScratchPad.show(text, colors: result.colors, formatted: formatted, on: screen)
+                TextScratchPad.show(text, blocks: formatted ? result.blocks : nil, on: screen)
                 return
             }
             if formatted { TextRecognizer.copyFormatted(.init(markdown: text, colors: result.colors), as: .standard) } else { TextRecognizer.copyText(text) }
