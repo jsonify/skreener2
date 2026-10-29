@@ -189,8 +189,8 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
              symbol("chevron.left.forwardslash.chevron.right", "Code", #selector(toggleCode))],
             [symbol("list.bullet", "Bulleted list", #selector(toggleBullets)),
              symbol("list.number", "Numbered list", #selector(toggleNumbers)),
-             symbol("decrease.indent", "Outdent (⇧Tab in a list)", #selector(outdent)),
-             symbol("increase.indent", "Indent (Tab in a list)", #selector(indent))],
+             symbol("decrease.indent", "Outdent (⇧Tab in a list)", #selector(outdentItems)),
+             symbol("increase.indent", "Indent (Tab in a list)", #selector(indentItems))],
             dots + [symbol("eraser", "Clear formatting: plain text, keeping headings and lists", #selector(clearFormatting))],
         ]
         toolbar.spacing = 0
@@ -483,7 +483,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         let whole = ns.paragraphRange(for: textView.selectedRange())
         var out: [Parts] = [], starts: [Int] = []
         ns.enumerateSubstrings(in: whole, options: [.byParagraphs, .substringNotRequired]) { _, range, enclosing, _ in
-            let attributes = enclosing.length > 0 ? storage.attributes(at: enclosing.location, effectiveRange: nil) : textView.typingAttributes
+            let attributes = enclosing.length > 0 ? storage.attributes(at: enclosing.location, effectiveRange: nil) : self.textView.typingAttributes
             let lists = (attributes[.paragraphStyle] as? NSParagraphStyle)?.textLists ?? []
             let mark = lists.isEmpty ? 0 : FormattedText.markerLength(ns.substring(with: range))
             let content = storage.attributedSubstring(from: NSRange(location: range.location + mark, length: range.length - mark))
@@ -597,8 +597,8 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 
     @objc private func toggleBullets() { toggleList(ordered: false) }
     @objc private func toggleNumbers() { toggleList(ordered: true) }
-    @objc private func indent() { shiftLists(by: 1) }
-    @objc private func outdent() { shiftLists(by: -1) }
+    @objc private func indentItems() { shiftLists(by: 1) }
+    @objc private func outdentItems() { shiftLists(by: -1) }
 
     /// Moves the selected list items a level in or out; out of the top level they are plain paragraphs. An item moved
     /// in joins the list of the item above at that level, if there is one.
