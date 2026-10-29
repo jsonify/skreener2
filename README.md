@@ -112,8 +112,10 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   matches its language; it turns into **Stop** until the speech ends.
   The formatting comes along as Markdown: headings, bullet and numbered lists (nested by indentation), **bold**
   words, `code` on a shaded chip and code blocks. Apps that take rich text (Notes, Mail, Pages, Google Docs) get
-  the formatting itself when you paste, colored words included. Bold, code and colors are read from the pixels, so
-  they can be missed; Settings → After Capture → Capture Text → **Keep formatting as Markdown** turns it off.
+  the formatting itself when you paste, colored words included, while plain fields get clean text (• bullets, no
+  `**` or `#`). The scratch pad's pull-down next to Copy to Clipboard has **Copy as Markdown** (Shift-Command-Return,
+  for GitHub) and **Copy Plain Text Only** (Option-Command-Return). Bold, code and colors are read from the pixels,
+  so they can be missed; Settings → After Capture → Capture Text → **Keep formatting as Markdown** turns it off.
 - **Capture Code** (menu bar or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
   copies the text with its indentation kept and common OCR mistakes fixed (curly quotes, `l`/`O` inside numbers).
   Settings can copy it as a Markdown code block.

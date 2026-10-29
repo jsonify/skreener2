@@ -5,7 +5,7 @@ import AppKit
 /// Closing forgets the text: the next Capture Text starts a fresh one. While it is open, another Capture Text adds its
 /// text on its own line at the cursor (#261); the cursor starts at the end, so by default each capture adds a new line.
 /// Speak (⌥⌘S) reads the selection, or all the text, aloud; it turns into Stop until the speech ends (#268).
-final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate {
+final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate, NSMenuItemValidation {
     @MainActor private static var current: TextScratchPad?
 
     /// Shows `text` in the scratch pad, centered on `screen`; a pad that is already open adds it at the cursor.
@@ -65,6 +65,12 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         textView.textContainer?.widthTracksTextView = true
         textView.delegate = self
         textView.onCancel = { [weak self] in self?.close() }
+        // The shortcuts also work while typing, which the combo button doesn't see. ⌘Return always copies.
+        textView.onCopyKind = { [weak self] kind in
+            guard let self, kind == .standard || self.formatted else { return false }
+            self.copy(kind)
+            return true
+        }
 
         let scroll = NSScrollView()
         scroll.documentView = textView
@@ -79,11 +85,17 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         speakButton.keyEquivalentModifierMask = [.command, .option]
         speakButton.toolTip = "Read the selection, or all the text, aloud (⌥⌘S)"
         speaker.onFinish = { [weak self] in self?.speakButton.title = "Speak" }
-        let copy = NSButton(title: "Copy to Clipboard", target: self, action: #selector(copyAndClose))
-        copy.bezelColor = .controlAccentColor
-        copy.keyEquivalent = "\r"
-        copy.keyEquivalentModifierMask = [.command]
-        copy.toolTip = "Copy all the text and close (⌘Return)"
+        let markdown = NSMenuItem(title: "Copy as Markdown", action: #selector(copyMarkdownAndClose), keyEquivalent: "\r")
+        markdown.keyEquivalentModifierMask = [.command, .shift]
+        markdown.toolTip = "Copy with the Markdown as the plain text, for GitHub (⇧⌘Return)"
+        let plainOnly = NSMenuItem(title: "Copy Plain Text Only", action: #selector(copyPlainOnlyAndClose), keyEquivalent: "\r")
+        plainOnly.keyEquivalentModifierMask = [.command, .option]
+        plainOnly.toolTip = "Copy clean text and nothing else (⌥⌘Return)"
+        let copyMenu = NSMenu()
+        [markdown, plainOnly].forEach { $0.target = self; copyMenu.addItem($0) }
+        let copy = NSComboButton(title: "Copy to Clipboard", menu: copyMenu, target: self, action: #selector(copyAndClose))
+        copy.style = .split
+        copy.toolTip = "Copy all the text and close (⌘Return). The arrow has Copy as Markdown and Copy Plain Text Only."
         count.textColor = .secondaryLabelColor
         count.font = .systemFont(ofSize: 11)
 
@@ -107,14 +119,27 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func copyAndClose() {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copyMarkdownAndClose), #selector(copyPlainOnlyAndClose): return formatted
+        default: return true
+        }
+    }
+
+    @objc private func copyAndClose() { copy(.standard) }
+    @objc private func copyMarkdownAndClose() { copy(.markdown) }
+    @objc private func copyPlainOnlyAndClose() { copy(.plainOnly) }
+
+    private func copy(_ kind: TextRecognizer.CopyKind) {
         let text = textView.string
         guard !text.isEmpty else { NSSound.beep(); return }
-        if formatted { TextRecognizer.copyFormatted(text, colors: colors) } else { TextRecognizer.copyText(text) }
+        let formatted = self.formatted   // closing forgets it
+        if formatted { TextRecognizer.copyFormatted(text, colors: colors, as: kind) } else { TextRecognizer.copyText(text) }
         Sound.play("Pop")
         close()
         let lines = text.split(separator: "\n").count
-        Notifier.confirm(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+        let what = lines == 1 ? "1 line of text" : "\(lines) lines of text"
+        Notifier.confirm(formatted && kind == .markdown ? "Copied as Markdown" : "Copied \(what)")
     }
 
     @objc private func toggleSpeech() {
@@ -201,5 +226,18 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 private final class ScratchTextView: NSTextView {
     var onCancel: (() -> Void)?
 
+    /// Copies as the given kind for ⌘Return (standard), ⇧⌘Return (Markdown) and ⌥⌘Return (plain text only); false when it isn't handled.
+    var onCopyKind: ((TextRecognizer.CopyKind) -> Bool)?
+
     override func cancelOperation(_ sender: Any?) { onCancel?() }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 36 || event.keyCode == 76 {   // Return, keypad Enter
+            if mods == .command, onCopyKind?(.standard) == true { return true }
+            if mods == [.command, .shift], onCopyKind?(.markdown) == true { return true }
+            if mods == [.command, .option], onCopyKind?(.plainOnly) == true { return true }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
