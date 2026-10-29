@@ -20,8 +20,6 @@ final class PasteWatcher {
         let rtf: Data?
         var changeCount: Int
         var choice: PasteDestination.Choice
-        /// Destinations the banner has been shown for, once per copy.
-        var shown: Set<String> = []
     }
 
     private var armed: Armed?
@@ -88,8 +86,9 @@ final class PasteWatcher {
             state.changeCount = write(state, choice)
             state.choice = choice
         }
-        let showBanner = remembered[destination.key] == nil && !state.shown.contains(destination.key)
-        if showBanner { state.shown.insert(destination.key) }
+        let shown = Preferences.pasteBannerShown
+        let showBanner = destination.showsBanner(remembered: remembered, shown: shown)
+        if showBanner { Preferences.pasteBannerShown = shown.union([destination.key]) }
         armed = state
         if showBanner {
             DispatchQueue.main.async { PasteWatcher.shared.showBanner(destination, choice) }

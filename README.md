@@ -126,7 +126,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   read: GitHub in any browser, VS Code, Xcode, Zed, Sublime Text, Obsidian, Terminal and iTerm2. Skreener notices
   Command-V, looks at the app in front (and for a browser, the site at the end of its window title, such as
   "· GitHub" or "- Google Docs"), and switches the copy's plain text just before the paste; rich text stays the
-  same. A banner then says what went where, with a button such as **Use Markdown here** that remembers the other
+  same. The first time you paste into an app or site, a banner says what went where, with a button such as **Use Markdown here** that remembers the other
   choice for that app or site and switches the clipboard right away. It works alongside clipboard managers. It needs
   the Accessibility permission (without it, copies paste as clean text); Settings → After Capture → **Paste
   Destinations** turns it off and lists the remembered destinations to change or remove.

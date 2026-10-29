@@ -235,6 +235,11 @@ enum Preferences {
         get { d.dictionary(forKey: "pasteDestinationNames") as? [String: String] ?? [:] }
         set { d.set(newValue, forKey: "pasteDestinationNames") }
     }
+    /// The destinations (`PasteDestination.key`) whose paste banner has been shown: it appears the first time only.
+    static var pasteBannerShown: Set<String> {
+        get { Set(d.stringArray(forKey: "pasteBannerShown") ?? []) }
+        set { d.set(newValue.sorted(), forKey: "pasteBannerShown") }
+    }
     static func rememberPasteChoice(_ choice: PasteDestination.Choice, for key: String, name: String) {
         pasteChoices[key] = choice.rawValue
         pasteDestinationNames[key] = name
@@ -242,6 +247,7 @@ enum Preferences {
     static func forgetPasteChoice(for key: String) {
         pasteChoices[key] = nil
         pasteDestinationNames[key] = nil
+        pasteBannerShown.remove(key)
     }
     /// Capture Code copies a Markdown fenced code block instead of plain code (#249).
     static var codeAsMarkdown: Bool {
