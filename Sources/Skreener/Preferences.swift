@@ -218,6 +218,31 @@ enum Preferences {
         get { d.object(forKey: "keepTextFormatting") as? Bool ?? true }
         set { d.set(newValue, forKey: "keepTextFormatting") }
     }
+    /// A formatted Capture Text copy pastes as clean text or Markdown depending on where it goes (#327). Off: always
+    /// clean text.
+    static var choosePasteFormat: Bool {
+        get { d.object(forKey: "choosePasteFormat") as? Bool ?? true }
+        set { d.set(newValue, forKey: "choosePasteFormat") }
+    }
+    /// The text each paste destination gets, chosen with the paste banner or in Settings: `PasteDestination.key` →
+    /// "clean" or "markdown".
+    static var pasteChoices: [String: String] {
+        get { d.dictionary(forKey: "pasteChoices") as? [String: String] ?? [:] }
+        set { d.set(newValue, forKey: "pasteChoices") }
+    }
+    /// The names Settings lists the remembered destinations by ("Chrome · GitHub"), by the same keys.
+    static var pasteDestinationNames: [String: String] {
+        get { d.dictionary(forKey: "pasteDestinationNames") as? [String: String] ?? [:] }
+        set { d.set(newValue, forKey: "pasteDestinationNames") }
+    }
+    static func rememberPasteChoice(_ choice: PasteDestination.Choice, for key: String, name: String) {
+        pasteChoices[key] = choice.rawValue
+        pasteDestinationNames[key] = name
+    }
+    static func forgetPasteChoice(for key: String) {
+        pasteChoices[key] = nil
+        pasteDestinationNames[key] = nil
+    }
     /// Capture Code copies a Markdown fenced code block instead of plain code (#249).
     static var codeAsMarkdown: Bool {
         get { d.object(forKey: "codeAsMarkdown") as? Bool ?? false }

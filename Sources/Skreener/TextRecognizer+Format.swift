@@ -76,18 +76,29 @@ extension TextRecognizer {
     @MainActor static func copyFormatted(_ copy: TextCopy, as kind: CopyKind = .standard) {
         let item = NSPasteboardItem()
         item.setString(kind == .markdown ? copy.markdown : copy.clean, forType: .string)
+        var html: String?
+        var rtf: Data?
         if kind != .plainOnly {
             let body = copy.html
-            item.setString("<meta charset=\"utf-8\">" + body, forType: .html)
+            let page = "<meta charset=\"utf-8\">" + body
+            html = page
+            item.setString(page, forType: .html)
             // RTF in the system font rather than the HTML default (Times).
             let styled = "<meta charset=\"utf-8\"><style>body { font-family: -apple-system, 'Helvetica Neue'; font-size: 13px }</style>" + body
             if let rich = NSAttributedString(html: Data(styled.utf8), documentAttributes: nil),
-               let rtf = rich.rtf(from: NSRange(location: 0, length: rich.length), documentAttributes: [:]) {
-                item.setData(rtf, forType: .rtf)
+               let data = rich.rtf(from: NSRange(location: 0, length: rich.length), documentAttributes: [:]) {
+                rtf = data
+                item.setData(data, forType: .rtf)
             }
         }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects([item])
+        // A standard copy switches to Markdown when pasted where that's wanted (#327); the explicit kinds stay as they are.
+        if kind == .standard {
+            PasteWatcher.shared.arm(copy, html: html, rtf: rtf, changeCount: pb.changeCount)
+        } else {
+            PasteWatcher.shared.disarm()
+        }
     }
 }

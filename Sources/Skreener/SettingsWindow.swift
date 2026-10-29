@@ -80,8 +80,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private let apiKeyField = NSSecureTextField()
     private let apiKeyStatus = NSTextField(labelWithString: "")
     private let apiKeyRemove = NSButton(title: "Remove", target: nil, action: nil)
-    /// Each permission's status in Settings → General, refreshed whenever Settings comes to the front (#112).
-    private var permissionLabels: [Permission: NSTextField] = [:]
+    /// Each permission's status in Settings → General (and Paste Destinations), refreshed whenever Settings comes to
+    /// the front (#112).
+    private var permissionLabels: [(permission: Permission, label: NSTextField)] = []
+    /// The remembered paste destinations (#327), rebuilt when one is removed and when Settings comes to the front.
+    private let pasteList = NSStackView()
     private let sidebar = NSTableView()
     /// One-row list pinned to the bottom of the sidebar, below a divider, holding About (#136).
     private let footer = NSTableView()
@@ -343,7 +346,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         Preferences.hideIconsWhileCapturing = $0
                     },
                 ]),
-                group("Permissions", Permission.allCases.map(permissionRow),
+                group("Permissions", Permission.allCases.map { permissionRow($0) },
                       note: "Skreener asks for these when it first needs them. A permission turned on in System Settings "
                         + "may need Skreener to be quit and reopened."),
                 group("Export", [row("Export location", folder)],
@@ -383,6 +386,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            "Headings, bullet and numbered lists, bold and code, written as Markdown. Apps that take rich text (Notes, Mail, Pages) also get colored words. Bold, code and colors are read from the pixels, so they can be missed. Copies paste as formatted text in Google Docs, Notes, Mail and Pages, and as clean text (• bullets, no symbols) in plain fields; the scratch pad has Copy as Markdown for GitHub. Off: plain text.",
                            Preferences.keepTextFormatting) { Preferences.keepTextFormatting = $0 },
                 ]),
+                pasteDestinationsGroup(),
                 group("Capture Code", [
                     toggle("Copy as a Markdown code block",
                            "Wraps the code in ``` fences. Off: copied as plain code.",
@@ -768,27 +772,115 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private func refreshSystemState() {
         refreshPermissions()
+        // A paste banner may have remembered a destination in the meantime.
+        if pasteList.superview != nil { reloadPasteDestinations() }
         shortcutsPane.refreshMacShortcuts()
     }
 
     private func refreshPermissions() {
-        for (permission, label) in permissionLabels {
-            label.stringValue = permission.status
-            label.textColor = permission.isGranted ? .systemGreen : .systemOrange
+        for (permission, label) in permissionLabels { showStatus(permission, in: label) }
+    }
+
+    private func showStatus(_ permission: Permission, in label: NSTextField) {
+        label.stringValue = permission.status
+        label.textColor = permission.isGranted ? .systemGreen : .systemOrange
+    }
+
+    /// Status and an Open System Settings button for one permission; `purpose` replaces its general one.
+    private func permissionRow(_ permission: Permission) -> NSView { permissionRow(permission, purpose: permission.purpose) }
+
+    private func permissionRow(_ permission: Permission, purpose: String) -> NSView {
+        let status = NSTextField(labelWithString: "")
+        status.font = .systemFont(ofSize: 12, weight: .medium)
+        // Panes built after Settings came to the front would otherwise show no status until it comes to the front again.
+        showStatus(permission, in: status)
+        permissionLabels.append((permission, status))
+        let open = NSButton(title: "Open System Settings", target: nil, action: nil)
+        open.controlSize = .small
+        bind(open) { _ in
+            // Adds Skreener to the Accessibility list (switched off) the first time, so it can just be turned on.
+            if permission == .accessibility { AccessibilityAccess.request() }
+            permission.openSettings()
+        }
+        let control = NSStackView(views: [status, open])
+        control.spacing = 10
+        return row(permission.title, purpose, control)
+    }
+
+    // MARK: Paste destinations
+
+    /// Settings → After Capture → Paste Destinations (#327): the switch, the remembered destinations and Accessibility.
+    private func pasteDestinationsGroup() -> NSView {
+        pasteList.orientation = .vertical
+        pasteList.alignment = .leading
+        pasteList.spacing = 0
+        reloadPasteDestinations()
+        return group("Paste Destinations", [
+            toggle("Choose clean text or Markdown when pasting",
+                   "Capture Text copies paste as Markdown into GitHub, code editors (VS Code, Xcode, Zed, Sublime Text), "
+                   + "Obsidian and terminals, and as clean text everywhere else. Off: always clean text.",
+                   Preferences.choosePasteFormat) { on in
+                Preferences.choosePasteFormat = on
+                if !on { PasteWatcher.shared.disarm() } else if !AccessibilityAccess.granted { AccessibilityAccess.request() }
+            },
+            pasteList,
+            permissionRow(.accessibility, purpose: "Needed to notice ⌘V. Without it, copies paste as clean text."),
+        ], note: "After a paste, a banner says which text went where; its button switches that app or site (GitHub, "
+            + "Google Docs) to the other one from then on. Copy as Markdown and Copy Plain Text Only in the scratch pad "
+            + "always paste what they say.")
+    }
+
+    private func reloadPasteDestinations() {
+        for v in pasteList.arrangedSubviews {
+            pasteList.removeArrangedSubview(v)
+            v.removeFromSuperview()
+        }
+        let choices = Preferences.pasteChoices
+        let names = Preferences.pasteDestinationNames
+        let keys = choices.keys.sorted { (names[$0] ?? $0).localizedStandardCompare(names[$1] ?? $1) == .orderedAscending }
+        var rows = keys.map { pasteDestinationRow(key: $0, name: names[$0] ?? $0, choice: choices[$0]) }
+        if rows.isEmpty {
+            rows = [row("No remembered destinations",
+                        "Use the button on the banner after a paste to remember the other text for that app or site.",
+                        NSTextField(labelWithString: ""))]
+        }
+        for (i, r) in rows.enumerated() {
+            let line = NSBox()
+            line.boxType = .separator
+            // The group puts separators around the list; these go between its rows.
+            let views: [NSView] = i > 0 ? [line, r] : [r]
+            for v in views {
+                pasteList.addArrangedSubview(v)
+                v.widthAnchor.constraint(equalTo: pasteList.widthAnchor).isActive = true
+            }
         }
     }
 
-    /// Status and an Open System Settings button for one permission.
-    private func permissionRow(_ permission: Permission) -> NSView {
-        let status = NSTextField(labelWithString: "")
-        status.font = .systemFont(ofSize: 12, weight: .medium)
-        permissionLabels[permission] = status
-        let open = NSButton(title: "Open System Settings", target: nil, action: nil)
-        open.controlSize = .small
-        bind(open) { _ in permission.openSettings() }
-        let control = NSStackView(views: [status, open])
-        control.spacing = 10
-        return row(permission.title, permission.purpose, control)
+    /// One remembered destination: a Clean text / Markdown pop-up and a button that forgets it.
+    private func pasteDestinationRow(key: String, name: String, choice: String?) -> NSView {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.controlSize = .small
+        for c in PasteDestination.Choice.allCases {
+            popup.addItem(withTitle: c.title)
+            popup.lastItem?.representedObject = c.rawValue
+        }
+        popup.selectItem(at: PasteDestination.Choice.allCases.firstIndex { $0.rawValue == choice } ?? 0)
+        bind(popup) {
+            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            Preferences.rememberPasteChoice(raw.flatMap(PasteDestination.Choice.init(rawValue:)) ?? .clean, for: key, name: name)
+        }
+        let remove = NSButton(image: NSImage(systemSymbolName: "trash", accessibilityDescription: "Remove") ?? NSImage(),
+                              target: nil, action: nil)
+        remove.isBordered = false
+        remove.contentTintColor = .secondaryLabelColor
+        remove.toolTip = "Forget this destination"
+        bind(remove) { [weak self] _ in
+            Preferences.forgetPasteChoice(for: key)
+            self?.reloadPasteDestinations()
+        }
+        let control = NSStackView(views: [popup, remove])
+        control.spacing = 8
+        return row(name, control)
     }
     func refreshURLScheme() { urlSchemeSwitch.state = Preferences.allowURLScheme ? .on : .off }
 
