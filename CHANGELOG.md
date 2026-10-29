@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0](https://github.com/jsonify/skreener2/compare/v1.1.0...v1.2.0) (2026-10-29)
+
+
+### Features
+
+* **capture:** copy clean plain text from Capture Text ([#325](https://github.com/jsonify/skreener2/issues/325)) ([#328](https://github.com/jsonify/skreener2/issues/328)) ([c2fb87b](https://github.com/jsonify/skreener2/commit/c2fb87b460dec33390d21bca2f7dd4c0a003f40f))
+* **capture:** edit captured text with formatting in the scratch pad ([#326](https://github.com/jsonify/skreener2/issues/326)) ([#333](https://github.com/jsonify/skreener2/issues/333)) ([468440c](https://github.com/jsonify/skreener2/commit/468440c5443b66a805612166535591d3a1b6bbfd))
+* **capture:** pick clean text or Markdown for where Capture Text is pasted ([#327](https://github.com/jsonify/skreener2/issues/327)) ([#332](https://github.com/jsonify/skreener2/issues/332)) ([c3ad387](https://github.com/jsonify/skreener2/commit/c3ad38743e0d0719ae691a1cefc3e40c94b9db84))
+
+
+### Bug Fixes
+
+* **build:** build with SwiftPM's native build system on newer Swift ([#329](https://github.com/jsonify/skreener2/issues/329)) ([8da500d](https://github.com/jsonify/skreener2/commit/8da500d251ac524071015dac5683e1919748c9d7))
+
 ## [1.1.0](https://github.com/jsonify/skreener2/compare/v1.0.0...v1.1.0) (2026-10-28)
 
 
