@@ -16,6 +16,10 @@ FLAGS=(-Xswiftc -emit-const-values-path -Xswiftc "$INTENTS/Skreener.swiftconstva
   -Xlinker -dependency_info -Xlinker "$INTENTS/link_dependency_info.dat")
 # SKREENER_STRICT=1 (set in CI) turns compiler warnings into errors so none slip through.
 if [ "${SKREENER_STRICT:-}" = "1" ]; then FLAGS+=(-Xswiftc -warnings-as-errors); fi
+# Newer Swift builds with Swift Build by default, which passes the linker its own -dependency_info: with ours as well
+# the linker writes only one of the two files and the build fails. SwiftPM's native build system passes none, so ask
+# for it where the option exists (the paths below are the native build's too).
+if swift build --help-hidden 2>/dev/null | grep -q -- '--build-system'; then FLAGS=(--build-system native "${FLAGS[@]}"); fi
 swift build -c release "${FLAGS[@]}"
 APP=build/Skreener.app
 # Version info comes from git, so it changes on its own with every commit and release (#135); nothing to edit by hand.
