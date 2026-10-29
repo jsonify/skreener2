@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/jsonify/skreener2/compare/v1.2.0...v1.3.0) (2026-10-29)
+
+
+### Features
+
+* **capture:** split the scratch pad selection into lines and copy each separately ([#334](https://github.com/jsonify/skreener2/issues/334)) ([#335](https://github.com/jsonify/skreener2/issues/335)) ([4061a9e](https://github.com/jsonify/skreener2/commit/4061a9ebdad91532202fe7360e8e53a83d681cef))
+
+
+### Bug Fixes
+
+* **capture:** show the paste banner only the first time per destination ([#327](https://github.com/jsonify/skreener2/issues/327)) ([#337](https://github.com/jsonify/skreener2/issues/337)) ([04deeea](https://github.com/jsonify/skreener2/commit/04deeea99ea80134515d5fc07586f86a20c646fe))
+
 ## [1.2.0](https://github.com/jsonify/skreener2/compare/v1.1.0...v1.2.0) (2026-10-29)
 
 
