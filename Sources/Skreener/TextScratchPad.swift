@@ -7,6 +7,8 @@ import AppKit
 /// Speak (⌥⌘S) reads the selection, or all the text, aloud; it turns into Stop until the speech ends (#268).
 /// With formatting kept, the text is rich (#326): headings, lists, bold, italic, code and colors, with a toolbar above
 /// it, and copying turns what is shown back into Markdown, clean text and HTML.
+/// Split into Lines (⇧⌥I) turns the selection into one selection per line (#334); ⌘C then copies each line as its own
+/// clipboard entry, first line on top.
 final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate, NSMenuItemValidation {
     @MainActor private static var current: TextScratchPad?
 
@@ -53,6 +55,12 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     private let toolbar = NSStackView()
     private let paragraphMenu = NSPopUpButton(frame: .zero, pullsDown: false)
     private var formatted = false
+    /// The running one-entry-per-line copy (#334); cancelled by another copy or by closing the pad.
+    private var separateCopy: Task<Void, Never>?
+
+    /// The pause between one-entry-per-line writes. Clipboard managers poll the pasteboard (most about twice a second),
+    /// so writes closer together than that are merged into one history entry or missed.
+    private static let separateCopyInterval = 0.6
 
     /// The toolbar's colors: red, blue, green.
     private static let palette = [FormattedText.RGB(r: 0.86, g: 0.15, b: 0.15), FormattedText.RGB(r: 0.12, g: 0.4, b: 0.9),
@@ -90,6 +98,9 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
             return true
         }
         // ⌘B and ⌘I: the app has no Format menu.
+        textView.onSplit = { [weak self] in self?.splitIntoLines() }
+        textView.onCopySeparately = { [weak self] in self?.copySeparately() }
+        textView.onSingleCopy = { [weak self] in self?.separateCopy?.cancel() }
         textView.onStyleKey = { [weak self] key in
             guard let self, self.formatted else { return false }
             switch key {
@@ -192,6 +203,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
              symbol("decrease.indent", "Outdent (⇧Tab in a list)", #selector(outdentItems)),
              symbol("increase.indent", "Indent (Tab in a list)", #selector(indentItems))],
             dots + [symbol("eraser", "Clear formatting: plain text, keeping headings and lists", #selector(clearFormatting))],
+            [symbol("text.line.first.and.arrowtriangle.forward", "Split into Lines (⇧⌥I)", #selector(splitIntoLines))],
         ]
         toolbar.spacing = 0
         for group in groups {
@@ -233,6 +245,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     @objc private func copyPlainOnlyAndClose() { copy(.plainOnly) }
 
     private func copy(_ kind: TextRecognizer.CopyKind) {
+        separateCopy?.cancel()
         let formatted = self.formatted   // closing forgets it
         var text = textView.string
         if formatted, let storage = textView.textStorage {
@@ -274,6 +287,67 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         guard let spoken else { NSSound.beep(); return }
         speakButton.title = "Stop"
         speaker.speak(spoken)
+    }
+
+    /// Selects each line of the selection (or of all the text) on its own, leaving out list markers, blank lines and
+    /// the spaces around a line; ⌘C then copies the lines separately.
+    @objc private func splitIntoLines() {
+        let all = NSRange(location: 0, length: (textView.string as NSString).length)
+        let ranges = textView.selectedRanges.map(\.rangeValue).flatMap {
+            Self.lineRanges(in: textView.string, selection: $0.length == 0 ? all : $0, listMarkers: formatted)
+        }
+        guard !ranges.isEmpty else { NSSound.beep(); return }
+        textView.selectedRanges = ranges.map { NSValue(range: $0) }
+        textView.scrollRangeToVisible(ranges[0])
+        window?.makeFirstResponder(textView)
+    }
+
+    /// Copies each selected range as its own clipboard entry, from the last to the first, so the newest entry in a
+    /// clipboard manager is the first line and the clipboard ends up holding it. The pad stays open.
+    private func copySeparately() {
+        separateCopy?.cancel()
+        let ns = textView.string as NSString
+        let lines = textView.selectedRanges.map(\.rangeValue).sorted { $0.location < $1.location }
+            .filter { $0.length > 0 }.map { ns.substring(with: $0) }
+        guard !lines.isEmpty else { NSSound.beep(); return }
+        PasteWatcher.shared.disarm()
+        let order = Array(lines.reversed())
+        separateCopy = Task { @MainActor [weak self] in
+            for (i, text) in order.enumerated() {
+                guard let self, !Task.isCancelled else { return }
+                TextRecognizer.copyText(text)
+                if i + 1 == order.count { break }
+                MessageHUD.show("Copying \(i + 1) of \(order.count)…", symbol: "doc.on.doc", placement: .top)
+                try? await Task.sleep(for: .seconds(Self.separateCopyInterval))
+            }
+            guard !Task.isCancelled else { return }
+            Sound.play("Pop")
+            Notifier.confirm("Copied \(order.count) lines separately")
+        }
+    }
+
+    /// One range per line of `text` that `selection` touches (all the text when it is only a cursor), clipped to the
+    /// selection, without the line break, the spaces around it or, with `listMarkers`, the rich pad's list marker
+    /// (a tab, the marker, a tab). Blank lines are left out.
+    nonisolated static func lineRanges(in text: String, selection: NSRange, listMarkers: Bool = true) -> [NSRange] {
+        let ns = text as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        let range = selection.length == 0 ? whole : NSIntersectionRange(selection, whole)
+        guard range.length > 0 else { return [] }
+        func blank(_ i: Int) -> Bool {
+            UnicodeScalar(ns.character(at: i)).map { CharacterSet.whitespacesAndNewlines.contains($0) } ?? false
+        }
+        var out: [NSRange] = []
+        ns.enumerateSubstrings(in: ns.lineRange(for: range), options: [.byLines, .substringNotRequired]) { _, line, _, _ in
+            let clipped = NSIntersectionRange(line, range)
+            guard clipped.length > 0 else { return }
+            var start = clipped.location, end = NSMaxRange(clipped)
+            if listMarkers { start = max(start, line.location + FormattedText.markerLength(ns.substring(with: line))) }
+            while start < end, blank(start) { start += 1 }
+            while end > start, blank(end - 1) { end -= 1 }
+            if end > start { out.append(NSRange(location: start, length: end - start)) }
+        }
+        return out
     }
 
     @objc private func joinLines() {
@@ -692,7 +766,8 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard formatted else { return false }
+        // The list and heading handling follows one cursor; with several selections the text view does its own thing.
+        guard formatted, textView.selectedRanges.count == 1 else { return false }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
             return richNewline()
@@ -725,6 +800,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     func windowWillClose(_ notification: Notification) {
         // Closing ends this text session.
         speaker.stop()
+        separateCopy?.cancel()
         textView.string = ""
         setFormatted(false)
         if Self.current === self { Self.current = nil }
@@ -741,7 +817,39 @@ private final class ScratchTextView: NSTextView {
     /// Styles the text for ⌘B ("b") and ⌘I ("i"); false when it isn't handled.
     var onStyleKey: ((String) -> Bool)?
 
+    /// Splits the selection into one selection per line, for ⇧⌥I and the context menu.
+    var onSplit: (() -> Void)?
+
+    /// Copies the several selections as separate clipboard entries (⌘C with more than one selection).
+    var onCopySeparately: (() -> Void)?
+
+    /// Called for an ordinary ⌘C, to stop a one-entry-per-line copy still running.
+    var onSingleCopy: (() -> Void)?
+
     override func cancelOperation(_ sender: Any?) { onCancel?() }
+
+    override func copy(_ sender: Any?) {
+        if selectedRanges.count > 1 {
+            onCopySeparately?()
+        } else {
+            onSingleCopy?()
+            super.copy(sender)
+        }
+    }
+
+    @objc func splitIntoLines(_ sender: Any?) { onSplit?() }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let menu = super.menu(for: event) else { return nil }
+        if !menu.items.contains(where: { $0.action == #selector(splitIntoLines(_:)) }) {
+            menu.addItem(.separator())
+            let item = NSMenuItem(title: "Split into Lines", action: #selector(splitIntoLines(_:)), keyEquivalent: "i")
+            item.keyEquivalentModifierMask = [.shift, .option]
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -749,6 +857,10 @@ private final class ScratchTextView: NSTextView {
             if mods == .command, onCopyKind?(.standard) == true { return true }
             if mods == [.command, .shift], onCopyKind?(.markdown) == true { return true }
             if mods == [.command, .option], onCopyKind?(.plainOnly) == true { return true }
+        }
+        if event.keyCode == 34, mods == [.shift, .option] {   // I: matched by key, as ⌥ changes the character
+            onSplit?()
+            return true
         }
         if mods == .command, let key = event.charactersIgnoringModifiers?.lowercased(), onStyleKey?(key) == true { return true }
         return super.performKeyEquivalent(with: event)
