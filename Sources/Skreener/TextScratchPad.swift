@@ -312,9 +312,9 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         guard !lines.isEmpty else { NSSound.beep(); return }
         PasteWatcher.shared.disarm()
         let order = Array(lines.reversed())
-        separateCopy = Task { @MainActor [weak self] in
+        separateCopy = Task { @MainActor in
             for (i, text) in order.enumerated() {
-                guard let self, !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return }
                 TextRecognizer.copyText(text)
                 if i + 1 == order.count { break }
                 MessageHUD.show("Copying \(i + 1) of \(order.count)…", symbol: "doc.on.doc", placement: .top)
