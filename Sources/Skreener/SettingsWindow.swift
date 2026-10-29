@@ -824,10 +824,18 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 if !on { PasteWatcher.shared.disarm() } else if !AccessibilityAccess.granted { AccessibilityAccess.request() }
             },
             pasteList,
+            row("Banner", "The banner appears the first time you paste into each app or site.", showBannerAgainButton()),
             permissionRow(.accessibility, purpose: "Needed to notice ⌘V. Without it, copies paste as clean text."),
         ], note: "After a paste, a banner says which text went where; its button switches that app or site (GitHub, "
             + "Google Docs) to the other one from then on. Copy as Markdown and Copy Plain Text Only in the scratch pad "
             + "always paste what they say.")
+    }
+
+    private func showBannerAgainButton() -> NSButton {
+        let button = NSButton(title: "Show the banner again everywhere", target: nil, action: nil)
+        button.controlSize = .small
+        bind(button) { _ in Preferences.pasteBannerShown = [] }
+        return button
     }
 
     private func reloadPasteDestinations() {

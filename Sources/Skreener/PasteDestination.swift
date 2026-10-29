@@ -76,6 +76,12 @@ struct PasteDestination: Equatable {
         remembered[key].flatMap(Choice.init(rawValue:)) ?? builtInChoice ?? .clean
     }
 
+    /// Whether the banner shows for this paste: only when no choice is remembered here and it hasn't been shown for
+    /// this destination before.
+    func showsBanner(remembered: [String: String], shown: Set<String>) -> Bool {
+        remembered[key] == nil && !shown.contains(key)
+    }
+
     /// The separators between a page's title and its site at the end of a window title.
     private static let separators = [" · ", " - ", " – ", " — "]
 

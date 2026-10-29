@@ -77,6 +77,14 @@ final class PasteDestinationTests: XCTestCase {
         XCTAssertEqual(textEdit.choice(remembered: ["com.apple.TextEdit": "rot13"]), .clean, "an unknown value is ignored")
     }
 
+    func testBannerShowsOnlyTheFirstTimePerDestination() {
+        let github = PasteDestination(bundleID: "com.google.Chrome", appName: "Chrome", windowTitle: "Issue · GitHub")
+        XCTAssertTrue(github.showsBanner(remembered: [:], shown: []))
+        XCTAssertFalse(github.showsBanner(remembered: [:], shown: [github.key]), "already shown")
+        XCTAssertTrue(github.showsBanner(remembered: [:], shown: ["com.apple.TextEdit"]), "another destination")
+        XCTAssertFalse(github.showsBanner(remembered: [github.key: "clean"], shown: []), "remembered choice")
+    }
+
     func testChoices() {
         XCTAssertEqual(PasteDestination.Choice.clean.other, .markdown)
         XCTAssertEqual(PasteDestination.Choice.markdown.other, .clean)
