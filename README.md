@@ -113,9 +113,13 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   The formatting comes along as Markdown: headings, bullet and numbered lists (nested by indentation), **bold**
   words, `code` on a shaded chip and code blocks. Apps that take rich text (Notes, Mail, Pages, Google Docs) get
   the formatting itself when you paste, colored words included, while plain fields get clean text (• bullets, no
-  `**` or `#`). The scratch pad's pull-down next to Copy to Clipboard has **Copy as Markdown** (Shift-Command-Return,
-  for GitHub) and **Copy Plain Text Only** (Option-Command-Return). Bold, code and colors are read from the pixels,
-  so they can be missed; Settings → After Capture → Capture Text → **Keep formatting as Markdown** turns it off.
+  `**` or `#`). With formatting kept, the scratch pad edits the formatted text itself, with no Markdown symbols: a
+  toolbar above it has Title / Heading / Body, Bold (Command-B), Italic (Command-I), Code, bulleted and numbered
+  lists, Outdent / Indent (Tab and Shift-Tab in a list), three colors and Clear formatting, and Return in a list
+  starts the next item (on an empty item it ends the list). The arrow on the scratch pad's Copy to Clipboard
+  button has **Copy as Markdown** (Shift-Command-Return, for GitHub) and **Copy Plain Text Only** (Option-Command-Return).
+  Bold, code and colors are read from the pixels, so they can be missed; Settings → After Capture → Capture Text →
+  **Keep formatting as Markdown** turns it off, and the scratch pad is plain text again.
 - **Paste destinations**: a Capture Text copy pastes as clean text by default, and as Markdown where Markdown is
   read: GitHub in any browser, VS Code, Xcode, Zed, Sublime Text, Obsidian, Terminal and iTerm2. Skreener notices
   Command-V, looks at the app in front (and for a browser, the site at the end of its window title, such as

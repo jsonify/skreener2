@@ -48,6 +48,8 @@ enum FormattedText {
 
     struct Style: Equatable, Sendable {
         var bold = false
+        /// Never read from the pixels; set in the scratch pad (#326).
+        var italic = false
         var code = false
         var color: RGB?
     }
@@ -78,12 +80,14 @@ enum FormattedText {
     struct Result: Equatable, Sendable {
         var text = ""
         var colors: [Painted] = []
+        /// What `text` was written from, for the scratch pad's rich text (#326).
+        var blocks: [Block] = []
     }
 
-    /// The Markdown of `lines`, with its colored words.
+    /// The Markdown of `lines`, with its colored words and the blocks they came from.
     static func format(_ lines: [Line]) -> Result {
         let parsed = blocks(lines)
-        return Result(text: markdown(parsed), colors: colors(parsed))
+        return Result(text: markdown(parsed), colors: colors(parsed), blocks: parsed)
     }
 
     /// The ranges of the words (runs of non-whitespace) in `text`.
@@ -353,7 +357,7 @@ enum FormattedText {
 
     // MARK: Markdown
 
-    /// `blocks` as Markdown: `#` headings, `-` and `1.` items indented under their parent's text, `**bold**`,
+    /// `blocks` as Markdown: `#` headings, `-` and `1.` items indented under their parent's text, `**bold**`, `*italic*`,
     /// `` `code` ``, fenced code blocks; blank lines between paragraphs and around headings, lists and code.
     static func markdown(_ blocks: [Block]) -> String {
         var out: [String] = []
@@ -399,7 +403,8 @@ enum FormattedText {
 
     static func inline(_ runs: [Run]) -> String {
         runs.map { run in
-            let text = run.style.code ? codeSpan(run.text) : escape(run.text)
+            var text = run.style.code ? codeSpan(run.text) : escape(run.text)
+            if run.style.italic { text = "*\(text)*" }
             return run.style.bold ? "**\(text)**" : text
         }.joined(separator: " ")
     }
@@ -587,19 +592,20 @@ enum FormattedText {
     struct Segment: Equatable {
         var text: String
         var bold = false
+        var italic = false
         var code = false
     }
 
-    /// Inline Markdown as segments: backslash escapes, `` `code` `` spans (any number of backticks) and `**bold**`.
-    /// An unclosed `**` stays as text.
+    /// Inline Markdown as segments: backslash escapes, `` `code` `` spans (any number of backticks), `**bold**` and
+    /// `*italic*` (opening before, and closing after, a non-space). An unclosed `**` or `*` stays as text.
     static func segments(_ markdown: String) -> [Segment] {
         let chars = Array(markdown)
         var out: [Segment] = []
         var text = ""
-        var bold = false
-        var boldStart = 0
+        var bold = false, italic = false
+        var boldStart = 0, italicStart = 0
         func flush() {
-            if !text.isEmpty { out.append(Segment(text: text, bold: bold)) }
+            if !text.isEmpty { out.append(Segment(text: text, bold: bold, italic: italic)) }
             text = ""
         }
         func ticks(at i: Int) -> Int {
@@ -627,23 +633,34 @@ enum FormattedText {
                 if code.count >= 2, code.hasPrefix(" "), code.hasSuffix(" "), code.contains(where: { $0 != " " }) {
                     code = String(code.dropFirst().dropLast())
                 }
-                out.append(Segment(text: code, bold: bold, code: true))
+                out.append(Segment(text: code, bold: bold, italic: italic, code: true))
                 i = close + n
             } else if c == "*", i + 1 < chars.count, chars[i + 1] == "*" {
                 flush()
                 if !bold { boldStart = out.count }
                 bold.toggle()
                 i += 2
+            } else if c == "*", italic ? i > 0 && !chars[i - 1].isWhitespace : i + 1 < chars.count && !chars[i + 1].isWhitespace {
+                flush()
+                if !italic { italicStart = out.count }
+                italic.toggle()
+                i += 1
             } else {
                 text.append(c)
                 i += 1
             }
         }
         flush()
+        var unclosed: [(at: Int, mark: String)] = []
         if bold {
             for k in boldStart..<out.count { out[k].bold = false }
-            out.insert(Segment(text: "**"), at: boldStart)
+            unclosed.append((boldStart, "**"))
         }
+        if italic {
+            for k in italicStart..<out.count { out[k].italic = false }
+            unclosed.append((italicStart, "*"))
+        }
+        for u in unclosed.sorted(by: { $0.at > $1.at }) { out.insert(Segment(text: u.mark), at: u.at) }
         return out
     }
 
@@ -655,6 +672,7 @@ enum FormattedText {
             FormattedText.segments(markdown).map { segment in
                 var s = color(segment.text)
                 if segment.code { s = "<code>\(s)</code>" }
+                if segment.italic { s = "<i>\(s)</i>" }
                 if segment.bold { s = "<b>\(s)</b>" }
                 return s
             }.joined()
