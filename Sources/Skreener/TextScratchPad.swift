@@ -134,7 +134,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         let text = textView.string
         guard !text.isEmpty else { NSSound.beep(); return }
         let formatted = self.formatted   // closing forgets it
-        if formatted { TextRecognizer.copyFormatted(text, colors: colors, as: kind) } else { TextRecognizer.copyText(text) }
+        if formatted { TextRecognizer.copyFormatted(.init(markdown: text, colors: colors), as: kind) } else { TextRecognizer.copyText(text) }
         Sound.play("Pop")
         close()
         let lines = text.split(separator: "\n").count
