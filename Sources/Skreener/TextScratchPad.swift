@@ -5,7 +5,7 @@ import AppKit
 /// Closing forgets the text: the next Capture Text starts a fresh one. While it is open, another Capture Text adds its
 /// text on its own line at the cursor (#261); the cursor starts at the end, so by default each capture adds a new line.
 /// Speak (⌥⌘S) reads the selection, or all the text, aloud; it turns into Stop until the speech ends (#268).
-final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate {
+final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate, NSMenuItemValidation {
     @MainActor private static var current: TextScratchPad?
 
     /// Shows `text` in the scratch pad, centered on `screen`; a pad that is already open adds it at the cursor.
@@ -41,10 +41,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     private let speakButton = NSButton(title: "Speak", target: nil, action: nil)
     private let speaker = TextSpeaker()
     private var colors: [FormattedText.Painted] = []
-    private let copyMenu = NSPopUpButton(frame: .zero, pullsDown: true)
-    private var formatted = false {
-        didSet { copyMenu.isHidden = !formatted }
-    }
+    private var formatted = false
 
     private init() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -68,9 +65,9 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         textView.textContainer?.widthTracksTextView = true
         textView.delegate = self
         textView.onCancel = { [weak self] in self?.close() }
-        // The menu's shortcuts also work while typing, which the pop-up button's menu doesn't see.
+        // The shortcuts also work while typing, which the combo button doesn't see. ⌘Return always copies.
         textView.onCopyKind = { [weak self] kind in
-            guard let self, self.formatted else { return false }
+            guard let self, kind == .standard || self.formatted else { return false }
             self.copy(kind)
             return true
         }
@@ -88,28 +85,23 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         speakButton.keyEquivalentModifierMask = [.command, .option]
         speakButton.toolTip = "Read the selection, or all the text, aloud (⌥⌘S)"
         speaker.onFinish = { [weak self] in self?.speakButton.title = "Speak" }
-        let copy = NSButton(title: "Copy to Clipboard", target: self, action: #selector(copyAndClose))
-        copy.bezelColor = .controlAccentColor
-        copy.keyEquivalent = "\r"
-        copy.keyEquivalentModifierMask = [.command]
-        copy.toolTip = "Copy all the text and close (⌘Return). Formatted text pastes as rich text, or clean text in plain fields"
-        copyMenu.isHidden = true
-        copyMenu.toolTip = "Other ways to copy"
-        copyMenu.addItem(withTitle: "")   // a pull-down shows its first item as the title
-        copyMenu.item(at: 0)?.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "More copy options")
         let markdown = NSMenuItem(title: "Copy as Markdown", action: #selector(copyMarkdownAndClose), keyEquivalent: "\r")
         markdown.keyEquivalentModifierMask = [.command, .shift]
         markdown.toolTip = "Copy with the Markdown as the plain text, for GitHub (⇧⌘Return)"
         let plainOnly = NSMenuItem(title: "Copy Plain Text Only", action: #selector(copyPlainOnlyAndClose), keyEquivalent: "\r")
         plainOnly.keyEquivalentModifierMask = [.command, .option]
         plainOnly.toolTip = "Copy clean text and nothing else (⌥⌘Return)"
-        [markdown, plainOnly].forEach { $0.target = self; copyMenu.menu?.addItem($0) }
+        let copyMenu = NSMenu()
+        [markdown, plainOnly].forEach { $0.target = self; copyMenu.addItem($0) }
+        let copy = NSComboButton(title: "Copy to Clipboard", menu: copyMenu, target: self, action: #selector(copyAndClose))
+        copy.style = .split
+        copy.toolTip = "Copy all the text and close (⌘Return). The arrow has Copy as Markdown and Copy Plain Text Only."
         count.textColor = .secondaryLabelColor
         count.font = .systemFont(ofSize: 11)
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let bar = NSStackView(views: [join, speakButton, count, spacer, copyMenu, copy])
+        let bar = NSStackView(views: [join, speakButton, count, spacer, copy])
         bar.spacing = 10
 
         let content = NSView()
@@ -126,6 +118,13 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         w.contentView = content
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copyMarkdownAndClose), #selector(copyPlainOnlyAndClose): return formatted
+        default: return true
+        }
+    }
 
     @objc private func copyAndClose() { copy(.standard) }
     @objc private func copyMarkdownAndClose() { copy(.markdown) }
@@ -227,7 +226,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 private final class ScratchTextView: NSTextView {
     var onCancel: (() -> Void)?
 
-    /// Copies as the given kind for ⇧⌘Return (Markdown) and ⌥⌘Return (plain text only); false when it isn't handled.
+    /// Copies as the given kind for ⌘Return (standard), ⇧⌘Return (Markdown) and ⌥⌘Return (plain text only); false when it isn't handled.
     var onCopyKind: ((TextRecognizer.CopyKind) -> Bool)?
 
     override func cancelOperation(_ sender: Any?) { onCancel?() }
@@ -235,6 +234,7 @@ private final class ScratchTextView: NSTextView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 36 || event.keyCode == 76 {   // Return, keypad Enter
+            if mods == .command, onCopyKind?(.standard) == true { return true }
             if mods == [.command, .shift], onCopyKind?(.markdown) == true { return true }
             if mods == [.command, .option], onCopyKind?(.plainOnly) == true { return true }
         }
