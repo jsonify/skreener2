@@ -17,7 +17,8 @@ enum Permission: CaseIterable {
     var purpose: String {
         switch self {
         case .screenRecording: return "Needed for every screenshot and recording."
-        case .accessibility: return "Auto-scroll in scrolling capture, keystrokes in recordings, and Step Recorder's step names."
+        case .accessibility: return "Auto-scroll in scrolling capture, keystrokes in recordings, Step Recorder's step names, "
+            + "and pasting Capture Text as clean text or Markdown."
         case .microphone: return "Recordings with the microphone on."
         }
     }

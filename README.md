@@ -116,6 +116,14 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   `**` or `#`). The scratch pad's pull-down next to Copy to Clipboard has **Copy as Markdown** (Shift-Command-Return,
   for GitHub) and **Copy Plain Text Only** (Option-Command-Return). Bold, code and colors are read from the pixels,
   so they can be missed; Settings → After Capture → Capture Text → **Keep formatting as Markdown** turns it off.
+- **Paste destinations**: a Capture Text copy pastes as clean text by default, and as Markdown where Markdown is
+  read: GitHub in any browser, VS Code, Xcode, Zed, Sublime Text, Obsidian, Terminal and iTerm2. Skreener notices
+  Command-V, looks at the app in front (and for a browser, the site at the end of its window title, such as
+  "· GitHub" or "- Google Docs"), and switches the copy's plain text just before the paste; rich text stays the
+  same. A banner then says what went where, with a button such as **Use Markdown here** that remembers the other
+  choice for that app or site and switches the clipboard right away. It works alongside clipboard managers. It needs
+  the Accessibility permission (without it, copies paste as clean text); Settings → After Capture → **Paste
+  Destinations** turns it off and lists the remembered destinations to change or remove.
 - **Capture Code** (menu bar or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
   copies the text with its indentation kept and common OCR mistakes fixed (curly quotes, `l`/`O` inside numbers).
   Settings can copy it as a Markdown code block.
