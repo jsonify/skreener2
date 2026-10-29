@@ -891,7 +891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
                 TextScratchPad.show(text, colors: result.colors, formatted: formatted, on: screen)
                 return
             }
-            if formatted { TextRecognizer.copyFormatted(text, colors: result.colors, as: .standard) } else { TextRecognizer.copyText(text) }
+            if formatted { TextRecognizer.copyFormatted(.init(markdown: text, colors: result.colors), as: .standard) } else { TextRecognizer.copyText(text) }
             Sound.play("Pop")
             let lines = text.split(separator: "\n").count
             Notifier.confirm(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")

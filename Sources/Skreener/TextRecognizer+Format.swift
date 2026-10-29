@@ -48,13 +48,36 @@ extension TextRecognizer {
         case plainOnly
     }
 
-    /// Copies Capture Text's `markdown` as `kind`. The rich flavors (HTML, RTF) let apps that take rich text (Notes,
-    /// Mail, Pages, Google Docs) get the headings, lists, bold, code and colors.
-    @MainActor static func copyFormatted(_ markdown: String, colors: [FormattedText.Painted], as kind: CopyKind = .standard) {
+    /// Every form of a formatted Capture Text copy. Whatever the editor holds (#326) turns into one of these, and the
+    /// clipboard gets the forms its `CopyKind` (or, for `.standard`, the paste destination, #327) calls for.
+    struct TextCopy: Equatable, Sendable {
+        /// For GitHub and code editors.
+        var markdown: String
+        /// For fields that don't read Markdown: • bullets, no symbols.
+        var clean: String
+        /// The HTML body (no `<html>` or `<meta>`) for apps that take rich text.
+        var html: String
+
+        init(markdown: String, clean: String, html: String) {
+            self.markdown = markdown
+            self.clean = clean
+            self.html = html
+        }
+
+        /// From Capture Text's Markdown, with `colors` painting their words in the HTML.
+        init(markdown: String, colors: [FormattedText.Painted]) {
+            self.init(markdown: markdown, clean: FormattedText.plain(markdown: markdown),
+                      html: FormattedText.html(markdown: markdown, colors: colors))
+        }
+    }
+
+    /// Copies `copy` as `kind`. The rich flavors (HTML, RTF) let apps that take rich text (Notes, Mail, Pages, Google
+    /// Docs) get the headings, lists, bold, code and colors.
+    @MainActor static func copyFormatted(_ copy: TextCopy, as kind: CopyKind = .standard) {
         let item = NSPasteboardItem()
-        item.setString(kind == .markdown ? markdown : FormattedText.plain(markdown: markdown), forType: .string)
+        item.setString(kind == .markdown ? copy.markdown : copy.clean, forType: .string)
         if kind != .plainOnly {
-            let body = FormattedText.html(markdown: markdown, colors: colors)
+            let body = copy.html
             item.setString("<meta charset=\"utf-8\">" + body, forType: .html)
             // RTF in the system font rather than the HTML default (Times).
             let styled = "<meta charset=\"utf-8\"><style>body { font-family: -apple-system, 'Helvetica Neue'; font-size: 13px }</style>" + body
