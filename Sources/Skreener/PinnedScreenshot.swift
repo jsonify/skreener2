@@ -128,7 +128,7 @@ private final class PinnedView: NSView {
     private var differenceLoop: Task<Void, Never>?
 
     private let toolbar = PinToolbar()
-    private let zoomLabel = NSTextField(labelWithString: "100%")
+    private let zoomChip = RetroGlassChip()
     private var hideToolbar: DispatchWorkItem?
     private var freezeButton: NSView?
     private let liveDot = NSImageView()
@@ -212,24 +212,18 @@ private final class PinnedView: NSView {
     /// The pin's size against the image's own (point) size.
     private var zoom: CGFloat { (window?.frame.width ?? bounds.width) / max(image.size.width, 1) }
 
-    private func refreshZoom() { zoomLabel.stringValue = "\(Int((zoom * 100).rounded()))%" }
+    private func refreshZoom() { zoomChip.text = "\(Int((zoom * 100).rounded()))%" }
 
     // MARK: Hover toolbar
 
     private func buildToolbar() {
-        toolbar.wantsLayer = true
-        toolbar.layer?.backgroundColor = PillButton.barColor.cgColor
-        toolbar.layer?.cornerRadius = 14
-        toolbar.layer?.cornerCurve = .continuous
-        toolbar.layer?.borderWidth = 0.5
-        toolbar.layer?.borderColor = PillButton.barBorderColor.cgColor
         toolbar.alphaValue = 0
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
-        zoomLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        zoomLabel.textColor = NSColor.white.withAlphaComponent(0.8)
+        zoomChip.toolTip = "Zoom: the pin's size against the image's own"
+        zoomChip.setAccessibilityLabel("Zoom")
         let drag = PinDragHandle { [weak self] in self?.image ?? NSImage() }
-        let freeze = PinButton(symbol: "snowflake", tip: "Freeze: stop updating, keep this frame") { [weak self] in
+        let freeze = Self.key(symbol: "snowflake", tip: "Freeze: stop updating, keep this frame") { [weak self] in
             self?.onFreeze?()
         }
         freeze.isHidden = !isLive
@@ -239,20 +233,17 @@ private final class PinnedView: NSView {
         liveDot.contentTintColor = .systemRed
         liveDot.toolTip = "Live Pin: updates as the screen changes"
         liveDot.isHidden = !isLive
-        let copy = PinButton(symbol: "doc.on.doc", tip: "Copy (⌘C)") { [weak self] in self?.copyImage() }
-        let row = NSStackView(views: [
-            PinButton(symbol: "xmark", tip: "Close (Esc)") { [weak self] in self?.onClose?() },
+        let keys = KeycapTray([
+            Self.key(symbol: "xmark", tip: "Close (Esc)") { [weak self] in self?.onClose?() },
             freeze,
             drag,
-            PinButton(symbol: "pencil", tip: "Edit") { [weak self] in self?.edit() },
-            copy,
-            liveDot,
-            zoomLabel,
+            Self.key(symbol: "pencil", tip: "Edit") { [weak self] in self?.edit() },
+            Self.key(symbol: "doc.on.doc", tip: "Copy (⌘C)") { [weak self] in self?.copyImage() },
         ])
-        row.spacing = 2
-        row.setCustomSpacing(6, after: copy)
-        row.setCustomSpacing(4, after: liveDot)
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 10)
+        let row = NSStackView(views: [keys, liveDot, zoomChip])
+        row.spacing = 6
+        row.alignment = .centerY
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 6)
         row.translatesAutoresizingMaskIntoConstraints = false
         toolbar.addSubview(row)
         addSubview(toolbar)
@@ -260,11 +251,19 @@ private final class PinnedView: NSView {
             row.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor),
             row.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 28),
+            toolbar.heightAnchor.constraint(equalToConstant: 36),
             toolbar.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             toolbar.centerXAnchor.constraint(equalTo: centerXAnchor),
         ])
         refreshZoom()
+    }
+
+    /// One of the toolbar's cream keys.
+    private static func key(symbol: String, tip: String, run: @escaping () -> Void) -> PillButton {
+        let key = PillButton(title: nil, symbol: symbol, style: .keycap, height: 22, run: run)
+        key.toolTip = tip
+        key.setAccessibilityLabel(tip)
+        return key
     }
 
     override func updateTrackingAreas() {
@@ -462,60 +461,77 @@ private final class PinnedView: NSView {
     }
 }
 
-/// The pin's dark toolbar strip. While faded out it lets clicks through to the pin, so they move it as usual.
+/// The pin's toolbar: a small chassis plate with its keys in a tray. While faded out it lets clicks through to the
+/// pin, so they move it as usual.
 private final class PinToolbar: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? { alphaValue < 0.5 ? nil : super.hitTest(point) }
-}
-
-/// A small white symbol button for the pin's toolbar.
-private final class PinButton: NSButton {
-    private let run: () -> Void
-
-    init(symbol: String, tip: String, run: @escaping () -> Void) {
-        self.run = run
-        super.init(frame: .zero)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
-        imagePosition = .imageOnly
-        isBordered = false
-        contentTintColor = .white
-        toolTip = tip
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 24).isActive = true
-        heightAnchor.constraint(equalToConstant: 24).isActive = true
-        target = self
-        action = #selector(clicked)
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.3
+        layer?.shadowRadius = 4
+        layer?.shadowOffset = CGSize(width: 0, height: -1)
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func clicked() { run() }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { alphaValue < 0.5 ? nil : super.hitTest(point) }
+
+    override func draw(_ dirtyRect: NSRect) {
+        RetroPlate.draw(bounds, radius: 11, palette: Retro.palette(for: self), flipped: isFlipped)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 }
 
-/// Drag it out of the pin to drop the image as a file (into Finder, Mail, Slack…); dragging the image itself still
-/// moves the pin.
+/// A cream key to drag out of the pin to drop the image as a file (into Finder, Mail, Slack…); dragging the image
+/// itself still moves the pin.
 private final class PinDragHandle: NSView, NSDraggingSource {
     /// The pin's image when the drag starts (a Live Pin's changes).
     private let image: () -> NSImage
     private var downEvent: NSEvent?
+    private let icon = NSImageView()
 
     init(image: @escaping () -> NSImage) {
         self.image = image
         super.init(frame: .zero)
-        let icon = NSImageView()
+        wantsLayer = true
         icon.image = NSImage(systemSymbolName: "hand.draw", accessibilityDescription: "Drag Out")?
             .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
-        icon.contentTintColor = .white
         icon.translatesAutoresizingMaskIntoConstraints = false
         addSubview(icon)
         toolTip = "Drag to drop the image as a file"
         translatesAutoresizingMaskIntoConstraints = false
+        // Like a symbol-only keycap: as wide as tall less the skirt; the symbol sits on the face above the skirt.
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 24), heightAnchor.constraint(equalToConstant: 24),
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor), icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            widthAnchor.constraint(equalToConstant: 20), heightAnchor.constraint(equalToConstant: 22),
+            icon.centerXAnchor.constraint(equalTo: centerXAnchor), icon.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 1),
         ])
+        applyColors()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    private func applyColors() {
+        let c = Retro.keyColors(.cream, Retro.palette(for: self))
+        icon.contentTintColor = c.ink
+        layer?.shadowColor = c.shadow.cgColor
+        layer?.shadowOpacity = c.shadowAlpha
+        layer?.shadowRadius = 2
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Retro.drawKey(in: bounds, radius: PillButton.keycapRadius, colors: Retro.keyColors(.cream, Retro.palette(for: self)),
+                      down: false, flipped: isFlipped)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

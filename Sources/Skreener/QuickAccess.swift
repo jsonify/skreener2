@@ -2,8 +2,8 @@ import AppKit
 import AVFoundation
 
 /// Floating preview shown in the bottom-left corner after a capture, like CleanShot's. It stays until something is
-/// done with it: hovering shows round buttons in the corners (close, edit, pin, share) and Copy / Save pills in the
-/// middle, and any of them dismisses it. Previews of later captures stack upwards, newest at the bottom. While a new
+/// done with it: hovering shows SK-1 keys over the thumbnail, in the corners (close, edit, pin, share) and Copy / Save in the
+/// middle (Copy orange), and any of them dismisses it. Previews of later captures stack upwards, newest at the bottom. While a new
 /// capture is being taken they fade away, and come back once it is done (after its editor has opened). A finished
 /// recording gets the same preview, showing its first frame, with Open and Show in Finder for Edit and Pin, and Trim.
 /// Previews are semi-transparent unless the pointer is over them (#98).
@@ -409,12 +409,15 @@ enum PreviewHover {
     }
 }
 
-/// The preview's content: the thumbnail, and on hover a dark veil with the corner buttons and the middle pills.
+/// The preview's content, on an SK-1 chassis card: the thumbnail in a sunken well, and on hover a dark veil over it
+/// with cream keys in the corners and in the middle (the first, usually Copy, orange).
 private final class QuickAccessCard: NSView, NSDraggingSource {
     enum Corner { case topLeft, topRight, bottomLeft, bottomRight }
 
     /// Height of the strip of smart action chips under the thumbnail (#243).
     static let chipBarHeight: CGFloat = 30
+    /// The chassis showing round the thumbnail.
+    private static let inset: CGFloat = 6
 
     private let controls = NSView()
     private let thumb = NSImageView()
@@ -449,28 +452,31 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
     init(frame: NSRect, image: NSImage) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = 12
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
 
-        thumb.frame = bounds
+        let thumbFrame = bounds.insetBy(dx: Self.inset, dy: Self.inset)
+        thumb.frame = thumbFrame
+        thumb.wantsLayer = true
+        thumb.layer?.cornerRadius = 6
+        thumb.layer?.cornerCurve = .continuous
+        thumb.layer?.masksToBounds = true
         thumb.image = image
         thumb.imageScaling = .scaleProportionallyUpOrDown
         thumb.animates = true   // a GIF recording plays
         thumb.autoresizingMask = [.width, .minYMargin]   // stays at the top when the chip strip makes the card taller
         addSubview(thumb)
 
-        controls.frame = bounds
+        controls.frame = thumbFrame
         controls.autoresizingMask = [.width, .minYMargin]
         controls.wantsLayer = true
         controls.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
+        controls.layer?.cornerRadius = 6
+        controls.layer?.cornerCurve = .continuous
+        controls.layer?.masksToBounds = true
         controls.alphaValue = 0
         alphaValue = PreviewHover.restingAlpha
-        // White pills with dark content on the dark veil, whatever the system appearance.
-        controls.appearance = NSAppearance(named: .aqua)
         addSubview(controls)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
@@ -478,15 +484,28 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        RetroPlate.draw(bounds, radius: 12, palette: p, flipped: isFlipped)
+        // The thumbnail's well: the canvas colour shows round a picture that doesn't fill it.
+        Retro.drawWell(thumb.frame, radius: 7, top: Retro.color(p.canvas), bottom: Retro.color(p.canvas), shadow: p.wellShadow,
+                       lip: p.wellLip, flipped: isFlipped)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     /// `beside` puts the button next to another one in the same corner, on its inner side.
     @discardableResult
     func addCorner(symbol: String, label: String, at corner: Corner, beside other: PillButton? = nil,
                    run: @escaping () -> Void) -> PillButton {
-        let button = PillButton(title: nil, symbol: symbol, style: .raised, height: 24, run: run)
+        let button = PillButton(title: nil, symbol: symbol, style: .keycap, height: 24, run: run)
         button.toolTip = label
         button.setAccessibilityLabel(label)
         controls.addSubview(button)
-        let inset: CGFloat = 7
+        let inset: CGFloat = 6
         switch corner {
         case .topLeft, .bottomLeft:
             if let other {
@@ -511,10 +530,10 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
     /// Adds the chip strip below the thumbnail; the caller makes the card `chipBarHeight` taller. `more` opens a menu
     /// of the actions that didn't fit.
     func addChips(_ chips: [(title: String, symbol: String, run: () -> Void)], more: ((PillButton) -> Void)?) {
-        var views: [NSView] = chips.map { PillButton(title: $0.title, symbol: $0.symbol, style: .raised, height: 22, run: $0.run) }
+        var views: [NSView] = chips.map { PillButton(title: $0.title, symbol: $0.symbol, style: .keycap, height: 22, run: $0.run) }
         if let more {
             onMore = more
-            let button = PillButton(title: nil, symbol: "ellipsis", style: .raised, height: 22)
+            let button = PillButton(title: nil, symbol: "ellipsis", style: .keycap, height: 22)
             button.target = self
             button.action = #selector(moreClicked(_:))
             button.toolTip = "More actions"
@@ -524,8 +543,7 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
         chipStrip.setViews(views, in: .leading)
         chipStrip.orientation = .horizontal
         chipStrip.spacing = 6
-        chipStrip.edgeInsets = NSEdgeInsets(top: 0, left: 7, bottom: 0, right: 7)
-        chipStrip.appearance = NSAppearance(named: .aqua)
+        chipStrip.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         chipStrip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Self.chipBarHeight)
         chipStrip.autoresizingMask = [.width, .maxYMargin]
         addSubview(chipStrip)
@@ -534,7 +552,13 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
     @objc private func moreClicked(_ sender: PillButton) { onMore?(sender) }
 
     func addCenter(_ actions: [(String, () -> Void)]) {
-        let stack = NSStackView(views: actions.map { PillButton(title: $0.0, symbol: nil, style: .raised, height: 26, run: $0.1) })
+        // The first (usually Copy) is the main action: the orange key.
+        let keys = actions.enumerated().map { i, action -> PillButton in
+            let key = PillButton(title: action.0, symbol: nil, style: .keycap, height: 26, run: action.1)
+            if i == 0 { key.keyVariant = .orange }
+            return key
+        }
+        let stack = NSStackView(views: keys)
         stack.orientation = .vertical
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
