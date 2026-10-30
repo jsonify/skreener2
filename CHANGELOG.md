@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/jsonify/skreener2/compare/v1.3.0...v1.4.0) (2026-10-30)
+
+
+### Features
+
+* menu-bar launcher with recent captures, and screenshots named after what they show ([#338](https://github.com/jsonify/skreener2/issues/338)) ([f59f780](https://github.com/jsonify/skreener2/commit/f59f780488866c22ecb21e622d745a15902d612d))
+
 ## [1.3.0](https://github.com/jsonify/skreener2/compare/v1.2.0...v1.3.0) (2026-10-29)
 
 
