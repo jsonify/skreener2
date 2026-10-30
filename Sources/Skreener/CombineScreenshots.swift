@@ -25,21 +25,19 @@ enum CombineScreenshots {
             return
         }
         let form = CombineForm(candidates: candidates)
-        let alert = NSAlert()
-        alert.messageText = "Combine Screenshots"
-        alert.informativeText = "Pick \(CombineLayout.countRange.lowerBound) to \(CombineLayout.countRange.upperBound) captures. They open as movable images on a new canvas."
-        alert.accessoryView = form
-        let combine = alert.addButton(withTitle: "Combine")
-        alert.addButton(withTitle: "Cancel")
+        let dialog = RetroDialog(
+            title: "Combine Screenshots",
+            message: "Pick \(CombineLayout.countRange.lowerBound) to \(CombineLayout.countRange.upperBound) captures. They open as movable images on a new canvas.",
+            body: form, primary: "Combine")
+        let combine = dialog.primaryKey
         form.onValidityChange = { combine.isEnabled = $0 }
         combine.isEnabled = form.isValid
         if let window, window.attachedSheet == nil {
-            alert.beginSheetModal(for: window) { response in
-                if response == .alertFirstButtonReturn { openCombined(form.picked, form.options) }
+            dialog.beginSheet(on: window) { combined in
+                if combined { openCombined(form.picked, form.options) }
             }
-        } else {
-            NSApp.activate(ignoringOtherApps: true)
-            if alert.runModal() == .alertFirstButtonReturn { openCombined(form.picked, form.options) }
+        } else if dialog.runModal() {
+            openCombined(form.picked, form.options)
         }
     }
 
@@ -112,26 +110,25 @@ enum CombineScreenshots {
 /// gutter and margin. `isValid` says whether 2 to 9 are ticked; `onValidityChange` follows it.
 final class CombineForm: NSView, NSTextFieldDelegate {
     private let candidates: [CombineScreenshots.Candidate]
-    private var boxes: [NSButton] = []
-    private let arrangement = NSSegmentedControl(labels: CombineLayout.Arrangement.allCases.map(\.title),
-                                                 trackingMode: .selectOne, target: nil, action: nil)
-    private let alignment = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var boxes: [PillButton] = []
+    private let arrangement = RetroSegmented(caption: "Layout")
+    private let alignment = RetroSegmented(caption: "Align")
     private let gutterField = NSTextField()
     private let marginField = NSTextField()
-    private let status = NSTextField(labelWithString: "")
+    private let status = RetroUI.hint()
     var onValidityChange: ((Bool) -> Void)?
 
     init(candidates: [CombineScreenshots.Candidate]) {
         self.candidates = candidates
-        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: 330))
+        super.init(frame: NSRect(x: 0, y: 0, width: 340, height: 330))
 
         // At most nine start ticked.
         var ticked = 0
         let rows = candidates.map { c -> NSStackView in
-            let box = NSButton(checkboxWithTitle: c.title, target: self, action: #selector(selectionChanged))
+            let box = RetroUI.toggle(c.title, target: self, action: #selector(selectionChanged(_:)))
             let on = c.selected && ticked < CombineLayout.countRange.upperBound
             if on { ticked += 1 }
-            box.state = on ? .on : .off
+            box.isOn = on
             boxes.append(box)
             let thumb = NSImageView(image: c.thumbnail ?? NSImage())
             thumb.imageScaling = .scaleProportionallyUpOrDown
@@ -160,9 +157,10 @@ final class CombineForm: NSView, NSTextFieldDelegate {
             list.trailingAnchor.constraint(lessThanOrEqualTo: scroll.contentView.trailingAnchor, constant: -8),
         ])
 
-        arrangement.selectedSegment = CombineLayout.Arrangement.row.rawValue
-        for a in CombineLayout.Alignment.allCases { alignment.addItem(withTitle: a.title) }
-        alignment.selectItem(at: CombineLayout.Alignment.center.rawValue)
+        for a in CombineLayout.Arrangement.allCases { arrangement.addItem(a.title, tag: a.rawValue, help: "\(a.title) layout") }
+        arrangement.selectItem(withTag: CombineLayout.Arrangement.row.rawValue)
+        for a in CombineLayout.Alignment.allCases { alignment.addItem(a.title, tag: a.rawValue, help: "Align to the \(a.title.lowercased())") }
+        alignment.selectItem(withTag: CombineLayout.Alignment.center.rawValue)
         let defaults = CombineLayout.Options()
         for (field, value) in [(gutterField, defaults.gutter), (marginField, defaults.margin)] {
             field.stringValue = String(Int(value))
@@ -171,21 +169,12 @@ final class CombineForm: NSView, NSTextFieldDelegate {
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 56).isActive = true
         }
-        status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        status.textColor = .secondaryLabelColor
 
-        func labeled(_ title: String, _ views: [NSView]) -> NSStackView {
-            let label = NSTextField(labelWithString: title)
-            label.alignment = .right
-            label.translatesAutoresizingMaskIntoConstraints = false
-            label.widthAnchor.constraint(equalToConstant: 64).isActive = true
-            let row = NSStackView(views: [label] + views)
-            row.spacing = 8
-            return row
-        }
-        let spacing = labeled("Spacing", [NSTextField(labelWithString: "Gutter"), gutterField, NSTextField(labelWithString: "Margin"),
-                                          marginField, NSTextField(labelWithString: "px")])
-        let stack = NSStackView(views: [scroll, labeled("Layout", [arrangement]), labeled("Align", [alignment]), spacing, status])
+        let spacing = NSStackView(views: [RetroLabel(caption: "Gutter"), gutterField, RetroLabel(caption: "Margin"),
+                                          marginField, RetroLabel(text: "px")])
+        spacing.spacing = 8
+        spacing.alignment = .centerY
+        let stack = NSStackView(views: [scroll, arrangement, alignment, spacing, status])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -198,7 +187,7 @@ final class CombineForm: NSView, NSTextFieldDelegate {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.heightAnchor.constraint(equalToConstant: 190),
-            widthAnchor.constraint(equalToConstant: 360),
+            widthAnchor.constraint(equalToConstant: 340),
         ])
         refreshStatus()
     }
@@ -206,18 +195,21 @@ final class CombineForm: NSView, NSTextFieldDelegate {
 
     /// The ticked captures, in the order listed.
     var picked: [CombineScreenshots.Candidate] {
-        zip(candidates, boxes).filter { $0.1.state == .on }.map { $0.0 }
+        zip(candidates, boxes).filter { $0.1.isOn }.map { $0.0 }
     }
 
     var isValid: Bool { CombineLayout.countRange.contains(picked.count) }
 
     var options: CombineLayout.Options {
-        CombineLayout.Options(arrangement: CombineLayout.Arrangement(rawValue: arrangement.selectedSegment) ?? .row,
+        CombineLayout.Options(arrangement: CombineLayout.Arrangement(rawValue: arrangement.selectedTag()) ?? .row,
                               gutter: CGFloat(max(0, gutterField.integerValue)), margin: CGFloat(max(0, marginField.integerValue)),
-                              alignment: CombineLayout.Alignment(rawValue: alignment.indexOfSelectedItem) ?? .center)
+                              alignment: CombineLayout.Alignment(rawValue: alignment.selectedTag()) ?? .center)
     }
 
-    @objc private func selectionChanged() { refreshStatus() }
+    @objc private func selectionChanged(_ sender: PillButton) {
+        sender.isOn.toggle()
+        refreshStatus()
+    }
 
     func controlTextDidChange(_ obj: Notification) { refreshStatus() }
 
@@ -225,7 +217,7 @@ final class CombineForm: NSView, NSTextFieldDelegate {
     private func refreshStatus() {
         let n = picked.count
         let full = n >= CombineLayout.countRange.upperBound
-        for b in boxes { b.isEnabled = !full || b.state == .on }
+        for b in boxes { b.isEnabled = !full || b.isOn }
         status.stringValue = n < CombineLayout.countRange.lowerBound ? "\(n) picked: pick at least \(CombineLayout.countRange.lowerBound)."
             : "\(n) picked."
         onValidityChange?(isValid)

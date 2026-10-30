@@ -73,10 +73,12 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 ## Major features
 
 ### Menu-bar menu
-
-- **Launcher.** The top of the menu has large tiles for **Area**, **Window**, **Fullscreen**, **Scrolling**,
+- **Launcher.** The top of the menu is a small SK-1 panel: a strip of olive LCD glass (it shows the name and shortcut of the
+  key under the pointer) over six cream keys in a sunken tray, for **Area**, **Window**, **Fullscreen**, **Scrolling**,
+  **Text** and **Record** (the orange one), each with its name and current shortcut under it. Click one to start that
+  capture mode. It follows Light and Dark Mode.
   **Text** and **Record**, each with its current shortcut. Click one to start that capture mode.
-- **Recent.** Under the tiles are your four newest captures. Click one to open it in the editor, with its annotations
+- **Recent.** Under the keys are your four newest captures in sunken wells, each with its size. Click one to open it in the editor, with its annotations
   still editable, or click **Show All** for Capture History. This row is hidden when Capture History is turned off.
 - **All Capture Modes** lists every capture mode, including Self-Timer, with its shortcut. The keyboard can reach
   everything in it.
@@ -129,8 +131,8 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   `**` or `#`). With formatting kept, the scratch pad edits the formatted text itself, with no Markdown symbols: a
   toolbar above it has Title / Heading / Body, Bold (Command-B), Italic (Command-I), Code, bulleted and numbered
   lists, Outdent / Indent (Tab and Shift-Tab in a list), three colors and Clear formatting, and Return in a list
-  starts the next item (on an empty item it ends the list). The arrow on the scratch pad's Copy to Clipboard
-  button has **Copy as Markdown** (Shift-Command-Return, for GitHub) and **Copy Plain Text Only** (Option-Command-Return).
+  starts the next item (on an empty item it ends the list). The corner arrow on the scratch pad's Copy to Clipboard
+  key (or press and hold it) has **Copy as Markdown** (Shift-Command-Return, for GitHub) and **Copy Plain Text Only** (Option-Command-Return).
   Bold, code and colors are read from the pixels, so they can be missed; Settings → After Capture → Capture Text →
   **Keep formatting as Markdown** turns it off, and the scratch pad is plain text again.
 - **Paste destinations**: a Capture Text copy pastes as clean text by default, and as Markdown where Markdown is
@@ -188,12 +190,17 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 ### Annotation editor
 
-- **SK-1 look.** The editor is built like a piece of hardware: a cream chassis (charcoal in Dark Mode, following the
-  system), the tools as keys in sunken trays with a caption under each, the current tool's key pressed down with an
+- **SK-1 look.** The editor is built like a piece of hardware: a cream chassis (cream by default; charcoal if you set
+  **Settings > General > Appearance** to Dark, or to System while macOS is in Dark Mode), the tools as keys in sunken trays with a caption under each, the current tool's key pressed down with an
   orange light, and each tool's shortcut letter printed on its key. An olive LCD shows the tool, its key, how to use
   it (or what the pointer is doing) and the zoom in seven-segment digits. The strip under it has round color
   swatches, ◀ ▶ steppers for sizes (click the readout for the full list), segmented choices and orange-square
   toggles. Settings is the dark key and Save the orange one.
+- **The same look elsewhere.** The Capture Text scratch pad (its toolbar is captioned trays of keys, with round color
+  swatches and an orange Copy key), Step Guide, Capture History, Ask Claude, the Combine Screenshots, Watch This Area
+  and Resize Image forms, the shortcut list (its keys drawn as key caps) and the tip popovers use the same cream
+  chassis (charcoal in Dark Mode), keys, segmented choices and orange-square toggles. Settings keeps the standard macOS
+  controls.
 - **Tabs.** Each capture opens as a tab, shown as thumbnails in a dock beside the canvas.
 - **Tools.** Arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter, text, numbered counter, pixelate,
   blur, erase, spotlight and magnifier. Every tool has a single-key shortcut (V A R F O L P H T N X B E S M).
@@ -237,9 +244,9 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 ### After capture
 
-- **Quick Access preview.** A thumbnail appears in the corner with buttons to copy, save, edit, pin, share or close.
+- **Quick Access preview.** A thumbnail on a small SK-1 card appears in the corner, with cream keys (Copy in orange) to copy, save, edit, pin, share or close.
   Later captures stack above it. Settings → After Capture → Quick Access Preview picks which buttons it has.
-- **Pins.** Float any screenshot above other windows. You can scroll to change opacity and pinch to zoom.
+- **Pins.** Float any screenshot above other windows. You can scroll to change opacity and pinch to zoom. Pointing at a pin shows a small SK-1 toolbar with its keys and an LCD showing the zoom.
   To check a build against a mockup, pin the mockup over the app and right-click it. **Onion Skin** makes it
   see-through, and **Difference** lights up every pixel that doesn't match the app underneath. **Click-Through**
   lets your clicks reach the app; Control-Shift-0 turns it off again. The arrow keys nudge a pin by 1 pt, or 10 pt

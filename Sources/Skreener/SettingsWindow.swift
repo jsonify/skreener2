@@ -322,6 +322,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            "Looks for a new version once a day and asks before installing it.",
                            Preferences.checkForUpdates) { Preferences.checkForUpdates = $0; Updater.start() },
                 ]),
+                group("Appearance", [
+                    row("Appearance", "Light is the cream SK-1 look, Dark the charcoal one. System follows macOS.",
+                        appearancePopup()),
+                ]),
                 group("Tips", [
                     toggle("Show tips and hints", "One-time tips, a hint line under the editor's canvas, and \"New\" dots on "
                         + "features you haven't tried yet.", Preferences.showTipsAndHints) {
@@ -708,6 +712,20 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         bind(popup) {
             Preferences.editorDockOnRight = ($0 as? NSPopUpButton)?.indexOfSelectedItem == 1
             EditorTabGroup.refreshAll()
+        }
+        return popup
+    }
+
+    private func appearancePopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for choice in AppAppearance.allCases {
+            popup.addItem(withTitle: choice.title); popup.lastItem?.representedObject = choice.rawValue
+        }
+        popup.selectItem(at: AppAppearance.allCases.firstIndex(of: Preferences.appearance) ?? 0)
+        bind(popup) {
+            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            Preferences.appearance = raw.flatMap(AppAppearance.init(rawValue:)) ?? .default
+            Preferences.applyAppearance()
         }
         return popup
     }

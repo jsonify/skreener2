@@ -65,6 +65,31 @@ enum EditorEscAction: String, CaseIterable {
     }
 }
 
+/// Whether Skreener's windows always look light, always dark, or follow macOS (Settings → General → Appearance).
+enum AppAppearance: String, CaseIterable {
+    case system, light, dark
+
+    /// Light: the cream SK-1 look, until the owner picks otherwise (#344).
+    static let `default`: AppAppearance = .light
+
+    var title: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    /// The value for `NSApp.appearance`: nil follows macOS.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
 enum Preferences {
     private static let d = UserDefaults.standard
 
@@ -331,6 +356,13 @@ enum Preferences {
         get { d.object(forKey: "playSounds") as? Bool ?? true }
         set { d.set(newValue, forKey: "playSounds") }
     }
+    /// Light, Dark or follow macOS for every window, including the SK-1 palette (#344). Light unless chosen otherwise.
+    static var appearance: AppAppearance {
+        get { d.string(forKey: "appearance").flatMap(AppAppearance.init(rawValue:)) ?? .default }
+        set { d.set(newValue.rawValue, forKey: "appearance") }
+    }
+    /// Gives the app the stored appearance; every window and view follows `NSApp.appearance`.
+    @MainActor static func applyAppearance() { NSApp.appearance = appearance.nsAppearance }
     /// Esc in the editor with nothing selected (#115).
     static var editorEscAction: EditorEscAction {
         get { d.string(forKey: "editorEscAction").flatMap(EditorEscAction.init(rawValue:)) ?? .nothing }
