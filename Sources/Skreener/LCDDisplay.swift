@@ -1,18 +1,20 @@
 import AppKit
 
-/// The editor's status display, drawn like a retro LCD: a dark bezel around greenish glass, with a small title (the
-/// tool or mode) and key at the top, the tool's usage or the live hint below them, and a status lamp on the right.
+/// The editor's status display, drawn like the SK-1's LCD: olive glass in a sunken bezel, with the tool or mode and
+/// its key at the left, the tool's usage or the live hint in mono, the zoom in seven-segment digits and a status lamp.
 final class LCDDisplay: NSView {
     /// Top left: what is in use ("FILLED RECTANGLE").
     var title = "" { didSet { if title != oldValue { needsDisplay = true } } }
-    /// Top right: the tool's key ("KEY R"), or empty.
+    /// Under the title: the tool's key ("KEY R"), or empty.
     var detail = "" { didSet { if detail != oldValue { needsDisplay = true } } }
     /// The main line: how to use the tool, or what the pointer is doing right now.
     var message = "" { didSet { if message != oldValue { needsDisplay = true } } }
     /// The lamp: lit, with "LIVE", while `message` is a live hint; "IDLE" otherwise.
     var isLive = false { didSet { if isLive != oldValue { needsDisplay = true } } }
+    /// The zoom in percent, in seven-segment digits; nil shows none.
+    var zoomPercent: Int? { didSet { if zoomPercent != oldValue { needsDisplay = true } } }
 
-    static let ink = NSColor(srgbRed: 0.13, green: 0.16, blue: 0.10, alpha: 0.9)
+    static let ink = Retro.color(Retro.lcdInk)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -26,73 +28,88 @@ final class LCDDisplay: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let p = Retro.palette(for: self)
         // The bezel, with a light lip along its bottom.
-        let outer = bounds.insetBy(dx: 0.5, dy: 0.5)
-        let bezel = NSBezierPath(roundedRect: outer, xRadius: 7, yRadius: 7)
-        NSGradient(starting: NSColor(white: dark ? 0.14 : 0.62, alpha: 1), ending: NSColor(white: dark ? 0.04 : 0.48, alpha: 1))?
-            .draw(in: bezel, angle: isFlipped ? -90 : 90)
-        NSColor.black.withAlphaComponent(dark ? 0.7 : 0.3).setStroke()
-        bezel.lineWidth = 1
-        bezel.stroke()
-
-        // The glass: pale olive, a little darker at the top, with an inner shadow under the bezel.
-        let glassRect = outer.insetBy(dx: 3, dy: 3)
-        let glass = NSBezierPath(roundedRect: glassRect, xRadius: 4, yRadius: 4)
-        NSGradient(starting: NSColor(srgbRed: 0.80, green: 0.83, blue: 0.72, alpha: 1),
-                   ending: NSColor(srgbRed: 0.72, green: 0.76, blue: 0.64, alpha: 1))?.draw(in: glass, angle: isFlipped ? -90 : 90)
-        NSGraphicsContext.saveGraphicsState()
-        glass.addClip()
-        let inner = NSShadow()
-        inner.shadowColor = NSColor.black.withAlphaComponent(0.45)
-        inner.shadowBlurRadius = 3
-        inner.shadowOffset = NSSize(width: 0, height: -1)
-        inner.set()
-        let ring = NSBezierPath(rect: glassRect.insetBy(dx: -10, dy: -10))
-        ring.append(glass.reversed)
-        ring.windingRule = .evenOdd
-        NSColor.black.setFill()
-        ring.fill()
-        NSGraphicsContext.restoreGraphicsState()
+        let outer = NSRect(x: bounds.minX, y: bounds.minY + (isFlipped ? 0 : 1), width: bounds.width, height: bounds.height - 1)
+        Retro.drawWell(outer, radius: 9, top: Retro.color(p.bezelTop), bottom: Retro.color(p.bezelBottom), shadow: 0.18,
+                       lip: p.wellLip, flipped: isFlipped)
+        let glassRect = outer.insetBy(dx: 4, dy: 4)
+        Retro.drawGlass(glassRect, radius: 5, brightness: p.lcdBrightness, flipped: isFlipped)
 
         // The segments' faint shadow on the glass behind them.
         let ghost = NSShadow()
-        ghost.shadowColor = Self.ink.withAlphaComponent(0.18)
+        ghost.shadowColor = Self.ink.withAlphaComponent(0.15)
         ghost.shadowOffset = NSSize(width: 1, height: -1)
         ghost.shadowBlurRadius = 0
-        let small = Self.attributes(size: 8.5, weight: .bold, kern: 1, shadow: ghost)
-        let big = Self.attributes(size: 13, weight: .medium, kern: 0.3, shadow: ghost)
+        let heading = Self.attributes(.systemFont(ofSize: 9.5, weight: .heavy), kern: 1.1, shadow: ghost)
+        let small = Self.attributes(.systemFont(ofSize: 9, weight: .semibold), kern: 1, shadow: ghost, alpha: 0.75)
+        let lampType = Self.attributes(.systemFont(ofSize: 9, weight: .heavy), kern: 1, shadow: ghost)
+        let main = Self.attributes(Retro.mono(11.5, weight: .semibold), kern: 0.2, shadow: ghost)
 
-        let text = glassRect.insetBy(dx: 10, dy: 3)
-        let topLine = NSRect(x: text.minX, y: isFlipped ? text.minY : text.maxY - 11, width: text.width, height: 11)
-        let mainLine = NSRect(x: text.minX, y: isFlipped ? text.maxY - 17 : text.minY, width: text.width, height: 17)
+        let text = glassRect.insetBy(dx: 12, dy: 0)
+        /// The y that centres something `height` tall on the glass, moved `down` points down on screen.
+        func centered(_ height: CGFloat, down: CGFloat = 0) -> CGFloat {
+            text.midY - height / 2 + (isFlipped ? down : -down)
+        }
 
-        let status = (isLive ? "LIVE" : "IDLE") as NSString
-        let statusSize = status.size(withAttributes: small)
-        let detailSize = (detail as NSString).size(withAttributes: small)
-        Self.draw(title.uppercased(), in: NSRect(x: topLine.minX, y: topLine.minY, width: topLine.width - detailSize.width - 16, height: topLine.height),
-                  small)
-        (detail as NSString).draw(at: NSPoint(x: topLine.maxX - detailSize.width, y: topLine.minY), withAttributes: small)
-
-        // The lamp and its status at the right of the main line.
-        let statusX = mainLine.maxX - statusSize.width
-        let lamp = NSRect(x: statusX - 9, y: mainLine.midY - 2.5, width: 5, height: 5)
+        // Right to left: the lamp, the zoom digits, then the message after the title column.
+        let status = NSAttributedString(string: isLive ? "LIVE" : "IDLE", attributes: lampType)
+        let statusSize = status.size()
+        let statusX = text.maxX - statusSize.width
+        status.draw(at: NSPoint(x: statusX, y: centered(statusSize.height)))
+        let lamp = NSRect(x: statusX - 9, y: text.midY - 2.5, width: 5, height: 5)
         (isLive ? Self.ink : Self.ink.withAlphaComponent(0.15)).setFill()
         NSBezierPath(ovalIn: lamp).fill()
-        status.draw(at: NSPoint(x: statusX, y: mainLine.midY - statusSize.height / 2), withAttributes: small)
-        Self.draw(message, in: NSRect(x: mainLine.minX, y: mainLine.minY, width: lamp.minX - 16 - mainLine.minX, height: mainLine.height), big)
+        var right = lamp.minX - 16
+
+        if let zoom = zoomPercent {
+            let digitHeight = max(min(22, glassRect.height - 14), 8), spacing: CGFloat = 2
+            let percent = NSAttributedString(string: "%", attributes: Self.attributes(.systemFont(ofSize: 10, weight: .heavy),
+                                                                                      kern: 0, shadow: ghost))
+            let percentSize = percent.size()
+            // The sign sits on the digits' baseline.
+            percent.draw(at: NSPoint(x: right - percentSize.width, y: centered(percentSize.height, down: (digitHeight - percentSize.height) / 2)))
+            let digits = SevenSegment.cells(zoom, count: 3)
+            let width = SevenSegment.textWidth(digits, digitHeight: digitHeight, spacing: spacing)
+            let x = right - percentSize.width - 3 - width
+            SevenSegment.draw(digits, in: NSRect(x: x, y: text.midY - digitHeight / 2, width: width, height: digitHeight),
+                              color: Self.ink, spacing: spacing, flipped: isFlipped)
+            right = x - 16
+        }
+
+        // The title column: at least 150 pt, more for a long title, up to a third of the display.
+        let titleString = NSAttributedString(string: title.uppercased(), attributes: heading)
+        let detailString = NSAttributedString(string: detail.uppercased(), attributes: small)
+        let column = min(max(150, max(titleString.size().width, detailString.size().width) + 4), text.width / 3)
+        let titleH = titleString.size().height, detailH = detailString.size().height, lineGap: CGFloat = 2
+        if detail.isEmpty {
+            Self.draw(titleString, in: NSRect(x: text.minX, y: centered(titleH), width: column, height: titleH))
+        } else {
+            let block = titleH + lineGap + detailH
+            Self.draw(titleString, in: NSRect(x: text.minX, y: centered(titleH, down: -(block - titleH) / 2), width: column, height: titleH))
+            Self.draw(detailString, in: NSRect(x: text.minX, y: centered(detailH, down: (block - detailH) / 2), width: column, height: detailH))
+        }
+
+        let messageString = NSAttributedString(string: message, attributes: main)
+        let mh = messageString.size().height
+        let mx = text.minX + column + 16
+        Self.draw(messageString, in: NSRect(x: mx, y: centered(mh), width: right - mx, height: mh))
     }
 
-    private static func attributes(size: CGFloat, weight: NSFont.Weight, kern: CGFloat, shadow: NSShadow) -> [NSAttributedString.Key: Any] {
+    private static func attributes(_ font: NSFont, kern: CGFloat, shadow: NSShadow, alpha: CGFloat = 1) -> [NSAttributedString.Key: Any] {
         let para = NSMutableParagraphStyle()
         para.lineBreakMode = .byTruncatingTail
-        return [.font: NSFont.monospacedSystemFont(ofSize: size, weight: weight), .foregroundColor: ink, .kern: kern,
-                .shadow: shadow, .paragraphStyle: para]
+        return [.font: font, .foregroundColor: ink.withAlphaComponent(alpha), .kern: kern, .shadow: shadow, .paragraphStyle: para]
     }
 
-    private static func draw(_ s: String, in rect: NSRect, _ attrs: [NSAttributedString.Key: Any]) {
+    private static func draw(_ s: NSAttributedString, in rect: NSRect) {
         guard rect.width > 0 else { return }
-        (s as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attrs)
+        s.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }
 
@@ -122,8 +139,11 @@ extension Tool {
         return parts.joined(separator: " · ")
     }
 
-    /// "KEY R" for the status display, or empty when the tool has no key.
-    var keyLabel: String {
-        Tool.shortcuts.first(where: { $0.value == self }).map { "KEY " + String($0.key).uppercased() } ?? ""
+    /// The tool's key in capitals ("R"), for its key's legend; nil when it has none.
+    var shortcutLetter: String? {
+        Tool.shortcuts.first(where: { $0.value == self }).map { String($0.key).uppercased() }
     }
+
+    /// "KEY R" for the status display, or empty when the tool has no key.
+    var keyLabel: String { shortcutLetter.map { "KEY " + $0 } ?? "" }
 }

@@ -13,6 +13,25 @@ private final class CenteredClipView: NSClipView {
     }
 }
 
+/// The canvas well's rim, over the scroll view: an inner shadow under its top edge and a hairline. Clicks go through.
+private final class CanvasRim: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        Retro.innerShadow(NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10), alpha: p.dark ? 0.6 : 0.2, blur: 3)
+        let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 9.5, yRadius: 9.5)
+        NSColor.black.withAlphaComponent(p.dark ? 0.5 : 0.12).setStroke()
+        edge.lineWidth = 1
+        edge.stroke()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
 /// Mouse navigation: the wheel scrolls up and down, Shift + wheel scrolls sideways, ⌘ + wheel (or ⌘ + trackpad
 /// scroll) zooms around the pointer, and dragging with the wheel held down (the middle button) moves the canvas.
 /// Trackpad scrolling still pans and pinch still zooms.
@@ -148,36 +167,40 @@ private final class DragPill: NSView, NSDraggingSource {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // Outlined rather than raised: it is dragged, not clicked.
-        let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
-        NSColor.controlBackgroundColor.withAlphaComponent(0.5).setFill(); pill.fill()
-        NSColor.separatorColor.setStroke(); pill.lineWidth = 1; pill.stroke()
+        // Sunken and grooved rather than raised: it is dragged, not clicked.
+        let p = Retro.palette(for: self)
+        let r = (bounds.height - 1) / 2
+        let rect = NSRect(x: 0, y: isFlipped ? 0 : 1, width: bounds.width, height: bounds.height - 1)
+        Retro.drawWell(rect, radius: r, top: Retro.color(p.wellTop), bottom: Retro.color(p.wellBottom), shadow: 0.18,
+                       lip: p.wellLip, flipped: isFlipped)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).addClip()
+        let grooves = NSBezierPath()
+        var x = rect.minX
+        while x < rect.maxX { grooves.appendRect(NSRect(x: x, y: rect.minY, width: 1, height: rect.height)); x += 4 }
+        NSColor.black.withAlphaComponent(p.dark ? 0.12 : 0.05).setFill()
+        grooves.fill()
+        NSGraphicsContext.restoreGraphicsState()
 
-        // Grip: three short lines either side of the label.
-        NSColor.tertiaryLabelColor.setStroke()
-        for side in [bounds.minX + 12, bounds.maxX - 22] {
-            for i in 0..<3 {
-                let y = bounds.midY - 3 + CGFloat(i) * 3
-                let p = NSBezierPath(); p.lineWidth = 1; p.lineCapStyle = .round
-                p.move(to: NSPoint(x: side, y: y)); p.line(to: NSPoint(x: side + 10, y: y)); p.stroke()
+        // Grip: two short columns of dots either side of the label.
+        let text = Retro.caption("Drag Me", color: Retro.color(p.ink), font: .systemFont(ofSize: 10, weight: .heavy))
+        let size = text.size()
+        Retro.color(p.inkSoft).setFill()
+        for side in [bounds.midX - size.width / 2 - 14, bounds.midX + size.width / 2 + 8] {
+            for col in 0..<2 {
+                for row in 0..<3 {
+                    let dot = NSRect(x: side + CGFloat(col) * 3.5, y: rect.midY - 4 + CGFloat(row) * 3.5, width: 1.6, height: 1.6)
+                    NSBezierPath(ovalIn: dot).fill()
+                }
             }
         }
-        let text = "Drag Me" as NSString
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13, weight: .regular),
-                                                    .foregroundColor: NSColor.labelColor]
-        let size = text.size(withAttributes: attrs)
-        text.draw(at: NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2), withAttributes: attrs)
+        text.draw(at: NSPoint(x: bounds.midX - size.width / 2, y: rect.midY - size.height / 2))
     }
-}
 
-private extension NSToolbarItem.Identifier {
-    static let imageActionsItem = NSToolbarItem.Identifier("skreener.imageActions")
-    static let readTextItem = NSToolbarItem.Identifier("skreener.readText")
-    /// One per group of tools, numbered from 0 in `EditorWindowController.toolGroups`' order.
-    static func toolGroupItem(_ i: Int) -> NSToolbarItem.Identifier { NSToolbarItem.Identifier("skreener.tools.\(i)") }
-    static let undoRedoItem = NSToolbarItem.Identifier("skreener.undoRedo")
-    static let saveAsItem = NSToolbarItem.Identifier("skreener.saveAs")
-    static let settingsItem = NSToolbarItem.Identifier("skreener.settings")
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 }
 
 private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
@@ -185,42 +208,39 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
         ?? NSImage(systemSymbolName: "questionmark.square", accessibilityDescription: nil) ?? NSImage()
 }
 
-/// Height of the editor's pills: small enough for everything to fit the minimum window width.
-private let pillHeight: CGFloat = 26
+/// Height of the strip's and footer's keys and readouts: small enough for everything to fit the minimum window width.
+private let pillHeight: CGFloat = 24
 
-/// Height of the toolbar's keycaps: a little taller than the pills, so their walls and face show.
-private let keyHeight: CGFloat = 28
+/// Height of the toolbar's keys, skirt included: a 28 pt square face on a 2 pt skirt.
+private let keyHeight: CGFloat = 30
 
-/// A toolbar item holding a tray of keycap buttons; `label` is the caption the toolbar shows under it.
-@MainActor private func trayItem(_ id: NSToolbarItem.Identifier, _ label: String, _ keys: [NSView]) -> NSToolbarItem {
-    let item = NSToolbarItem(itemIdentifier: id)
-    let tray = KeycapTray(keys)
-    tray.setAccessibilityLabel(label)
-    item.view = tray; item.label = label
-    return item
+/// A tray of keys with its caption under it.
+@MainActor private func tray(_ caption: String, _ keys: [NSView]) -> KeycapTray {
+    KeycapTray(keys, caption: caption)
 }
 
-/// A symbol-only pill (a circle) that sends `action` to `target`.
+/// A symbol-only key that sends `action` to `target`.
 @MainActor private func iconButton(_ sym: String, _ tip: String, _ target: AnyObject?, _ action: Selector,
-                                   style: PillButton.Style = .raised, height: CGFloat = pillHeight) -> PillButton {
-    let b = PillButton(title: nil, symbol: sym, style: style, height: height)
+                                   height: CGFloat = keyHeight) -> PillButton {
+    let b = PillButton(title: nil, symbol: sym, style: .keycap, height: height)
     b.target = target; b.action = action
     b.toolTip = tip
     b.setAccessibilityLabel(tip)
     return b
 }
 
-/// A titled pill that sends `action` to `target`; `filled` for the main action.
-@MainActor private func textButton(_ title: String, _ target: AnyObject?, _ action: Selector, filled: Bool = false) -> PillButton {
-    let b = PillButton(title: title, symbol: nil, style: filled ? .filled : .raised, height: pillHeight)
+/// A titled key that sends `action` to `target`; `filled` (orange) for the main action.
+@MainActor private func textButton(_ title: String, _ target: AnyObject?, _ action: Selector, filled: Bool = false,
+                                   height: CGFloat = pillHeight) -> PillButton {
+    let b = PillButton(title: title, symbol: nil, style: .keycap, height: height)
+    if filled { b.keyVariant = .orange }
     b.target = target; b.action = action
     return b
 }
 
-/// A symbol pill with a ▾ that opens `menu`.
-@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu, style: PillButton.Style = .raised,
-                                       height: CGFloat = pillHeight) -> PillPopUp {
-    let b = PillPopUp(pullsDown: true, height: height, style: style)
+/// A symbol key that opens `menu`, with the corner triangle.
+@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu, height: CGFloat = keyHeight) -> PillPopUp {
+    let b = PillPopUp(pullsDown: true, height: height, style: .keycap)
     menu.insertItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""), at: 0)   // the pull-down's face
     b.menu = menu
     b.setContent(title: nil, symbol: sym)
@@ -229,7 +249,7 @@ private let keyHeight: CGFloat = 28
     return b
 }
 
-/// Raised pills side by side, with room around them for their shadows.
+/// Keys and controls side by side, with room around them for their shadows.
 @MainActor private func pillRow(_ views: [NSView], spacing: CGFloat = 6) -> NSStackView {
     let row = NSStackView(views: views)
     row.spacing = spacing
@@ -237,10 +257,11 @@ private let keyHeight: CGFloat = 28
     return row
 }
 
-/// CleanShot-style editor: unified titlebar toolbar, centered zoomable canvas, footer with zoom / Drag Me / actions.
-/// The window never gets smaller than `minimumSize`.
-final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate, NSServicesMenuRequestor {
-    /// Wide enough for the whole toolbar, captions included, without items dropping into its overflow menu.
+/// The editor, in the SK-1 look (#344): a chassis under a transparent title bar, a row of key trays, the LCD, the
+/// options strip, the canvas in its well, and a footer with zoom / Drag Me / actions. The window never gets smaller
+/// than `minimumSize`.
+final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServicesMenuRequestor {
+    /// Wide enough for the whole row of trays, captions included.
     static let minimumSize = NSSize(width: 1150, height: 750)
     /// A new editor is at least this wide when the screen has room, so the toolbar and the strip under it aren't crowded.
     static let defaultWidth: CGFloat = 1200
@@ -264,13 +285,21 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let image: NSImage
     private let canvas: CanvasView
     private let scroll = ZoomingScrollView()
-    private let zoomButton = PillPopUp(pullsDown: true, height: 28)
+    /// The canvas well: the scroll view in a sunken, rounded frame.
+    private let canvasWell = NSView()
+    /// The zoom: an LCD chip between − and +; a click on the chip opens the zoom menu.
+    private let zoomButton = PillPopUp(pullsDown: true, height: pillHeight, style: .lcd, stepper: true, stepSymbols: ("minus", "plus"))
     /// The color under the pointer in the chosen format (#108); its menu picks the format and offers the color tools.
-    private let colorReadout = PillPopUp(pullsDown: true, height: 28)
-    /// One key per tool, in `toolButtons` order; the current tool's is lit. The toolbar puts each group on its own tray.
+    private let colorReadout = PillPopUp(pullsDown: true, height: pillHeight, style: .lcd)
+    /// The row of trays under the title bar (the editor's toolbar).
+    private let toolRow = NSStackView()
+    /// The window's title, in the title bar's strip of chassis.
+    private let titleLabel = NSTextField(labelWithString: "")
+    /// One key per tool, in `toolButtons` order; the current tool's is pressed. Each group has its own tray.
     private lazy var toolPills: [PillButton] = toolButtons.map { b in
         let hasVariants = b.tool == .rect || b.tool == .arrow
-        let pill = iconButton(b.symbol, b.tool.tooltip(variants: hasVariants), self, #selector(toolChanged(_:)), style: .keycap, height: keyHeight)
+        let pill = iconButton(b.symbol, b.tool.tooltip(variants: hasVariants), self, #selector(toolChanged(_:)))
+        pill.legend = b.tool.shortcutLetter
         pill.isOn = b.tool == canvas.tool
         // Rectangle and Arrow: a corner triangle, or a long press, opens their variants.
         if b.tool == .rect { pill.variantMenu = { [weak self] in self?.rectangleVariantMenu() } }
@@ -281,30 +310,30 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     // selection are shown. It lives outside the toolbar so the tool buttons always have room.
     private let attributesBar = NSStackView()
     private let attributesTitle = NSTextField(labelWithString: "")
-    private let attributesHint = NSTextField(labelWithString: "Select an annotation to change its style")
-    private let colorWell = ColorPill(size: pillHeight)
-    private let strokePopup = PillPopUp(pullsDown: false)
-    private let fontPopup = PillPopUp(pullsDown: false)
-    private let sizePopup = PillPopUp(pullsDown: false)
+    private let colorWell = SwatchRow(caption: "Color")
+    /// Steppers: an LCD chip between ◀ ▶ (a click on the chip opens the full list).
+    private let strokePopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd, stepper: true)
+    private let fontPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .keycap)
+    private let sizePopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd, stepper: true)
     /// The font sizes the size popup offers.
     static let fontSizes = [12, 14, 16, 18, 22, 28, 32, 40, 48, 64, 72]
-    private let boldButton = PillButton(title: nil, symbol: "bold", style: .raised, height: pillHeight)
-    private let pixelPopup = PillPopUp(pullsDown: false)
-    private let cornerStylePopup = PillPopUp(pullsDown: false)
-    private let arrowStylePopup = PillPopUp(pullsDown: false)
-    private let textOnlyButton = PillButton(title: "Text Only", symbol: "text.viewfinder", style: .raised, height: pillHeight)
-    private let magnificationPopup = PillPopUp(pullsDown: false)
-    private let lensShapePopup = PillPopUp(pullsDown: false)
-    private let shapeFillPopup = PillPopUp(pullsDown: false)
-    private let textBoxPopup = PillPopUp(pullsDown: false)
-    private let tailButton = PillButton(title: "Tail", symbol: "bubble.left", style: .raised, height: pillHeight)
-    private let handDrawnButton = PillButton(title: "Hand-Drawn", symbol: "scribble", style: .raised, height: pillHeight)
-    private let shapeCorrectionButton = PillButton(title: "Shapes", symbol: "pencil.and.outline", style: .raised, height: pillHeight)
+    private let boldButton = PillButton(title: nil, symbol: "bold", style: .keycap, height: pillHeight)
+    private let pixelPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd, stepper: true)
+    private let cornerStylePopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd, stepper: true)
+    private let arrowStylePopup = RetroSegmented(caption: "Style")
+    private let textOnlyButton = PillButton(title: "Text Only", symbol: nil, style: .toggle, height: pillHeight)
+    private let magnificationPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd, stepper: true)
+    private let lensShapePopup = RetroSegmented(caption: "Lens")
+    private let shapeFillPopup = RetroSegmented(caption: "Fill")
+    private let textBoxPopup = RetroSegmented(caption: "Box")
+    private let tailButton = PillButton(title: "Tail", symbol: nil, style: .toggle, height: pillHeight)
+    private let handDrawnButton = PillButton(title: "Hand-Drawn", symbol: nil, style: .toggle, height: pillHeight)
+    private let shapeCorrectionButton = PillButton(title: "Shapes", symbol: nil, style: .toggle, height: pillHeight)
     /// Fill opacity for closed pen polygons: shade an area while the text under it stays readable.
-    private let opacityLabel = NSTextField(labelWithString: "Opacity")
+    private let opacityLabel = RetroLabel(caption: "Opacity")
     private let opacitySlider = NSSlider(value: 0.35, minValue: 0, maxValue: 1, target: nil, action: nil)
-    private let arrowLabelButton = PillButton(title: "Label", symbol: "text.bubble", style: .raised, height: pillHeight)
-    private let arrangeButton = PillPopUp(pullsDown: true)
+    private let arrowLabelButton = PillButton(title: "Label", symbol: nil, style: .toggle, height: pillHeight)
+    private let arrangeButton = PillPopUp(pullsDown: true, height: pillHeight, style: .keycap)
     /// Add Image → From Capture History; filled in each time it opens.
     private let historyMenu = NSMenu(title: "From Capture History")
     /// The Smart Actions submenu of the text menu (#243): the last result shows while a fresh scan runs.
@@ -331,12 +360,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private lazy var wholeWordButton = findToggle("Whole Word", "Whole Word: only whole words match, not parts of longer ones")
     private lazy var regexButton = findToggle(".*", "Regex: each term is a regular expression")
     private lazy var fuzzyButton = findToggle("Fuzzy", "Fuzzy: look-alike characters (0/O, 1/l/I, 5/S, 8/B, rn/m) match, spaces are ignored")
-    private let coverPopup = PillPopUp(pullsDown: false)
+    private let coverPopup = RetroSegmented(caption: "Cover")
     private lazy var redactSelectedButton = textButton("Redact Selected", self, #selector(redactSelectedFound))
     private lazy var redactAllButton = textButton("Redact All", self, #selector(redactAllFound), filled: true)
     private let cropBar = NSStackView()
     private let areaBar = NSStackView()
-    private let areaHint = NSTextField(labelWithString: "")
+    private let areaHint = RetroLabel(text: "")
     private let contrastLabel = NSTextField(labelWithString: "")
     private lazy var copyAllTextButton = textButton("Copy All Text", canvas, #selector(CanvasView.copyAllText(_:)))
     /// Edit the Text Before Copying: Copy Text and Capture Text open the scratch pad, or copy straight away. The same
@@ -352,23 +381,23 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private lazy var contrastMethodButton = textButton("WCAG 2", self, #selector(contrastMethodToggled))
     private lazy var areaDoneButton = textButton("Cancel", self, #selector(areaPickCancel))
     private let backgroundBar = NSStackView()
-    private let fillPopup = PillPopUp(pullsDown: false)
-    private let paddingPopup = PillPopUp(pullsDown: false)
-    private let cornerPopup = PillPopUp(pullsDown: false)
-    private let directionPopup = PillPopUp(pullsDown: false)
+    private let fillPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .keycap)
+    private let paddingPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd)
+    private let cornerPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd)
+    private let directionPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd)
     private let gradientFrom = ColorPill()
     private let gradientTo = ColorPill()
     private lazy var chooseImageButton = textButton("Choose…", self, #selector(chooseBackgroundImage))
     private lazy var balanceButton = textButton("Balance", canvas, #selector(CanvasView.balancePadding(_:)))
     private lazy var removeBackgroundButton = textButton("Remove", self, #selector(removeBackground))
-    private let blurPopup = PillPopUp(pullsDown: false)
-    private let aspectPopup = PillPopUp(pullsDown: false)
-    private let framePopup = PillPopUp(pullsDown: true)
+    private let blurPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd)
+    private let aspectPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .lcd)
+    private let framePopup = PillPopUp(pullsDown: true, height: pillHeight, style: .keycap)
     private let deviceFrameBar = NSStackView()
-    private let deviceKindPopup = PillPopUp(pullsDown: false)
-    private let deviceLookPopup = PillPopUp(pullsDown: false)
+    private let deviceKindPopup = PillPopUp(pullsDown: false, height: pillHeight, style: .keycap)
+    private let deviceLookPopup = RetroSegmented()
     private let deviceURLField = NSTextField(string: "")
-    private let shadowLabel = NSTextField(labelWithString: "Shadow")
+    private let shadowLabel = RetroLabel(caption: "Shadow")
     private let shadowSlider = NSSlider(value: 0.5, minValue: 0, maxValue: 1, target: nil, action: nil)
     /// Tags of the Frame menu's items: an inset, or the whole image's corner radius, plus the value in points.
     private static let insetTag = 1000, outerCornerTag = 2000
@@ -384,6 +413,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private var dockSides: [[NSLayoutConstraint]] = [[], []]
     /// The footer's button that shows or hides the dock; only there while the window holds several screenshots.
     private lazy var dockButton = iconButton("sidebar.left", "Show Screenshots (⌃⌘S)", self, #selector(toggleDockPressed), height: 28)
+    /// The zoom levels − and + step through.
+    private static let zoomSteps: [CGFloat] = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8]
     private var thumbnailCache: (revision: Int, image: NSImage)?
     private var dockRefreshTask: Task<Void, Never>?
     /// The status display between the toolbar and the options strip: the tool or mode, how to use it, live hints.
@@ -460,19 +491,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         // Editors open as tabs of one window (Settings → Editor can turn that off), drawn by `EditorTabGroup`
         // rather than AppKit.
         w.tabbingMode = .disallowed
+        // One continuous chassis: the title bar is transparent over it, and the title is drawn in its strip. The keys
+        // are in the content rather than an NSToolbar, whose own captions can't take the look.
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
-        w.toolbarStyle = .unified
         w.minSize = floor
         super.init(window: w)
 
         buildContent(in: w)
-        let toolbar = NSToolbar(identifier: "skreener.editor")
-        toolbar.delegate = self
-        // The labels caption each group of keys; the toolbar grows to fit them.
-        toolbar.displayMode = .iconAndLabel
-        toolbar.allowsUserCustomization = false
-        w.toolbar = toolbar
+        w.onTitleChange = { [weak self] in self?.refreshTitle() }
+        refreshTitle()
         w.center()
 
         EditorWindowController.live.append(self)
@@ -696,15 +724,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     // MARK: Layout
 
     private func buildContent(in w: NSWindow) {
-        let content = NSView()
+        let content = ChassisView()
         w.contentView = content
+        content.onAppearanceChange = { [weak self] in self?.refreshTitle(); self?.refreshCanvasBackground() }
 
         scroll.contentView = CenteredClipView()
         scroll.documentView = canvas
         scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = true
-        scroll.backgroundColor = .underPageBackgroundColor
+        refreshCanvasBackground()
         scroll.allowsMagnification = true
         scroll.minMagnification = 0.1; scroll.maxMagnification = 8
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -715,70 +744,113 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         canvas.layer?.shadowOffset = CGSize(width: 0, height: -3)
         canvas.layer?.masksToBounds = false
 
+        // The canvas in a sunken, rounded well, with its rim drawn over it.
+        canvasWell.translatesAutoresizingMaskIntoConstraints = false
+        canvasWell.wantsLayer = true
+        canvasWell.layer?.cornerRadius = 10
+        canvasWell.layer?.cornerCurve = .continuous
+        canvasWell.layer?.masksToBounds = true
+        let rim = CanvasRim()
+        rim.translatesAutoresizingMaskIntoConstraints = false
+        canvasWell.addSubview(scroll)
+        canvasWell.addSubview(rim)
+        for v in [scroll, rim] as [NSView] {
+            NSLayoutConstraint.activate([
+                v.leadingAnchor.constraint(equalTo: canvasWell.leadingAnchor), v.trailingAnchor.constraint(equalTo: canvasWell.trailingAnchor),
+                v.topAnchor.constraint(equalTo: canvasWell.topAnchor), v.bottomAnchor.constraint(equalTo: canvasWell.bottomAnchor),
+            ])
+        }
+
+        // The title bar's strip: the title in the middle and a grille at the right.
+        let titleStrip = NSLayoutGuide()
+        content.addLayoutGuide(titleStrip)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.lineBreakMode = .byTruncatingMiddle
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let grille = SpeakerGrille()
+        content.addSubview(titleLabel)
+        content.addSubview(grille)
+
+        let tools = buildToolRow()
         let footer = buildFooter()
         footer.translatesAutoresizingMaskIntoConstraints = false
         let strip = buildAttributesStrip()
         strip.translatesAutoresizingMaskIntoConstraints = false
-        let display = buildDisplayRow()
-        display.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(display)
+        lcd.translatesAutoresizingMaskIntoConstraints = false
         dock.translatesAutoresizingMaskIntoConstraints = false
         dock.isHidden = true
         let toast = buildToast()
-        content.addSubview(scroll); content.addSubview(footer); content.addSubview(strip); content.addSubview(dock)
-        content.addSubview(toast)
+        [tools, lcd, canvasWell, footer, strip, dock, toast].forEach(content.addSubview)
 
         let top = (w.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
         let width = dock.widthAnchor.constraint(equalToConstant: 0)
         dockWidth = width
+        let margin: CGFloat = 14
         // The dock runs from the attributes strip (which keeps the full width) to the footer, beside the canvas.
         dockSides = [
             [dock.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-             scroll.leadingAnchor.constraint(equalTo: dock.trailingAnchor),
-             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor)],
+             canvasWell.leadingAnchor.constraint(equalTo: dock.trailingAnchor, constant: margin),
+             canvasWell.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -margin)],
             [dock.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-             scroll.trailingAnchor.constraint(equalTo: dock.leadingAnchor)],
+             canvasWell.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: margin),
+             canvasWell.trailingAnchor.constraint(equalTo: dock.leadingAnchor, constant: -margin)],
         ]
         NSLayoutConstraint.activate(dockSides[0] + [
+            titleStrip.topAnchor.constraint(equalTo: content.topAnchor),
+            titleStrip.bottomAnchor.constraint(equalTo: top),
+            titleLabel.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: titleStrip.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: 90),   // after the window buttons
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: grille.leadingAnchor, constant: -16),
+            grille.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -margin),
+            grille.centerYAnchor.constraint(equalTo: titleStrip.centerYAnchor),
+            tools.topAnchor.constraint(equalTo: top, constant: 2),
+            tools.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: margin),
+            tools.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -margin),
             dock.topAnchor.constraint(equalTo: strip.bottomAnchor),
             dock.bottomAnchor.constraint(equalTo: footer.topAnchor),
             width,
-            display.topAnchor.constraint(equalTo: top),
-            display.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            display.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            display.heightAnchor.constraint(equalToConstant: 46),
-            strip.topAnchor.constraint(equalTo: display.bottomAnchor),
+            lcd.topAnchor.constraint(equalTo: tools.bottomAnchor, constant: 10),
+            lcd.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: margin),
+            lcd.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -margin),
+            lcd.heightAnchor.constraint(equalToConstant: 46),
+            strip.topAnchor.constraint(equalTo: lcd.bottomAnchor),
             strip.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             strip.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            strip.heightAnchor.constraint(equalToConstant: 42),
-            scroll.topAnchor.constraint(equalTo: strip.bottomAnchor),
-            scroll.bottomAnchor.constraint(equalTo: footer.topAnchor),
+            strip.heightAnchor.constraint(equalToConstant: 44),
+            canvasWell.topAnchor.constraint(equalTo: strip.bottomAnchor),
+            canvasWell.bottomAnchor.constraint(equalTo: footer.topAnchor),
             footer.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            footer.heightAnchor.constraint(equalToConstant: 50),
-            toast.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            toast.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -16),
+            footer.heightAnchor.constraint(equalToConstant: 52),
+            toast.centerXAnchor.constraint(equalTo: canvasWell.centerXAnchor),
+            toast.bottomAnchor.constraint(equalTo: canvasWell.bottomAnchor, constant: -16),
             toast.heightAnchor.constraint(equalToConstant: 32),
         ])
     }
 
-    /// The row holding the status display, inset like the strip under it.
-    private func buildDisplayRow() -> NSView {
-        let bar = NSVisualEffectView()
-        bar.material = .windowBackground
-        bar.blendingMode = .withinWindow
-        bar.state = .followsWindowActiveState
-        lcd.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(lcd)
-        NSLayoutConstraint.activate([
-            lcd.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
-            lcd.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -16),
-            lcd.topAnchor.constraint(equalTo: bar.topAnchor, constant: 4),
-            lcd.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -4),
-        ])
-        return bar
+    /// "SK-1 EDITOR — <title>" in the title bar's strip.
+    private func refreshTitle() {
+        let p = Retro.palette(for: titleLabel)
+        let s = NSMutableAttributedString(attributedString: Retro.caption("SK-1", color: Retro.color(p.ink),
+                                                                          font: .systemFont(ofSize: 9.5, weight: .heavy)))
+        s.append(Retro.caption("  Editor — " + (window?.title ?? ""), color: Retro.color(p.inkSoft),
+                               font: .systemFont(ofSize: 9.5, weight: .semibold)))
+        titleLabel.attributedStringValue = s
+    }
+
+    /// The canvas well's floor: the palette's well colour with a faint grid of dots.
+    private func refreshCanvasBackground() {
+        let p = Retro.palette(for: scroll)
+        let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { r in
+            Retro.color(p.canvas).setFill()
+            r.fill()
+            (p.dark ? NSColor.white : NSColor.black).withAlphaComponent(p.canvasDot).setFill()
+            NSBezierPath(ovalIn: NSRect(x: 5.4, y: 5.4, width: 1.2, height: 1.2)).fill()
+            return true
+        }
+        scroll.backgroundColor = NSColor(patternImage: image)
     }
 
     /// Puts the current tool or mode, and how to use it (or the live hint), on the status display.
@@ -849,38 +921,22 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     }
 
     private func buildAttributesStrip() -> NSView {
-        let bar = NSVisualEffectView()
-        bar.material = .windowBackground
-        bar.blendingMode = .withinWindow
-        bar.state = .followsWindowActiveState
-        attributesTitle.font = .systemFont(ofSize: 12, weight: .semibold)
-        attributesTitle.textColor = .secondaryLabelColor
-        attributesHint.font = .systemFont(ofSize: 12)
-        attributesHint.textColor = .tertiaryLabelColor
-        // How to use the tool or mode is on the status display above, leaving this row to the options.
-        let row = pillRow([attributesTitle, attributesBar, cropBar, areaBar, findBar, backgroundBar, deviceFrameBar],
-                          spacing: 10)
+        let bar = NSView()
+        // The tool or mode, and how to use it, are on the status display above, leaving this row to the options.
+        let row = pillRow([attributesBar, cropBar, areaBar, findBar, backgroundBar, deviceFrameBar], spacing: 10)
         row.translatesAutoresizingMaskIntoConstraints = false
-        let line = NSBox(); line.boxType = .separator
-        line.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(row); bar.addSubview(line)
+        bar.addSubview(row)
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
             row.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-            line.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
-            line.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
-            line.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
         ])
         return bar
     }
 
     private func buildFooter() -> NSView {
-        let bar = NSVisualEffectView()
-        bar.material = .windowBackground
-        bar.blendingMode = .withinWindow
-        bar.state = .followsWindowActiveState
+        let bar = NSView()
 
-        // Zoom popup (pull-down: item 0 shows the current zoom).
+        // Zoom: − and + step through `zoomSteps`; the chip (a pull-down, item 0 shows the current zoom) opens the menu.
         zoomButton.menu?.addItem(withTitle: "100%", action: nil, keyEquivalent: "")
         for (title, tag) in [("Fit", 0), ("25%", 25), ("50%", 50), ("100%", 100), ("200%", 200), ("400%", 400)] {
             let item = NSMenuItem(title: title, action: #selector(zoomPicked(_:)), keyEquivalent: "")
@@ -888,9 +944,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             zoomButton.menu?.addItem(item)
         }
         zoomButton.toolTip = "Zoom"
+        zoomButton.onStep = { [weak self] by in self?.stepZoom(by) }
         buildColorReadout()
         dockButton.isHidden = true
-        let zoomBar = pillRow([dockButton, zoomButton, colorReadout])
+        let zoomBar = pillRow([dockButton, zoomButton, colorReadout], spacing: 10)
         zoomBar.translatesAutoresizingMaskIntoConstraints = false
 
         let pill = DragPill()
@@ -898,15 +955,19 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         pill.onDropped = { [weak self] in self?.window?.close() }
         pill.translatesAutoresizingMaskIntoConstraints = false
 
-        let actions = [("sparkles", "Ask Claude: explain, summarize or write alt text", #selector(askClaudeIt)),
-                       ("paperplane", "Send To: your own actions and notes apps", #selector(sendToIt(_:))),
-                       ("square.and.arrow.up", "Share", #selector(shareIt(_:))),
-                       ("pin", "Pin to Screen", #selector(pinIt)),
-                       ("doc.on.doc", "Copy", #selector(copyIt)),
-                       ("square.and.arrow.down", "Save (⌘S)", #selector(saveIt))].map { sym, tip, sel in
+        var actions: [NSView] = [("sparkles", "Ask Claude: explain, summarize or write alt text", #selector(askClaudeIt)),
+                                 ("paperplane", "Send To: your own actions and notes apps", #selector(sendToIt(_:))),
+                                 ("square.and.arrow.up", "Share", #selector(shareIt(_:))),
+                                 ("pin", "Pin to Screen", #selector(pinIt))].map { sym, tip, sel in
             iconButton(sym, tip, self, sel, height: 28)
         }
+        let copy = textButton("Copy", self, #selector(copyIt), height: 28)
+        copy.toolTip = "Copy"
+        let save = textButton("Save", self, #selector(saveIt), filled: true, height: 28)
+        save.toolTip = "Save (⌘S)"
+        actions += [copy, save]
         let right = pillRow(actions, spacing: 8)
+        right.setCustomSpacing(14, after: actions[3])
         right.translatesAutoresizingMaskIntoConstraints = false
 
         [zoomBar, pill, right].forEach(bar.addSubview)
@@ -915,8 +976,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             zoomBar.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             pill.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
             pill.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-            pill.widthAnchor.constraint(equalToConstant: 112), pill.heightAnchor.constraint(equalToConstant: 34),
-            right.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -16),
+            pill.widthAnchor.constraint(equalToConstant: 150), pill.heightAnchor.constraint(equalToConstant: 27),
+            right.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -14),
             right.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
         ])
         return bar
@@ -1001,8 +1062,21 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     }
 
     private func refreshZoomLabel() {
-        zoomButton.menu?.item(at: 0)?.title = "\(Int((scroll.magnification * 100).rounded()))%"
+        let percent = Int((scroll.magnification * 100).rounded())
+        zoomButton.menu?.item(at: 0)?.title = "\(percent)%"
         zoomButton.synchronizeTitleAndSelectedItem()
+        lcd.zoomPercent = percent
+    }
+
+    /// The zoom's − (-1) and +: the next level in `zoomSteps`, around the middle of what is showing.
+    private func stepZoom(_ by: Int) {
+        let now = scroll.magnification
+        let next = by > 0 ? Self.zoomSteps.first { $0 > now + 0.005 } : Self.zoomSteps.last { $0 < now - 0.005 }
+        guard let next else { NSSound.beep(); return }
+        fitMode = false
+        let visible = canvas.visibleRect
+        scroll.setMagnification(next, centeredAt: NSPoint(x: visible.midX, y: visible.midY))
+        refreshZoomLabel()
     }
 
     /// The canvas grew or shrank around its annotations: refit, or scroll so the image stays put on screen.
@@ -1021,19 +1095,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         refreshZoomLabel()
     }
 
-    // MARK: NSToolbarDelegate
+    // MARK: Tool row
 
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        // Trays of keys (rather than standard toolbar items), small enough for everything to fit the minimum width.
-        [.imageActionsItem, .readTextItem] + Self.toolGroups.indices.map { .toolGroupItem($0) }
-            + [.undoRedoItem, .flexibleSpace, .settingsItem, .saveAsItem]
-    }
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+    /// The row of trays under the title bar, small enough for everything to fit the minimum width: the image and
+    /// text commands, the tools in groups, Undo, and at the far end Settings (charcoal) and Save as… (orange).
+    private func buildToolRow() -> NSView {
         /// A menu of canvas commands, a separator between each list.
         func commands(_ lists: [(String, Selector)]...) -> NSMenu {
             let m = NSMenu()
@@ -1047,45 +1113,49 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             }
             return m
         }
-        switch id {
-        case .imageActionsItem:
-            return trayItem(id, "Image", [
-                iconButton("crop", "Crop (C)", self, #selector(cropIt), style: .keycap, height: keyHeight),
+        let crop = iconButton("crop", "Crop (C)", self, #selector(cropIt))
+        crop.legend = "C"
+        var trays: [NSView] = [
+            tray("Image", [
+                crop,
                 iconMenuButton("rotate.right", "Rotate, flip, resize or cut out part of the screenshot",
-                               commands(CanvasView.imageCommands, CanvasView.sizeCommands, CanvasView.snapCommands),
-                               style: .keycap, height: keyHeight),
+                               commands(CanvasView.imageCommands, CanvasView.sizeCommands, CanvasView.snapCommands)),
                 iconMenuButton("plus.rectangle.on.rectangle",
-                               "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu(),
-                               style: .keycap, height: keyHeight),
-                iconButton("photo", "Background", self, #selector(backgroundIt), style: .keycap, height: keyHeight),
-            ])
-        case .readTextItem:
-            return trayItem(id, "Read Text", [
-                iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands),
-                               style: .keycap, height: keyHeight),
+                               "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu()),
+                iconButton("photo", "Background", self, #selector(backgroundIt)),
+            ]),
+            tray("Read Text", [
+                iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands)),
                 iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR), or act on dates, addresses, links and QR codes",
-                               textMenu(commands(CanvasView.textCommands)), style: .keycap, height: keyHeight),
+                               textMenu(commands(CanvasView.textCommands))),
                 scratchPadSwitch,
-            ])
-        case .undoRedoItem:
-            return trayItem(id, "Undo", [iconButton("arrow.uturn.backward", "Undo (⌘Z)", self, #selector(undoIt), style: .keycap, height: keyHeight),
-                                         iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", self, #selector(redoIt), style: .keycap, height: keyHeight)])
-        case .settingsItem:
-            let b = iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings), style: .keycap, height: keyHeight)
-            b.keycapTint = .systemOrange
-            return trayItem(id, "Settings", [b])
-        case .saveAsItem:
-            // ⇧⌘S is in the File menu.
-            let b = PillButton(title: "Save as…", symbol: "square.and.arrow.down", style: .keycap, height: keyHeight)
-            b.target = self; b.action = #selector(saveAsIt)
-            b.toolTip = "Save as… (⇧⌘S)"
-            return trayItem(id, "Save", [b])
-        default:
-            guard let i = Self.toolGroups.indices.first(where: { id == .toolGroupItem($0) }) else { return nil }
-            let group = Self.toolGroups[i]
-            let first = Self.toolGroups[..<i].reduce(0) { $0 + $1.tools.count }
-            return trayItem(id, group.name, Array(toolPills[first..<first + group.tools.count]))
+            ]),
+        ]
+        var first = 0
+        for group in Self.toolGroups {
+            trays.append(tray(group.name, Array(toolPills[first..<first + group.tools.count])))
+            first += group.tools.count
         }
+        trays.append(tray("Undo", [iconButton("arrow.uturn.backward", "Undo (⌘Z)", self, #selector(undoIt)),
+                                   iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", self, #selector(redoIt))]))
+        let settings = iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings))
+        settings.keyVariant = .charcoal
+        // ⇧⌘S is in the File menu.
+        let saveAs = PillButton(title: "Save as…", symbol: "square.and.arrow.down", style: .keycap, height: keyHeight)
+        saveAs.keyVariant = .orange
+        saveAs.target = self; saveAs.action = #selector(saveAsIt)
+        saveAs.toolTip = "Save as… (⇧⌘S)"
+
+        toolRow.orientation = .horizontal
+        toolRow.alignment = .top
+        toolRow.spacing = 8
+        toolRow.translatesAutoresizingMaskIntoConstraints = false
+        trays.forEach { toolRow.addView($0, in: .leading) }
+        // The space between the two ends stretches.
+        toolRow.addView(tray("Settings", [settings]), in: .trailing)
+        toolRow.addView(tray("Save", [saveAs]), in: .trailing)
+        toolRow.setHuggingPriority(.defaultLow, for: .horizontal)
+        return toolRow
     }
 
     /// The text menu with Smart Actions (#243) added below the copy commands.
@@ -1128,34 +1198,24 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     private func buildAttributesBar() {
         attributesBar.orientation = .horizontal
-        attributesBar.spacing = 6
-
-        attributesBar.spacing = 6
+        attributesBar.spacing = 14
         colorWell.target = self; colorWell.action = #selector(colorChanged(_:)); colorWell.toolTip = "Color"
 
-        func setUp(_ popup: PillPopUp, _ tip: String, _ choices: [(String, Int)], _ action: Selector) {
+        func setUp(_ popup: PillPopUp, _ tip: String, _ caption: String?, _ choices: [(String, Int)], _ action: Selector) {
             popup.toolTip = tip
+            popup.caption = caption
             popup.target = self; popup.action = action
             for (title, tag) in choices { popup.addItem(withTitle: title); popup.lastItem?.tag = tag }
         }
-        setUp(strokePopup, "Stroke width", [1, 2, 3, 5, 8, 12].map { ("\($0) pt", $0) }, #selector(strokePicked(_:)))
-        setUp(sizePopup, "Font size", EditorWindowController.fontSizes.map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
-        setUp(pixelPopup, "Strength", [("Light", 6), ("Medium", 10), ("Strong", 18), ("Heavy", 28)], #selector(pixelPicked(_:)))
-        setUp(cornerStylePopup, "Corners", [("Sharp Corners", 0), ("Slightly Rounded", 2), ("Rounded", 8), ("Very Rounded", 16)],
+        setUp(strokePopup, "Stroke width", "Stroke", [1, 2, 3, 5, 8, 12].map { ("\($0) pt", $0) }, #selector(strokePicked(_:)))
+        setUp(sizePopup, "Font size", "Size", EditorWindowController.fontSizes.map { ("\($0) pt", $0) }, #selector(sizePicked(_:)))
+        setUp(pixelPopup, "Strength", "Strength", [("Light", 6), ("Medium", 10), ("Strong", 18), ("Heavy", 28)], #selector(pixelPicked(_:)))
+        setUp(cornerStylePopup, "Corners", "Corners", [("Sharp", 0), ("Slight", 2), ("Rounded", 8), ("Very Round", 16)],
               #selector(cornerPicked(_:)))
-        setUp(arrowStylePopup, "Arrow style", [("Filled Head", ArrowStyle.filled.rawValue), ("Open Head", ArrowStyle.open.rawValue),
-                                               ("Double-Headed", ArrowStyle.double.rawValue), ("Tapered", ArrowStyle.tapered.rawValue)],
-              #selector(arrowStylePicked(_:)))
         // Tags are tenths: 15 is 1.5×.
-        setUp(magnificationPopup, "Magnification", [("1.5×", 15), ("2×", 20), ("3×", 30), ("4×", 40)],
+        setUp(magnificationPopup, "Magnification", "Zoom", [("1.5×", 15), ("2×", 20), ("3×", 30), ("4×", 40)],
               #selector(magnificationPicked(_:)))
-        setUp(lensShapePopup, "Lens shape", [("Circle", LensShape.circle.rawValue), ("Rectangle", LensShape.rectangle.rawValue)],
-              #selector(lensShapePicked(_:)))
-        setUp(shapeFillPopup, "Fill", [("No Fill", ShapeFill.outline.rawValue), ("Translucent Fill", ShapeFill.translucent.rawValue),
-                                        ("Solid Fill", ShapeFill.solid.rawValue)], #selector(shapeFillPicked(_:)))
-        setUp(textBoxPopup, "Text background", [("No Box", TextBox.plain.rawValue), ("Solid Box", TextBox.solid.rawValue),
-                                                ("Outlined Box", TextBox.outline.rawValue)], #selector(textBoxPicked(_:)))
-        setUp(fontPopup, "Font", [], #selector(fontPicked(_:)))
+        setUp(fontPopup, "Font", "Font", [], #selector(fontPicked(_:)))
         for (title, name) in Self.fontChoices {
             fontPopup.addItem(withTitle: title)
             fontPopup.lastItem?.representedObject = name
@@ -1163,6 +1223,24 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                 fontPopup.lastItem?.attributedTitle = NSAttributedString(string: title, attributes: [.font: f])
             }
         }
+
+        /// A segmented control's choices: the short title on the segment, the full name as its tooltip.
+        func setUpChoices(_ control: RetroSegmented, _ tip: String, _ choices: [(String, String, Int)], _ action: Selector) {
+            control.toolTip = tip
+            control.target = self; control.action = action
+            for (title, help, tag) in choices { control.addItem(title, tag: tag, help: help) }
+        }
+        setUpChoices(arrowStylePopup, "Arrow style", [("Filled", "Filled Head", ArrowStyle.filled.rawValue),
+                                               ("Open", "Open Head", ArrowStyle.open.rawValue),
+                                               ("Double", "Double-Headed", ArrowStyle.double.rawValue),
+                                               ("Tapered", "Tapered", ArrowStyle.tapered.rawValue)], #selector(arrowStylePicked(_:)))
+        setUpChoices(lensShapePopup, "Lens shape", [("Circle", "Circle", LensShape.circle.rawValue),
+                                             ("Rect", "Rectangle", LensShape.rectangle.rawValue)], #selector(lensShapePicked(_:)))
+        setUpChoices(shapeFillPopup, "Fill", [("None", "No Fill", ShapeFill.outline.rawValue),
+                                       ("Tint", "Translucent Fill", ShapeFill.translucent.rawValue),
+                                       ("Solid", "Solid Fill", ShapeFill.solid.rawValue)], #selector(shapeFillPicked(_:)))
+        setUpChoices(textBoxPopup, "Text background", [("None", "No Box", TextBox.plain.rawValue), ("Solid", "Solid Box", TextBox.solid.rawValue),
+                                                ("Outline", "Outlined Box", TextBox.outline.rawValue)], #selector(textBoxPicked(_:)))
 
         boldButton.toolTip = "Bold"
         boldButton.setAccessibilityLabel("Bold")
@@ -1178,8 +1256,6 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         arrowLabelButton.toolTip = "Label: type a note at the arrow's tail as soon as it is drawn, in the last text style. Esc without typing keeps just the arrow."
         arrowLabelButton.target = self; arrowLabelButton.action = #selector(arrowLabelToggled(_:))
 
-        opacityLabel.font = .systemFont(ofSize: 12)
-        opacityLabel.textColor = .secondaryLabelColor
         opacitySlider.controlSize = .small
         opacitySlider.isContinuous = false
         opacitySlider.toolTip = "How opaque a closed pen polygon's fill is"
@@ -1200,7 +1276,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         [colorWell, strokePopup, shapeFillPopup, arrowStylePopup, arrowLabelButton, handDrawnButton, shapeCorrectionButton, cornerStylePopup,
          fontPopup, sizePopup, boldButton, textBoxPopup, tailButton, pixelPopup, textOnlyButton, magnificationPopup, lensShapePopup,
          opacityLabel, opacitySlider, arrangeButton].forEach(attributesBar.addArrangedSubview)
-        attributesBar.setCustomSpacing(4, after: opacityLabel)
+        attributesBar.setCustomSpacing(6, after: opacityLabel)
+        attributesBar.setCustomSpacing(6, after: fontPopup)
+        attributesBar.setCustomSpacing(6, after: sizePopup)
         refreshStrip()
     }
 
@@ -1218,20 +1296,25 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         findCount.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         coverPopup.toolTip = "How matches are covered: only Solid really removes the text"
         coverPopup.target = self; coverPopup.action = #selector(coverPicked(_:))
-        for c in RedactText.Cover.allCases { coverPopup.addItem(withTitle: c.title); coverPopup.lastItem?.tag = c.rawValue }
+        for c in RedactText.Cover.allCases { coverPopup.addItem(c.title, tag: c.rawValue) }
         redactSelectedButton.toolTip = "Redact the highlighted matches (click a match to leave it out)"
         redactAllButton.toolTip = "Redact every match"
         [findField, matchCaseButton, wholeWordButton, regexButton, fuzzyButton, coverPopup, findCount, redactSelectedButton,
          redactAllButton].forEach(findBar.addArrangedSubview)
-        findBar.spacing = 6
-        findBar.setCustomSpacing(10, after: findField)
-        findBar.setCustomSpacing(10, after: coverPopup)
-        findBar.setCustomSpacing(10, after: findCount)
+        findBar.spacing = 10
+        findBar.setCustomSpacing(14, after: findField)
+        findBar.setCustomSpacing(14, after: fuzzyButton)
+        findBar.setCustomSpacing(14, after: coverPopup)
+        findBar.setCustomSpacing(14, after: findCount)
+        findBar.setCustomSpacing(6, after: redactSelectedButton)
         findBar.isHidden = true
     }
 
+    /// An orange-square toggle for the find bar; "Aa" and ".*" keep their case.
     private func findToggle(_ title: String, _ tip: String) -> PillButton {
-        let b = textButton(title, self, #selector(findToggled(_:)))
+        let b = PillButton(title: title, symbol: nil, style: .toggle, height: pillHeight)
+        b.keepsCase = title.lowercased() == title || title == "Aa"
+        b.target = self; b.action = #selector(findToggled(_:))
         b.toolTip = tip
         b.setAccessibilityLabel(tip)
         return b
@@ -1301,7 +1384,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         updateFind()
     }
 
-    @objc private func coverPicked(_ p: PillPopUp) {
+    @objc private func coverPicked(_ p: RetroSegmented) {
         Preferences.redactTextCover = RedactText.Cover(rawValue: p.selectedTag()) ?? .solid
     }
 
@@ -1329,8 +1412,6 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     /// The strip while dragging out an area for Copy Text, the average color or Check Contrast.
     private func buildAreaBar() {
-        areaHint.font = .systemFont(ofSize: 12)
-        areaHint.textColor = .tertiaryLabelColor
         contrastLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         contrastLabel.textColor = .labelColor
         contrastMethodButton.toolTip = "Switch between WCAG 2 and APCA (or ⌥-click the screenshot)"
@@ -1425,8 +1506,6 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         framePopup.menu?.addItem(.separator())
         section("Outer Corners", [0, 12, 24, 40], base: Self.outerCornerTag) { $0 == 0 ? "Square" : "\($0) pt" }
 
-        shadowLabel.font = .systemFont(ofSize: 12)
-        shadowLabel.textColor = .secondaryLabelColor
         shadowSlider.controlSize = .small
         shadowSlider.isContinuous = false
         shadowSlider.toolTip = "Shadow under the screenshot"
@@ -1438,7 +1517,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         [fillPopup, directionPopup, gradientFrom, gradientTo, chooseImageButton, blurPopup, aspectPopup, paddingPopup,
          balanceButton, cornerPopup, framePopup, shadowLabel, shadowSlider, removeBackgroundButton].forEach(backgroundBar.addArrangedSubview)
         backgroundBar.spacing = 6
-        backgroundBar.setCustomSpacing(4, after: shadowLabel)
+        backgroundBar.setCustomSpacing(6, after: shadowLabel)
         backgroundBar.isHidden = true
     }
 
@@ -1489,26 +1568,19 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         findBar.isHidden = stripMode != .redactText
         backgroundBar.isHidden = stripMode != .background
         deviceFrameBar.isHidden = stripMode != .deviceFrame
+        // The title (the tool or mode) is on the status display.
         switch stripMode {
-        case .tools:
-            refreshAttributes(canvas.contextTool, canvas.contextStyle)
-        case .crop:
-            attributesTitle.stringValue = "Crop"
-            attributesTitle.isHidden = false; attributesHint.isHidden = true
-        case .areaPick:
-            refreshAreaBar()
-            attributesTitle.isHidden = false; attributesHint.isHidden = true
+        case .tools: refreshAttributes(canvas.contextTool, canvas.contextStyle)
+        case .crop: attributesTitle.stringValue = "Crop"
+        case .areaPick: refreshAreaBar()
         case .redactText:
             attributesTitle.stringValue = Tool.redactText.name
-            attributesTitle.isHidden = false; attributesHint.isHidden = true
             refreshFindBar()
         case .background:
             attributesTitle.stringValue = "Background"
-            attributesTitle.isHidden = false; attributesHint.isHidden = true
             refreshBackgroundBar()
         case .deviceFrame:
             attributesTitle.stringValue = "Frame"
-            attributesTitle.isHidden = false; attributesHint.isHidden = true
             refreshDeviceFrameBar()
         }
         // An empty options row would leave a double gap.
@@ -1520,11 +1592,9 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private func refreshAttributes(_ tool: Tool, _ style: Style) {
         // `.select` here means nothing is selected: there is no style to edit.
         attributesTitle.stringValue = tool.name
-        attributesTitle.isHidden = tool == .select
-        attributesHint.isHidden = tool != .select
         colorWell.isHidden = [.select, .pixelate, .blur, .erase, .spotlight, .image].contains(tool)
         strokePopup.isHidden = !tool.usesStroke
-        [fontPopup, boldButton, textBoxPopup, tailButton].forEach { $0.isHidden = tool != .text }
+        ([fontPopup, boldButton, textBoxPopup, tailButton] as [NSView]).forEach { $0.isHidden = tool != .text }
         shapeFillPopup.isHidden = tool != .rect && tool != .ellipse
         handDrawnButton.isHidden = ![.arrow, .line, .rect, .ellipse].contains(tool)
         shapeCorrectionButton.isHidden = tool != .pen
@@ -1536,7 +1606,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         sizePopup.isHidden = tool != .text && tool != .counter
         pixelPopup.isHidden = !tool.hasStrength
         textOnlyButton.isHidden = !tool.obscures
-        [magnificationPopup, lensShapePopup].forEach { $0.isHidden = tool != .magnifier }
+        ([magnificationPopup, lensShapePopup] as [NSView]).forEach { $0.isHidden = tool != .magnifier }
         cornerStylePopup.isHidden = !tool.hasCorners
         arrowStylePopup.isHidden = tool != .arrow
         arrowLabelButton.isHidden = tool != .arrow
@@ -1574,13 +1644,13 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         sizePopup.selectItem(withTag: size)
     }
 
-    @objc private func colorChanged(_ w: ColorPill) { canvas.updateStyle { $0.color = w.color } }
+    @objc private func colorChanged(_ w: SwatchRow) { canvas.updateStyle { $0.color = w.color } }
     @objc private func opacityChanged() { canvas.updateStyle { $0.fillOpacity = CGFloat(opacitySlider.doubleValue) } }
     @objc private func strokePicked(_ p: PillPopUp) { canvas.updateStyle { $0.lineWidth = CGFloat(p.selectedTag()) } }
     @objc private func sizePicked(_ p: PillPopUp) { canvas.updateStyle { $0.fontSize = CGFloat(p.selectedTag()) } }
     @objc private func pixelPicked(_ p: PillPopUp) { canvas.updateStyle { $0.pixelSize = CGFloat(p.selectedTag()) } }
     @objc private func cornerPicked(_ p: PillPopUp) { canvas.updateStyle { $0.cornerRadius = CGFloat(p.selectedTag()) } }
-    @objc private func arrowStylePicked(_ p: PillPopUp) {
+    @objc private func arrowStylePicked(_ p: RetroSegmented) {
         canvas.updateStyle { $0.arrowStyle = ArrowStyle(rawValue: p.selectedTag()) ?? .filled }
     }
     @objc private func fontPicked(_ p: PillPopUp) {
@@ -1595,10 +1665,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         b.isOn.toggle()
         canvas.updateStyle { $0.textOnly = b.isOn }
     }
-    @objc private func shapeFillPicked(_ p: PillPopUp) {
+    @objc private func shapeFillPicked(_ p: RetroSegmented) {
         canvas.updateStyle { $0.fill = ShapeFill(rawValue: p.selectedTag()) ?? .outline }
     }
-    @objc private func textBoxPicked(_ p: PillPopUp) {
+    @objc private func textBoxPicked(_ p: RetroSegmented) {
         let box = TextBox(rawValue: p.selectedTag()) ?? .plain
         canvas.updateStyle { $0.textBox = box; if box == .plain { $0.tail = false } }
         refreshStrip()
@@ -1627,7 +1697,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     @objc private func magnificationPicked(_ p: PillPopUp) {
         canvas.updateStyle { $0.magnification = CGFloat(p.selectedTag()) / 10 }
     }
-    @objc private func lensShapePicked(_ p: PillPopUp) {
+    @objc private func lensShapePicked(_ p: RetroSegmented) {
         canvas.updateStyle { $0.lensShape = LensShape(rawValue: p.selectedTag()) ?? .circle }
     }
 
@@ -1872,7 +1942,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
         deviceLookPopup.toolTip = "Light or dark frame"
         deviceLookPopup.target = self; deviceLookPopup.action = #selector(deviceLookPicked)
-        for (title, tag) in [("Light", 0), ("Dark", 1)] { deviceLookPopup.addItem(withTitle: title); deviceLookPopup.lastItem?.tag = tag }
+        for (title, tag) in [("Light", 0), ("Dark", 1)] { deviceLookPopup.addItem(title, tag: tag) }
         deviceURLField.placeholderString = "Address shown in the browser bar"
         deviceURLField.toolTip = "Address shown in the browser bar"
         deviceURLField.controlSize = .small
@@ -1950,7 +2020,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         let controls: [NSControl] = [directionPopup, gradientFrom, gradientTo, chooseImageButton, blurPopup, aspectPopup,
                                      paddingPopup, cornerPopup, framePopup, shadowSlider]
         controls.forEach { $0.isEnabled = bg != nil }
-        shadowLabel.textColor = bg != nil ? .secondaryLabelColor : .tertiaryLabelColor
+        shadowLabel.alphaValue = bg != nil ? 1 : 0.45
     }
 
     /// Changes the background (one undo step) and remembers it for the next screenshot.
@@ -2118,7 +2188,7 @@ extension EditorWindowController {
             if let p = v as? PillPopUp { return [p] }
             return v.subviews.flatMap(popUps)
         }
-        let pills = (window?.toolbar?.items ?? []).compactMap(\.view).flatMap(popUps)
+        let pills = popUps(in: toolRow)
         return pills.filter { p in (p.menu?.items ?? []).contains { $0.action.flatMap(NewFeature.running) != nil } }
     }
 }
