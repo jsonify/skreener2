@@ -10,8 +10,9 @@ class PillButton: NSButton {
         case tinted
         /// A white button with a soft shadow on the window background (a lighter grey in dark mode), like CleanShot's.
         case raised
-        /// No fill of its own, on a `PillBar` group (the editor's tools).
-        case plain
+        /// A rounded-square key with a lit face and a darker skirt under it, on a `KeycapTray` (the editor's toolbar).
+        /// `isOn` lights it with the accent colour and a glow.
+        case keycap
     }
 
     /// Space between the symbol and the title, the same on every pill button. The symbol and title are laid out
@@ -24,8 +25,10 @@ class PillButton: NSButton {
     static let tintColor = NSColor.white.withAlphaComponent(0.16)
     /// The `.raised` fill.
     static func raisedColor(dark: Bool) -> NSColor { dark ? NSColor(white: 1, alpha: 0.13) : .white }
-    /// A `PillBar` group's fill: a faint grey on the window background.
-    static func groupColor(dark: Bool) -> NSColor { dark ? NSColor(white: 1, alpha: 0.07) : NSColor(white: 0, alpha: 0.055) }
+    /// A `.keycap`'s corner radius.
+    static let keycapRadius: CGFloat = 6
+    /// A `.keycap`'s symbol and title: dark on the grey key, in light and dark mode alike.
+    static let keycapInk = NSColor(white: 0.13, alpha: 1)
 
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
@@ -36,6 +39,7 @@ class PillButton: NSButton {
     private let height: CGFloat
     fileprivate var pressed = false { didSet { applyColors() } }
     private var widthConstraint: NSLayoutConstraint?
+    private var contentCenterY: NSLayoutConstraint?
 
     var isOn = false { didSet { applyColors() } }
     /// A small ▾ after the content, for buttons that open a menu.
@@ -63,7 +67,7 @@ class PillButton: NSButton {
         self.title = ""
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        label.font = .systemFont(ofSize: height >= 30 ? 13 : 12, weight: style == .raised || style == .plain ? .medium : .semibold)
+        label.font = .systemFont(ofSize: height >= 30 ? 13 : 12, weight: style == .tinted || style == .filled ? .semibold : .medium)
         label.lineBreakMode = .byTruncatingTail
         let chevronConfig = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
         chevron.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?.withSymbolConfiguration(chevronConfig)
@@ -76,7 +80,8 @@ class PillButton: NSButton {
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
         content.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
-        content.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
+        contentCenterY = content.centerYAnchor.constraint(equalTo: centerYAnchor)
+        contentCenterY?.isActive = true
         target = self
         action = #selector(fire)
         translatesAutoresizingMaskIntoConstraints = false
@@ -116,8 +121,9 @@ class PillButton: NSButton {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: bounds.height / 2, cornerHeight: bounds.height / 2, transform: nil)
+        let radius = style == .keycap ? Self.keycapRadius : bounds.height / 2
+        layer?.cornerRadius = radius
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -150,6 +156,7 @@ class PillButton: NSButton {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        if style == .keycap { drawKeycap() }
         super.draw(dirtyRect)
         guard variantMenu != nil else { return }
         // A triangle in the lower right corner, just inside the circle.
@@ -161,9 +168,52 @@ class PillButton: NSButton {
         path.line(to: NSPoint(x: w - 9.5, y: y(5)))
         path.close()
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            (isOn ? NSColor.white.withAlphaComponent(0.8) : NSColor.secondaryLabelColor).setFill()
+            (isOn ? NSColor.white.withAlphaComponent(0.8)
+                : style == .keycap ? Self.keycapInk.withAlphaComponent(0.55) : NSColor.secondaryLabelColor).setFill()
             path.fill()
         }
+    }
+
+    /// The key: a darker skirt along the bottom edge with the face above it, lit from the top. Pressed, the face sinks
+    /// onto the skirt.
+    private func drawKeycap() {
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let skirtDepth: CGFloat = pressed ? 1 : 2.5
+        let body = bounds.insetBy(dx: 0.5, dy: 0.5)
+        var face = body
+        face.size.height -= skirtDepth
+        if !isFlipped { face.origin.y += skirtDepth }
+        let r = Self.keycapRadius
+        let top: NSColor, bottom: NSColor, skirt: NSColor
+        if isOn {
+            let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .systemBlue
+            top = accent.blended(withFraction: 0.3, of: .white) ?? accent
+            bottom = accent
+            skirt = accent.blended(withFraction: 0.45, of: .black) ?? accent
+        } else if dark {
+            top = NSColor(white: 0.74, alpha: 1); bottom = NSColor(white: 0.55, alpha: 1); skirt = NSColor(white: 0.30, alpha: 1)
+        } else {
+            top = NSColor(white: 0.99, alpha: 1); bottom = NSColor(white: 0.86, alpha: 1); skirt = NSColor(white: 0.66, alpha: 1)
+        }
+        skirt.setFill()
+        NSBezierPath(roundedRect: body, xRadius: r, yRadius: r).fill()
+        let facePath = NSBezierPath(roundedRect: face, xRadius: r - 0.5, yRadius: r - 0.5)
+        // From the bottom (start) to the top, whichever way the view is flipped.
+        NSGradient(starting: pressed ? bottom.blended(withFraction: 0.1, of: .black) ?? bottom : bottom, ending: top)?
+            .draw(in: facePath, angle: isFlipped ? -90 : 90)
+        // A thin highlight along the top of the face, and a hairline around the whole key.
+        let shine = face.insetBy(dx: 0.5, dy: 0.5)
+        let shinePath = NSBezierPath(roundedRect: shine, xRadius: r - 1, yRadius: r - 1)
+        NSColor.white.withAlphaComponent(isOn ? 0.35 : (dark ? 0.45 : 0.9)).setStroke()
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: NSRect(x: shine.minX, y: isFlipped ? shine.minY : shine.midY, width: shine.width, height: shine.height / 2)).addClip()
+        shinePath.lineWidth = 1
+        shinePath.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.black.withAlphaComponent(dark ? 0.55 : 0.22).setStroke()
+        let edge = NSBezierPath(roundedRect: body, xRadius: r, yRadius: r)
+        edge.lineWidth = 1
+        edge.stroke()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -176,23 +226,44 @@ class PillButton: NSButton {
         let accent = style == .filled || isOn
         let onDark = accent || style == .tinted
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let content: NSColor = onDark ? .white : .labelColor
+        let content: NSColor = onDark ? .white : style == .keycap ? Self.keycapInk : .labelColor
         icon.contentTintColor = content
         label.textColor = content
-        chevron.contentTintColor = onDark ? NSColor.white.withAlphaComponent(0.75) : .secondaryLabelColor
+        chevron.contentTintColor = onDark ? NSColor.white.withAlphaComponent(0.75)
+            : style == .keycap ? Self.keycapInk.withAlphaComponent(0.6) : .secondaryLabelColor
+        if style == .keycap {
+            // The content sits on the face, above the skirt, and sinks with it when pressed.
+            contentCenterY?.constant = isFlipped ? -(pressed ? 0.5 : 1.25) : (pressed ? 0.5 : 1.25)
+            applyKeycapShadow(dark: dark)
+            return
+        }
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            var fill: NSColor
-            if accent { fill = .controlAccentColor }
-            else if style == .tinted { fill = Self.tintColor }
-            else if style == .raised { fill = Self.raisedColor(dark: dark) }
-            else { fill = pressed ? NSColor.labelColor.withAlphaComponent(0.1) : .clear }   // plain: grey only while pressed
-            if pressed, accent || style != .plain { fill = fill.blended(withFraction: dark ? 0.15 : 0.12, of: .black) ?? fill }
+            var fill = accent ? .controlAccentColor : style == .tinted ? Self.tintColor : Self.raisedColor(dark: dark)
+            if pressed { fill = fill.blended(withFraction: dark ? 0.15 : 0.12, of: .black) ?? fill }
             layer?.backgroundColor = fill.cgColor
             // Raised pills cast a soft shadow.
             layer?.shadowColor = NSColor.black.cgColor
             layer?.shadowOpacity = style == .raised ? (dark ? 0.35 : 0.16) : 0
             layer?.shadowRadius = 1.5
             layer?.shadowOffset = CGSize(width: 0, height: -0.5)
+        }
+    }
+
+    /// No fill on the layer (the key is drawn); a soft drop shadow, or the accent colour's glow when on.
+    private func applyKeycapShadow(dark: Bool) {
+        layer?.backgroundColor = nil
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if isOn {
+                layer?.shadowColor = NSColor.controlAccentColor.cgColor
+                layer?.shadowOpacity = dark ? 0.85 : 0.6
+                layer?.shadowRadius = 5
+                layer?.shadowOffset = .zero
+            } else {
+                layer?.shadowColor = NSColor.black.cgColor
+                layer?.shadowOpacity = pressed ? 0.2 : (dark ? 0.5 : 0.25)
+                layer?.shadowRadius = pressed ? 0.5 : 1.5
+                layer?.shadowOffset = CGSize(width: 0, height: pressed ? -0.5 : -1.5)
+            }
         }
     }
 
@@ -206,9 +277,9 @@ final class PillPopUp: PillButton {
     let pullsDown: Bool
     private(set) var indexOfSelectedItem = -1
 
-    init(pullsDown: Bool, height: CGFloat = 26) {
+    init(pullsDown: Bool, height: CGFloat = 26, style: Style = .raised) {
         self.pullsDown = pullsDown
-        super.init(title: nil, symbol: nil, style: .raised, height: height)
+        super.init(title: nil, symbol: nil, style: style, height: height)
         menu = NSMenu()
         showsChevron = true
     }
@@ -265,19 +336,16 @@ final class PillPopUp: PillButton {
     }
 }
 
-/// A faint grey capsule grouping `.plain` pills (the editor's tools, its tabs): its views in a row, inset from the edges.
-final class PillBar: NSView {
-    let row = NSStackView()
-
-    init(_ views: [NSView], spacing: CGFloat = 2, inset: CGFloat = 3) {
+/// A recessed tray holding a group of `.keycap` buttons (the editor's toolbar): its keys in a row, inset from the
+/// edges, with a darker well and a faint lip along the bottom.
+final class KeycapTray: NSView {
+    init(_ views: [NSView], spacing: CGFloat = 1, inset: CGFloat = 3) {
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
+        let row = NSStackView(views: views)
         row.orientation = .horizontal
         row.spacing = spacing
         row.translatesAutoresizingMaskIntoConstraints = false
-        views.forEach(row.addArrangedSubview)
         addSubview(row)
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
@@ -288,17 +356,26 @@ final class PillBar: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func layout() {
-        super.layout()
-        layer?.cornerRadius = bounds.height / 2
-    }
-
-    override func updateLayer() {
-        super.updateLayer()
+    override func draw(_ dirtyRect: NSRect) {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        layer?.backgroundColor = PillButton.groupColor(dark: dark).cgColor
+        let r = PillButton.keycapRadius + 3
+        let well = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: r, yRadius: r)
+        // Darker at the top, where the rim shades it.
+        let top = dark ? NSColor(white: 0.05, alpha: 1) : NSColor(white: 0.70, alpha: 1)
+        let bottom = dark ? NSColor(white: 0.14, alpha: 1) : NSColor(white: 0.80, alpha: 1)
+        NSGradient(starting: bottom, ending: top)?.draw(in: well, angle: isFlipped ? -90 : 90)
+        NSColor.black.withAlphaComponent(dark ? 0.6 : 0.18).setStroke()
+        well.lineWidth = 1
+        well.stroke()
+        // The lip: a light line along the bottom edge.
+        NSGraphicsContext.saveGraphicsState()
+        let half = NSRect(x: bounds.minX, y: isFlipped ? bounds.midY : bounds.minY, width: bounds.width, height: bounds.height / 2)
+        NSBezierPath(rect: half).addClip()
+        NSColor.white.withAlphaComponent(dark ? 0.1 : 0.6).setStroke()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5).offsetBy(dx: 0, dy: isFlipped ? 0.5 : -0.5),
+                     xRadius: r, yRadius: r).stroke()
+        NSGraphicsContext.restoreGraphicsState()
     }
-    override var wantsUpdateLayer: Bool { true }
 }
 
 /// A raised pill showing the current colour as a dot, with a ▾. Clicking it offers a few colours and More Colors… (the

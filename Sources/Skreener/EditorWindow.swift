@@ -186,6 +186,23 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
 /// Height of the editor's pills: small enough for everything to fit the minimum window width.
 private let pillHeight: CGFloat = 26
 
+/// A tray of keycap buttons for the toolbar.
+@MainActor private func keyTray(_ views: [NSView], _ label: String) -> KeycapTray {
+    let tray = KeycapTray(views)
+    tray.setAccessibilityLabel(label)
+    return tray
+}
+
+/// Trays side by side in one toolbar item.
+@MainActor private func trayItem(_ id: NSToolbarItem.Identifier, _ label: String, _ trays: [NSView]) -> NSToolbarItem {
+    let item = NSToolbarItem(itemIdentifier: id)
+    let row = NSStackView(views: trays)
+    row.spacing = 6
+    row.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
+    item.view = row; item.label = label
+    return item
+}
+
 /// A symbol-only pill (a circle) that sends `action` to `target`.
 @MainActor private func iconButton(_ sym: String, _ tip: String, _ target: AnyObject?, _ action: Selector,
                                    style: PillButton.Style = .raised, height: CGFloat = pillHeight) -> PillButton {
@@ -204,8 +221,8 @@ private let pillHeight: CGFloat = 26
 }
 
 /// A symbol pill with a ▾ that opens `menu`.
-@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu) -> PillPopUp {
-    let b = PillPopUp(pullsDown: true, height: pillHeight)
+@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu, style: PillButton.Style = .raised) -> PillPopUp {
+    let b = PillPopUp(pullsDown: true, height: pillHeight, style: style)
     menu.insertItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""), at: 0)   // the pull-down's face
     b.menu = menu
     b.setContent(title: nil, symbol: sym)
@@ -222,11 +239,10 @@ private let pillHeight: CGFloat = 26
     return row
 }
 
-/// A toolbar item that shows `views` side by side, or on a grey group capsule (for `.plain` pills).
-@MainActor private func groupItem(_ id: NSToolbarItem.Identifier, _ label: String, _ views: [NSView],
-                                  grouped: Bool = false) -> NSToolbarItem {
+/// A toolbar item that shows `views` side by side.
+@MainActor private func groupItem(_ id: NSToolbarItem.Identifier, _ label: String, _ views: [NSView]) -> NSToolbarItem {
     let item = NSToolbarItem(itemIdentifier: id)
-    item.view = grouped ? PillBar(views) : pillRow(views); item.label = label
+    item.view = pillRow(views); item.label = label
     return item
 }
 
@@ -234,29 +250,24 @@ private let pillHeight: CGFloat = 26
 /// The window never gets smaller than `minimumSize`.
 final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate, NSServicesMenuRequestor {
     static let minimumSize = NSSize(width: 990, height: 750)
+    /// A new editor is at least this wide when the screen has room, so the toolbar and the strip under it aren't crowded.
+    static let defaultWidth: CGFloat = 1200
     static var live: [EditorWindowController] = []
     /// Set by the app: lets the user pick an area on screen and hands back the capture (nil if cancelled).
     static var captureArea: ((@escaping (NSImage?) -> Void) -> Void)?
 
-    /// Toolbar tool buttons in display order.
-    private let toolButtons: [(symbol: String, tool: Tool)] = [
-        ("cursorarrow", .select),
-        ("rectangle", .rect),
-        ("rectangle.fill", .filledRect),
-        ("circle", .ellipse),
-        ("line.diagonal", .line),
-        ("arrow.up.right", .arrow),
-        ("textformat", .text),
-        ("checkerboard.rectangle", .pixelate),
-        ("drop.halffull", .blur),
-        ("eraser", .erase),
-        ("text.magnifyingglass", .redactText),
-        ("flashlight.on.fill", .spotlight),
-        ("magnifyingglass", .magnifier),
-        ("1.circle.fill", .counter),
-        ("pencil.tip", .pen),
-        ("highlighter", .highlighter),
+    /// The toolbar's tools in groups of like tools, each on its own tray, in display order.
+    private static let toolGroups: [(name: String, tools: [(symbol: String, tool: Tool)])] = [
+        ("Select", [("cursorarrow", .select)]),
+        ("Shapes", [("rectangle", .rect), ("rectangle.fill", .filledRect), ("circle", .ellipse), ("line.diagonal", .line),
+                    ("arrow.up.right", .arrow)]),
+        ("Text and Drawing", [("textformat", .text), ("1.circle.fill", .counter), ("pencil.tip", .pen), ("highlighter", .highlighter)]),
+        ("Hide", [("checkerboard.rectangle", .pixelate), ("drop.halffull", .blur), ("eraser", .erase),
+                  ("text.magnifyingglass", .redactText)]),
+        ("Focus", [("flashlight.on.fill", .spotlight), ("magnifyingglass", .magnifier)]),
     ]
+    /// Toolbar tool buttons in display order.
+    private var toolButtons: [(symbol: String, tool: Tool)] { Self.toolGroups.flatMap(\.tools) }
 
     private let image: NSImage
     private let canvas: CanvasView
@@ -545,13 +556,18 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         help?.editorShown()
     }
 
-    /// A window fitting `imageSize` with room for the toolbar and footer (within the screen, but never smaller than
-    /// `minimumSize`), centered on `screen`.
+    /// A window fitting `imageSize` with room for the toolbar and footer (within the screen, at least `defaultWidth`
+    /// wide where the screen allows, and never smaller than `minimumSize`), centered on `screen`.
     private static func frame(for imageSize: NSSize, on screen: NSScreen) -> NSRect {
-        let visible = screen.visibleFrame, floor = minimumSize
-        let size = NSSize(width: max(floor.width, min(imageSize.width + 120, visible.width)),
-                          height: max(floor.height, min(imageSize.height + 200, visible.height)))
-        return NSRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2, width: size.width, height: size.height)
+        let visible = screen.visibleFrame
+        let s = size(for: imageSize, visible: visible.size)
+        return NSRect(x: visible.midX - s.width / 2, y: visible.midY - s.height / 2, width: s.width, height: s.height)
+    }
+
+    static func size(for imageSize: NSSize, visible: NSSize) -> NSSize {
+        let floor = minimumSize
+        return NSSize(width: max(floor.width, min(max(defaultWidth, imageSize.width + 120), visible.width)),
+                      height: max(floor.height, min(imageSize.height + 200, visible.height)))
     }
 
     /// The editor window a new editor joins as a tab: the frontmost visible one.
@@ -973,35 +989,45 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
         switch id {
         case .imageActionsItem:
-            return groupItem(id, "Image", [
-                iconButton("crop", "Crop (C)", self, #selector(cropIt)),
+            return trayItem(id, "Image", [keyTray([
+                iconButton("crop", "Crop (C)", self, #selector(cropIt), style: .keycap),
                 iconMenuButton("rotate.right", "Rotate, flip, resize or cut out part of the screenshot",
-                               commands(CanvasView.imageCommands, CanvasView.sizeCommands, CanvasView.snapCommands)),
+                               commands(CanvasView.imageCommands, CanvasView.sizeCommands, CanvasView.snapCommands), style: .keycap),
                 iconMenuButton("plus.rectangle.on.rectangle",
-                               "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu()),
-                iconButton("photo", "Background", self, #selector(backgroundIt)),
-                iconButton("macwindow", "Device or browser frame", self, #selector(deviceFrameIt)),
-                iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands)),
+                               "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu(),
+                               style: .keycap),
+                iconButton("photo", "Background", self, #selector(backgroundIt), style: .keycap),
+                iconButton("macwindow", "Device or browser frame", self, #selector(deviceFrameIt), style: .keycap),
+            ], "Image"), keyTray([
+                iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands),
+                               style: .keycap),
                 iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR), or act on dates, addresses, links and QR codes",
-                               textMenu(commands(CanvasView.textCommands))),
-            ])
+                               textMenu(commands(CanvasView.textCommands)), style: .keycap),
+            ], "Text in the Screenshot")])
         case .toolsItem:
-            // One pill per tool; the current one is filled.
-            toolPills = toolButtons.map { b in
-                let hasVariants = b.tool == .rect || b.tool == .arrow
-                let pill = iconButton(b.symbol, b.tool.tooltip(variants: hasVariants), self, #selector(toolChanged(_:)), style: .plain)
-                pill.isOn = b.tool == canvas.tool
-                // Rectangle and Arrow: a corner triangle, or a long press, opens their variants.
-                if b.tool == .rect { pill.variantMenu = { [weak self] in self?.rectangleVariantMenu() } }
-                if b.tool == .arrow { pill.variantMenu = { [weak self] in self?.arrowVariantMenu() } }
-                return pill
+            // One key per tool, on a tray per group of like tools; the current one is lit.
+            var trays: [NSView] = []
+            toolPills = []
+            for group in Self.toolGroups {
+                let pills = group.tools.map { b in
+                    let hasVariants = b.tool == .rect || b.tool == .arrow
+                    let pill = iconButton(b.symbol, b.tool.tooltip(variants: hasVariants), self, #selector(toolChanged(_:)), style: .keycap)
+                    pill.isOn = b.tool == canvas.tool
+                    // Rectangle and Arrow: a corner triangle, or a long press, opens their variants.
+                    if b.tool == .rect { pill.variantMenu = { [weak self] in self?.rectangleVariantMenu() } }
+                    if b.tool == .arrow { pill.variantMenu = { [weak self] in self?.arrowVariantMenu() } }
+                    return pill
+                }
+                toolPills += pills
+                trays.append(keyTray(pills, group.name))
             }
-            let item = groupItem(id, "Tools", toolPills, grouped: true)
+            let item = trayItem(id, "Tools", trays)
             item.view?.setAccessibilityLabel("Tools")
             return item
         case .undoRedoItem:
-            return groupItem(id, "Undo", [iconButton("arrow.uturn.backward", "Undo (⌘Z)", self, #selector(undoIt)),
-                                          iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", self, #selector(redoIt))])
+            return trayItem(id, "Undo", [keyTray([iconButton("arrow.uturn.backward", "Undo (⌘Z)", self, #selector(undoIt), style: .keycap),
+                                                  iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", self, #selector(redoIt), style: .keycap)],
+                                                 "Undo")])
         case .settingsItem:
             return groupItem(id, "Settings", [iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings))])
         case .saveAsItem:
