@@ -420,7 +420,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             let preview = NSTextField(labelWithString: "")
             preview.textColor = .secondaryLabelColor
             preview.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            func showPreview() { preview.stringValue = "\(Output.filename()).\(Preferences.imageFormat.fileExtension)" }
+            func showPreview() {
+                preview.stringValue = "\(Output.filename(app: "Safari", title: "Pricing · Stripe")).\(Preferences.imageFormat.fileExtension)"
+            }
 
             let format = NSPopUpButton(frame: .zero, pullsDown: false)
             for f in [ImageFormat.png, .jpeg] {
@@ -468,7 +470,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                     toggle("Compress screenshots when saving",
                            "PNGs get a palette of up to 256 colors when it looks the same, and stay as they are when it doesn't.",
                            Preferences.compressScreenshots) { Preferences.compressScreenshots = $0 },
-                    row("File name", "Tokens: %Y %y %m %d %H %M %S", template),
+                    row("File name", "Tokens: %t what the capture shows (a web page's title, else its biggest text), "
+                        + "%a the app, %Y %y %m %d %H %M %S", template),
                     row("Example", preview),
                 ]),
                 group("Window Capture", [
