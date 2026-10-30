@@ -186,11 +186,11 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
 /// Height of the editor's pills: small enough for everything to fit the minimum window width.
 private let pillHeight: CGFloat = 26
 
-/// A tray of keycap buttons for the toolbar.
-@MainActor private func keyTray(_ views: [NSView], _ label: String) -> KeycapTray {
+/// A tray of keycap buttons for the toolbar, with `label` as a small caption under it.
+@MainActor private func keyTray(_ views: [NSView], _ label: String) -> NSView {
     let tray = KeycapTray(views)
     tray.setAccessibilityLabel(label)
-    return tray
+    return CaptionedTray(tray, caption: label)
 }
 
 /// Trays side by side in one toolbar item.
@@ -198,7 +198,7 @@ private let pillHeight: CGFloat = 26
     let item = NSToolbarItem(itemIdentifier: id)
     let row = NSStackView(views: trays)
     row.spacing = 6
-    row.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
+    row.alignment = .top
     item.view = row; item.label = label
     return item
 }
@@ -239,17 +239,11 @@ private let pillHeight: CGFloat = 26
     return row
 }
 
-/// A toolbar item that shows `views` side by side.
-@MainActor private func groupItem(_ id: NSToolbarItem.Identifier, _ label: String, _ views: [NSView]) -> NSToolbarItem {
-    let item = NSToolbarItem(itemIdentifier: id)
-    item.view = pillRow(views); item.label = label
-    return item
-}
-
 /// CleanShot-style editor: unified titlebar toolbar, centered zoomable canvas, footer with zoom / Drag Me / actions.
 /// The window never gets smaller than `minimumSize`.
 final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate, NSServicesMenuRequestor {
-    static let minimumSize = NSSize(width: 990, height: 750)
+    /// Wide enough for the whole toolbar, captions included, without items dropping into its overflow menu.
+    static let minimumSize = NSSize(width: 1100, height: 750)
     /// A new editor is at least this wide when the screen has room, so the toolbar and the strip under it aren't crowded.
     static let defaultWidth: CGFloat = 1200
     static var live: [EditorWindowController] = []
@@ -261,7 +255,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         ("Select", [("cursorarrow", .select)]),
         ("Shapes", [("rectangle", .rect), ("rectangle.fill", .filledRect), ("circle", .ellipse), ("line.diagonal", .line),
                     ("arrow.up.right", .arrow)]),
-        ("Text and Drawing", [("textformat", .text), ("1.circle.fill", .counter), ("pencil.tip", .pen), ("highlighter", .highlighter)]),
+        ("Text & Draw", [("textformat", .text), ("1.circle.fill", .counter), ("pencil.tip", .pen), ("highlighter", .highlighter)]),
         ("Hide", [("checkerboard.rectangle", .pixelate), ("drop.halffull", .blur), ("eraser", .erase),
                   ("text.magnifyingglass", .redactText)]),
         ("Focus", [("flashlight.on.fill", .spotlight), ("magnifyingglass", .magnifier)]),
@@ -338,13 +332,15 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let areaHint = NSTextField(labelWithString: "")
     private let contrastLabel = NSTextField(labelWithString: "")
     private lazy var copyAllTextButton = textButton("Copy All Text", canvas, #selector(CanvasView.copyAllText(_:)))
-    /// Copy Text opens the scratch pad, or copies straight away: the same setting as Capture Text's (Settings → After Capture).
-    private lazy var scratchPadButton: PillButton = {
-        let b = PillButton(title: "Scratch Pad", symbol: "note.text", style: .raised, height: pillHeight)
-        b.target = self; b.action = #selector(scratchPadToggled)
-        b.toolTip = "On: the text opens in the scratch pad to edit before copying, for Copy Text here and for Capture Text. "
-            + "Off: it is copied straight away."
-        return b
+    /// Edit the Text Before Copying: Copy Text and Capture Text open the scratch pad, or copy straight away. The same
+    /// setting as Settings → After Capture's.
+    private lazy var scratchPadSwitch: KeySwitch = {
+        let s = KeySwitch(symbol: "square.and.pencil",
+                          tip: "Edit the Text Before Copying: on, Copy Text here and Capture Text open the text in the scratch pad. "
+                            + "Off: it is copied straight away.")
+        s.target = self; s.action = #selector(scratchPadToggled)
+        s.state = Preferences.textScratchPad ? .on : .off
+        return s
     }()
     private lazy var contrastMethodButton = textButton("WCAG 2", self, #selector(contrastMethodToggled))
     private lazy var areaDoneButton = textButton("Cancel", self, #selector(areaPickCancel))
@@ -479,6 +475,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             guard let self else { return }
             MainActor.assumeIsolated {
                 if self.tabGroup.selected !== self { self.tabGroup.select(self) }
+                // May have been switched in Settings or another editor window.
+                self.scratchPadSwitch.state = Preferences.textScratchPad ? .on : .off
             }
         }
         nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in
@@ -1003,7 +1001,8 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                                style: .keycap),
                 iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR), or act on dates, addresses, links and QR codes",
                                textMenu(commands(CanvasView.textCommands)), style: .keycap),
-            ], "Text in the Screenshot")])
+                scratchPadSwitch,
+            ], "Read Text")])
         case .toolsItem:
             // One key per tool, on a tray per group of like tools; the current one is lit.
             var trays: [NSView] = []
@@ -1029,12 +1028,15 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
                                                   iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", self, #selector(redoIt), style: .keycap)],
                                                  "Undo")])
         case .settingsItem:
-            return groupItem(id, "Settings", [iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings))])
+            let b = iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings), style: .keycap)
+            b.keycapTint = .systemOrange
+            return trayItem(id, "Settings", [keyTray([b], "Settings")])
         case .saveAsItem:
             // ⇧⌘S is in the File menu.
-            let b = textButton("Save as…", self, #selector(saveAsIt), filled: true)
+            let b = PillButton(title: "Save as…", symbol: "square.and.arrow.down", style: .keycap, height: pillHeight)
+            b.target = self; b.action = #selector(saveAsIt)
             b.toolTip = "Save as… (⇧⌘S)"
-            return groupItem(id, "Save as…", [b])
+            return trayItem(id, "Save as…", [keyTray([b], "Save")])
         default: return nil
         }
     }
@@ -1289,7 +1291,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         contrastLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         contrastLabel.textColor = .labelColor
         contrastMethodButton.toolTip = "Switch between WCAG 2 and APCA (or ⌥-click the screenshot)"
-        [areaHint, contrastLabel, contrastMethodButton, scratchPadButton, copyAllTextButton, areaDoneButton].forEach(areaBar.addArrangedSubview)
+        [areaHint, contrastLabel, contrastMethodButton, copyAllTextButton, areaDoneButton].forEach(areaBar.addArrangedSubview)
         areaBar.spacing = 6
         areaBar.setCustomSpacing(10, after: areaHint)
         areaBar.setCustomSpacing(10, after: contrastLabel)
@@ -1319,14 +1321,11 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         contrastMethodButton.isHidden = kind != .contrast
         contrastMethodButton.setContent(title: Preferences.contrastMethod == .wcag ? "WCAG 2" : "APCA", symbol: nil)
         copyAllTextButton.isHidden = kind != .text
-        scratchPadButton.isHidden = kind != .text
-        scratchPadButton.isOn = Preferences.textScratchPad
         areaDoneButton.setContent(title: kind == .contrast ? "Done" : "Cancel", symbol: nil)
     }
 
     @objc private func scratchPadToggled() {
-        Preferences.textScratchPad.toggle()
-        scratchPadButton.isOn = Preferences.textScratchPad
+        Preferences.textScratchPad = scratchPadSwitch.state == .on
         showToast(Preferences.textScratchPad ? "Text opens in the scratch pad" : "Text is copied straight away")
         window?.makeFirstResponder(canvas)
     }

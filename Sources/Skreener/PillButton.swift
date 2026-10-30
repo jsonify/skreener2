@@ -42,6 +42,8 @@ class PillButton: NSButton {
     private var contentCenterY: NSLayoutConstraint?
 
     var isOn = false { didSet { applyColors() } }
+    /// A `.keycap` with a coloured face of its own (Settings' orange key); `isOn` still lights it in the accent colour.
+    var keycapTint: NSColor? { didSet { applyColors() } }
     /// A small ▾ after the content, for buttons that open a menu.
     var showsChevron = false {
         didSet { chevron.isHidden = !showsChevron; updateWidth() }
@@ -168,11 +170,14 @@ class PillButton: NSButton {
         path.line(to: NSPoint(x: w - 9.5, y: y(5)))
         path.close()
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            (isOn ? NSColor.white.withAlphaComponent(0.8)
+            (isOn || (style == .keycap && keycapTint != nil) ? NSColor.white.withAlphaComponent(0.8)
                 : style == .keycap ? Self.keycapInk.withAlphaComponent(0.55) : NSColor.secondaryLabelColor).setFill()
             path.fill()
         }
     }
+
+    /// The colour a `.keycap`'s face is lit with: the accent colour when on, else its own tint, if any.
+    private var litColor: NSColor? { isOn ? .controlAccentColor : keycapTint }
 
     /// The key: a darker skirt along the bottom edge with the face above it, lit from the top. Pressed, the face sinks
     /// onto the skirt.
@@ -185,11 +190,11 @@ class PillButton: NSButton {
         if !isFlipped { face.origin.y += skirtDepth }
         let r = Self.keycapRadius
         let top: NSColor, bottom: NSColor, skirt: NSColor
-        if isOn {
-            let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .systemBlue
-            top = accent.blended(withFraction: 0.3, of: .white) ?? accent
-            bottom = accent
-            skirt = accent.blended(withFraction: 0.45, of: .black) ?? accent
+        if let lit = litColor {
+            let c = lit.usingColorSpace(.sRGB) ?? lit
+            top = c.blended(withFraction: 0.3, of: .white) ?? c
+            bottom = c
+            skirt = c.blended(withFraction: 0.45, of: .black) ?? c
         } else if dark {
             top = NSColor(white: 0.74, alpha: 1); bottom = NSColor(white: 0.55, alpha: 1); skirt = NSColor(white: 0.30, alpha: 1)
         } else {
@@ -204,7 +209,7 @@ class PillButton: NSButton {
         // A thin highlight along the top of the face, and a hairline around the whole key.
         let shine = face.insetBy(dx: 0.5, dy: 0.5)
         let shinePath = NSBezierPath(roundedRect: shine, xRadius: r - 1, yRadius: r - 1)
-        NSColor.white.withAlphaComponent(isOn ? 0.35 : (dark ? 0.45 : 0.9)).setStroke()
+        NSColor.white.withAlphaComponent(litColor != nil ? 0.35 : (dark ? 0.45 : 0.9)).setStroke()
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: NSRect(x: shine.minX, y: isFlipped ? shine.minY : shine.midY, width: shine.width, height: shine.height / 2)).addClip()
         shinePath.lineWidth = 1
@@ -224,7 +229,7 @@ class PillButton: NSButton {
     private func applyColors() {
         needsDisplay = true   // the variants triangle follows the colors
         let accent = style == .filled || isOn
-        let onDark = accent || style == .tinted
+        let onDark = accent || style == .tinted || (style == .keycap && keycapTint != nil)
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let content: NSColor = onDark ? .white : style == .keycap ? Self.keycapInk : .labelColor
         icon.contentTintColor = content
@@ -253,9 +258,9 @@ class PillButton: NSButton {
     private func applyKeycapShadow(dark: Bool) {
         layer?.backgroundColor = nil
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            if isOn {
-                layer?.shadowColor = NSColor.controlAccentColor.cgColor
-                layer?.shadowOpacity = dark ? 0.85 : 0.6
+            if let lit = litColor {
+                layer?.shadowColor = lit.cgColor
+                layer?.shadowOpacity = (dark ? 0.85 : 0.6) * (isOn ? 1 : 0.6)
                 layer?.shadowRadius = 5
                 layer?.shadowOffset = .zero
             } else {
@@ -375,6 +380,95 @@ final class KeycapTray: NSView {
         NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5).offsetBy(dx: 0, dy: isFlipped ? 0.5 : -0.5),
                      xRadius: r, yRadius: r).stroke()
         NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
+/// A `KeycapTray` with a small caption under it naming what its keys are for.
+final class CaptionedTray: NSStackView {
+    init(_ tray: KeycapTray, caption: String) {
+        super.init(frame: .zero)
+        orientation = .vertical
+        alignment = .centerX
+        spacing = 2
+        translatesAutoresizingMaskIntoConstraints = false
+        let label = NSTextField(labelWithAttributedString: NSAttributedString(string: caption.uppercased(), attributes: [
+            .font: NSFont.systemFont(ofSize: 8.5, weight: .semibold),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .kern: 0.6,
+        ]))
+        label.setAccessibilityElement(false)   // the tray carries the same name
+        addArrangedSubview(tray)
+        addArrangedSubview(label)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+}
+
+/// A small upright switch for a tray, like a hardware toggle: a dark capsule with a symbol on it, and an LED under it
+/// that glows in the accent colour while it is on. A click flips `state` and sends the action.
+final class KeySwitch: NSButton {
+    private let symbolName: String
+
+    init(symbol: String, tip: String) {
+        symbolName = symbol
+        super.init(frame: .zero)
+        setButtonType(.toggle)
+        isBordered = false
+        title = ""
+        toolTip = tip
+        setAccessibilityLabel(tip)
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 18).isActive = true
+        heightAnchor.constraint(equalToConstant: 26).isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var state: NSControl.StateValue { didSet { needsDisplay = true } }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let on = state == .on
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        // From the top: the capsule (18 pt), a gap, the LED (4 pt).
+        func y(_ fromTop: CGFloat, _ height: CGFloat) -> CGFloat { isFlipped ? fromTop : bounds.height - fromTop - height }
+        let body = NSRect(x: 1, y: y(0.5, 18), width: bounds.width - 2, height: 18)
+        let capsule = NSBezierPath(roundedRect: body, xRadius: body.width / 2, yRadius: body.width / 2)
+        let top = NSColor(white: dark ? 0.30 : 0.36, alpha: 1), bottom = NSColor(white: dark ? 0.10 : 0.16, alpha: 1)
+        NSGradient(starting: bottom, ending: top)?.draw(in: capsule, angle: isFlipped ? -90 : 90)
+        NSColor.black.withAlphaComponent(0.6).setStroke()
+        capsule.lineWidth = 1
+        capsule.stroke()
+        // A glint along the upper edge.
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: NSRect(x: body.minX, y: isFlipped ? body.minY : body.midY, width: body.width, height: body.height / 2)).addClip()
+        NSColor.white.withAlphaComponent(0.25).setStroke()
+        NSBezierPath(roundedRect: body.insetBy(dx: 1, dy: 1), xRadius: body.width / 2 - 1, yRadius: body.width / 2 - 1).stroke()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+            .applying(.init(paletteColors: [on ? .white : NSColor(white: 0.75, alpha: 1)]))
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            let s = image.size
+            image.draw(in: NSRect(x: body.midX - s.width / 2, y: body.midY - s.height / 2, width: s.width, height: s.height))
+        }
+
+        let led = NSRect(x: bounds.midX - 2, y: y(20.5, 4), width: 4, height: 4)
+        let dot = NSBezierPath(ovalIn: led)
+        if on {
+            NSGraphicsContext.saveGraphicsState()
+            let glow = NSShadow()
+            glow.shadowColor = .controlAccentColor
+            glow.shadowBlurRadius = 4
+            glow.set()
+            NSColor.controlAccentColor.setFill()
+            dot.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.white.withAlphaComponent(0.5).setFill()
+            NSBezierPath(ovalIn: led.insetBy(dx: 1.2, dy: 1.2)).fill()
+        } else {
+            NSColor(white: dark ? 0.22 : 0.55, alpha: 1).setFill()
+            dot.fill()
+        }
     }
 }
 

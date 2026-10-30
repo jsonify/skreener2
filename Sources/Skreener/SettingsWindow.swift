@@ -400,7 +400,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("Capture Text", [
                     toggle("Edit the text before copying",
                            "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away. "
-                           + "The editor's Copy Text follows this too, and its Scratch Pad button switches it.",
+                           + "The editor's Copy Text follows this too, and the switch in its toolbar's Read Text group flips it.",
                            Preferences.textScratchPad, using: scratchPadSwitch) { Preferences.textScratchPad = $0 },
                     toggle("Keep formatting as Markdown",
                            "Headings, bullet and numbered lists, bold and code, written as Markdown. Apps that take rich text (Notes, Mail, Pages) also get colored words. Bold, code and colors are read from the pixels, so they can be missed. Copies paste as formatted text in Google Docs, Notes, Mail and Pages, and as clean text (• bullets, no symbols) in plain fields; the scratch pad has Copy as Markdown for GitHub. Off: plain text.",
