@@ -65,13 +65,6 @@ private final class PickerPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
-/// The panels' backgrounds: clicks on them must not start a selection drag underneath.
-private final class CardView: NSVisualEffectView {
-    override func mouseDown(with event: NSEvent) {}
-    override func mouseDragged(with event: NSEvent) {}
-    override func mouseUp(with event: NSEvent) {}
-}
-
 /// A vertical stack whose rows all take its full width.
 private func column(_ views: [NSView], spacing: CGFloat) -> NSStackView {
     let s = NSStackView(views: views)
@@ -93,7 +86,8 @@ private final class Action: NSObject {
 /// the handles or the inside, or drag outside for a new one) and a mode bar at the bottom of the screen offers
 /// Area / Fullscreen / Window / Timer / OCR screenshots or Recording, next to the size fields. Recording (or
 /// Return) shows the recording panel in the selection: options, audio and effect toggles, Record GIF ⌥↩ /
-/// Record Video ↩. Esc cancels.
+/// Record Video ↩. Esc cancels. The bar and the panel are SK-1 chassis plates with keys in trays (#344), following
+/// the system's appearance.
 final class RecordAreaPicker: NSObject {
     private var panel: PickerPanel?
     /// Dimmed panels with the instruction banner on the other screens.
@@ -103,7 +97,7 @@ final class RecordAreaPicker: NSObject {
     private var modeBar: NSView?
     private let widthField = NSTextField()
     private let heightField = NSTextField()
-    private var toggles: [(TileButton, () -> Bool)] = []
+    private var toggles: [(PillButton, () -> Bool)] = []
     private var actions: [Action] = []
     private var popover: NSPopover?
     private var screen: NSScreen!
@@ -272,14 +266,19 @@ final class RecordAreaPicker: NSObject {
         return i
     }
 
-    private static func card(_ content: NSView) -> NSView {
-        let card = CardView()
+    /// `content` on a chassis plate. Clicks on bare chassis are swallowed: they must not start a selection drag
+    /// underneath.
+    private static func card(_ content: NSView, radius: CGFloat = 14) -> NSView {
+        let card = RetroBarPlate(radius: radius, click: .swallow)
         card.translatesAutoresizingMaskIntoConstraints = false
-        card.material = .hudWindow
-        card.state = .active
-        card.wantsLayer = true
-        card.layer?.cornerRadius = 14
-        card.layer?.masksToBounds = true
+        if radius > 0 {
+            // It floats over the screen like a window, so it casts a shadow like one.
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+            shadow.shadowBlurRadius = 12
+            shadow.shadowOffset = NSSize(width: 0, height: -3)
+            card.shadow = shadow
+        }
         content.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(content)
         NSLayoutConstraint.activate([
@@ -291,109 +290,124 @@ final class RecordAreaPicker: NSObject {
         return card
     }
 
-    private static func iconButton(_ sym: String, _ tip: String) -> NSButton {
-        let b = NSButton(image: NSImage(systemSymbolName: sym, accessibilityDescription: tip) ?? NSImage(), target: nil, action: nil)
-        b.isBordered = false
-        b.imagePosition = .imageOnly
+    /// A symbol-only SK-1 key; its action is set with `bind`.
+    private static func iconButton(_ sym: String, _ tip: String, height: CGFloat = 30) -> PillButton {
+        let b = PillButton(title: nil, symbol: sym, style: .keycap, height: height)
         b.toolTip = tip
-        b.contentTintColor = .labelColor
-        b.translatesAutoresizingMaskIntoConstraints = false
-        b.widthAnchor.constraint(equalToConstant: 30).isActive = true
-        b.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        b.setAccessibilityLabel(tip)
         return b
     }
 
-    /// Width × height, whole screen and the aspect/size presets: the right-hand card of the mode bar.
+    /// Width × height on LCD chips, whole screen and the aspect/size presets as keys: the right-hand plate of the
+    /// mode bar.
     private func buildSizeControls() -> NSView {
+        var boxes: [NSView] = []
         for f in [widthField, heightField] {
             f.alignment = .center
-            f.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-            f.bezelStyle = .roundedBezel
-            f.translatesAutoresizingMaskIntoConstraints = false
-            f.widthAnchor.constraint(equalToConstant: 58).isActive = true
+            f.widthAnchor.constraint(equalToConstant: 52).isActive = true
             bind(f) { [weak self] _ in self?.sizeTyped() }
+            boxes.append(LCDFieldBox(f))
         }
         widthField.toolTip = "Width (points)"; heightField.toolTip = "Height (points)"
-        let times = NSTextField(labelWithString: "×")
-        times.textColor = .secondaryLabelColor
+        widthField.setAccessibilityLabel("Width"); heightField.setAccessibilityLabel("Height")
+        let times = RetroLabel(text: "×", tone: .soft, size: 13)
         let whole = Self.iconButton("arrow.up.left.and.arrow.down.right", "Whole screen")
         bind(whole) { [weak self] _ in self?.setSelection { _, bounds in bounds } }
-        let presets = NSPopUpButton(frame: .zero, pullsDown: true)
-        presets.isBordered = false
+        let presets = PillPopUp(pullsDown: true, height: 30, style: .keycap)
         presets.toolTip = "Aspect ratio and size presets"
-        let face = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        face.image = NSImage(systemSymbolName: "crop", accessibilityDescription: "Presets")
-        presets.menu?.addItem(face)
+        presets.setAccessibilityLabel("Presets")
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""))   // the pull-down's face
         for (title, ratio) in [("16:9", 16.0 / 9), ("4:3", 4.0 / 3), ("1:1", 1.0), ("9:16", 9.0 / 16)] {
-            presets.menu?.addItem(menuItem(title) { [weak self] in
+            menu.addItem(menuItem(title) { [weak self] in
                 self?.setSelection { sel, _ in
                     let h = sel.width / ratio
                     return NSRect(x: sel.minX, y: sel.midY - h / 2, width: sel.width, height: h)
                 }
             })
         }
-        presets.menu?.addItem(.separator())
+        menu.addItem(.separator())
         for (w, h) in [(1280, 720), (1920, 1080), (1080, 1080), (800, 600)] {
-            presets.menu?.addItem(menuItem("\(w) × \(h)") { [weak self] in
+            menu.addItem(menuItem("\(w) × \(h)") { [weak self] in
                 self?.setSelection { sel, _ in
                     NSRect(x: sel.midX - CGFloat(w) / 2, y: sel.midY - CGFloat(h) / 2, width: CGFloat(w), height: CGFloat(h))
                 }
             })
         }
-        let row = NSStackView(views: [widthField, times, heightField, whole, presets])
+        presets.menu = menu
+        presets.setContent(title: nil, symbol: "crop")
+        let keys = KeycapTray([whole, presets])
+        let row = NSStackView(views: [RetroLabel(caption: "Size"), boxes[0], times, boxes[1], keys])
         row.spacing = 6
-        row.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 10)
+        row.setCustomSpacing(10, after: boxes[1])
+        row.alignment = .centerY
+        row.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 12)
         return row
     }
 
-    /// The recording panel shown in the selection once Recording is picked: options, audio and effect toggles
-    /// (tiles like the mode bar's, filled when on), Record GIF and Record Video.
+    /// The recording panel shown in the selection once Recording is picked: the Options key, the audio and effect
+    /// toggles (orange squares, lit when on), then the Record GIF and Record Video keys (Video orange, the main
+    /// action), each with its shortcut printed on it.
     private func buildControls() -> NSView {
-        let options = TileButton(symbol: "slider.vertical.3", title: "Options", width: 56)
-        options.toolTip = "Recording options"
+        let options = Self.iconButton("slider.vertical.3", "Recording options", height: 34)
         bind(options) { [weak self] sender in self?.showOptions(sender as? NSView) }
-        // Row 2: audio and effect toggles, filled when on.
         let micAvailable: Bool
         if #available(macOS 15.0, *) { micAvailable = true } else { micAvailable = false }
-        let row2 = NSStackView(views: [
-            options,
-            toggle("mic", "Mic", micAvailable ? "Record microphone" : "Microphone recording needs macOS 15 or later", enabled: micAvailable,
-                   get: { Preferences.recordMicrophone }, set: { Preferences.recordMicrophone = $0 }),
-            toggle("speaker.wave.2", "Audio", "Record system audio",
-                   get: { Preferences.recordSystemAudio }, set: { Preferences.recordSystemAudio = $0 }),
-            toggle("cursorarrow.click.2", "Clicks", "Highlight clicks",
-                   get: { Preferences.recordHighlightClicks }, set: { Preferences.recordHighlightClicks = $0 }),
-            toggle("command", "Keys", "Show keystrokes",
-                   get: { Preferences.recordShowKeystrokes }, set: { [weak self] on in self?.setKeystrokes(on) }),
-        ])
-        row2.distribution = .equalSpacing
-        row2.spacing = 0
-        row2.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
-        TileButton.holdHeight(of: row2)
+        let mic = toggle("Mic", micAvailable ? "Record microphone" : "Microphone recording needs macOS 15 or later", enabled: micAvailable,
+                         get: { Preferences.recordMicrophone }, set: { Preferences.recordMicrophone = $0 })
+        let audio = toggle("Audio", "Record system audio",
+                           get: { Preferences.recordSystemAudio }, set: { Preferences.recordSystemAudio = $0 })
+        let clicks = toggle("Clicks", "Highlight clicks",
+                            get: { Preferences.recordHighlightClicks }, set: { Preferences.recordHighlightClicks = $0 })
+        let keys = toggle("Keys", "Show keystrokes",
+                          get: { Preferences.recordShowKeystrokes }, set: { [weak self] on in self?.setKeystrokes(on) })
+        func pair(_ views: [NSView]) -> NSStackView {
+            let s = NSStackView(views: views)
+            s.orientation = .vertical
+            s.alignment = .leading
+            s.spacing = 6
+            return s
+        }
+        let switches = NSStackView(views: [pair([mic, audio]), pair([clicks, keys])])
+        switches.spacing = 22
+        switches.alignment = .top
+        let top = NSStackView(views: [KeycapTray([options], caption: "Options"), switches])
+        top.spacing = 22
+        top.alignment = .centerY
 
-        let top = column([row2], spacing: 0)
-
-        let gif = RecordRow(symbol: "photo.stack", title: "Record GIF", shortcut: "⌥↩") { [weak self] in
+        let gif = PillButton(title: "Record GIF", symbol: "photo.stack", style: .keycap, height: 36) { [weak self] in
             guard let self else { return }
             finish(.gif(screen, globalSelection))
         }
-        let video = RecordRow(symbol: "video.fill", title: "Record Video", shortcut: "↩") { [weak self] in
+        gif.legend = "⌥↩"
+        gif.toolTip = "Record a GIF (⌥↩)"
+        let video = PillButton(title: "Record Video", symbol: "video.fill", style: .keycap, height: 36) { [weak self] in
             guard let self else { return }
             finish(.video(screen, globalSelection))
         }
-        let line2 = NSBox(); line2.boxType = .separator
-        let rows = column([gif, line2, video], spacing: 0)
+        video.keyVariant = .orange
+        video.legend = "↩"
+        video.toolTip = "Record a video (↩)"
+        let record = KeycapTray([gif, video], caption: "Record", spacing: 5)
 
-        let stack = column([Self.card(top), Self.card(rows)], spacing: 10)
-        stack.appearance = NSAppearance(named: .darkAqua)
+        let groove = Groove()
+        let content = NSStackView(views: [top, groove, record])
+        content.orientation = .vertical
+        content.alignment = .centerX
+        content.spacing = 12
+        content.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 12, right: 14)
+        groove.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28).isActive = true
+
+        let stack = column([Self.card(content)], spacing: 0)
         stack.widthAnchor.constraint(equalToConstant: 300).isActive = true
         refreshToggles()
         return stack
     }
 
-    private func toggle(_ sym: String, _ title: String, _ tip: String, enabled: Bool = true,
-                        get: @escaping () -> Bool, set: @escaping (Bool) -> Void) -> TileButton {
-        let b = TileButton(symbol: sym, title: title, width: 56)
+    /// An SK-1 toggle for the recording panel; a click flips the setting.
+    private func toggle(_ title: String, _ tip: String, enabled: Bool = true,
+                        get: @escaping () -> Bool, set: @escaping (Bool) -> Void) -> PillButton {
+        let b = PillButton(title: title, symbol: nil, style: .toggle, height: 22)
         b.toolTip = tip
         b.isEnabled = enabled
         bind(b) { [weak self] _ in set(!get()); self?.refreshToggles() }
@@ -401,12 +415,9 @@ final class RecordAreaPicker: NSObject {
         return b
     }
 
+    /// The toggles show the settings (which the options popover can change too).
     private func refreshToggles() {
-        for (b, isOn) in toggles {
-            let on = isOn()
-            b.isOn = on
-            b.setAccessibilityValue(on ? "on" : "off")
-        }
+        for (b, isOn) in toggles { b.isOn = isOn() }
     }
 
     /// Keystrokes need Accessibility access; ask for it when the option is turned on.
@@ -421,9 +432,9 @@ final class RecordAreaPicker: NSObject {
             ("arrow.down", "Scrolling", nil), ("timer", "Timer", nil), ("textformat", "OCR", nil),
             ("pip", "Live Pin", nil), ("video", "Recording", nil),
         ]
-        var buttons: [NSView] = []
+        var buttons: [TileButton] = []
         for (sym, title, pick) in modes {
-            let b = TileButton(symbol: sym, title: title, width: 72)
+            let b = TileButton(symbol: sym, title: title, width: 66)
             switch title {
             case "Area":
                 b.toolTip = purpose == .allInOne ? "Screenshot of the selected area (↩)" : "Screenshot of the selected area"
@@ -448,26 +459,22 @@ final class RecordAreaPicker: NSObject {
                 b.toolTip = title == "Window" ? "Screenshot of a window" : "Screenshot of the whole screen"
                 bind(b) { [weak self] _ in self?.finish(pick) }
             }
-            // Thin dividers before OCR and Recording, as in CleanShot.
-            if title == "OCR" || title == "Recording" {
-                let line = NSBox(); line.boxType = .separator
-                line.translatesAutoresizingMaskIntoConstraints = false
-                line.heightAnchor.constraint(equalToConstant: 30).isActive = true
-                buttons.append(line)
-            }
             buttons.append(b)
         }
-        let row = NSStackView(views: buttons)
-        row.spacing = 4
-        row.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
-        TileButton.holdHeight(of: row)
+        // Three trays, split where CleanShot puts its dividers: the screenshots, text and pins, recording.
+        let row = NSStackView(views: [KeycapTray(Array(buttons[0..<5]), caption: "Capture"),
+                                      KeycapTray(Array(buttons[5..<7]), caption: "Text & Pin"),
+                                      KeycapTray(Array(buttons[7...]), caption: "Record")])
+        row.spacing = 10
+        row.alignment = .top
+        row.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 8, right: 12)
+        row.setClippingResistancePriority(.required, for: .vertical)
         let modesCard = Self.card(row), sizeCard = Self.card(buildSizeControls())
         let bar = NSStackView(views: [modesCard, sizeCard])
         // Only once both cards are in the stack: a constraint between views with no common ancestor throws.
         sizeCard.heightAnchor.constraint(equalTo: modesCard.heightAnchor).isActive = true
         bar.spacing = 10
         bar.alignment = .centerY
-        bar.appearance = NSAppearance(named: .darkAqua)
         return bar
     }
 
@@ -498,7 +505,11 @@ final class RecordAreaPicker: NSObject {
         guard let anchor else { return }
         if let p = popover, p.isShown { p.close(); return }
         let vc = NSViewController()
-        vc.view = buildOptions()
+        let content = buildOptions()
+        // Sized by its constraints; the popover takes the view's frame.
+        content.frame = NSRect(origin: .zero, size: content.fittingSize)
+        content.translatesAutoresizingMaskIntoConstraints = true
+        vc.view = content
         let p = NSPopover()
         p.contentViewController = vc
         p.behavior = .transient
@@ -509,32 +520,35 @@ final class RecordAreaPicker: NSObject {
         }
     }
 
+    /// The options popover, on the SK-1 chassis: a caption over each group, an orange-square toggle per setting (with
+    /// an Options key for its choices) and the frame rate as a segmented control.
     private func buildOptions() -> NSView {
         var views: [NSView] = []
         func header(_ title: String) {
-            let l = NSTextField(labelWithString: title)
-            l.font = .systemFont(ofSize: 13, weight: .semibold)
-            if !views.isEmpty { views.append(spacer(10)) }
-            views.append(l)
+            if !views.isEmpty { views.append(spacer(6)) }
+            views.append(RetroLabel(caption: title, tone: .soft))
         }
         func row(_ title: String, _ get: () -> Bool, options: NSMenu? = nil, _ set: @escaping (Bool) -> Void) {
-            let label = NSTextField(labelWithString: title)
-            let sw = NSSwitch()
-            sw.state = get() ? .on : .off
-            sw.controlSize = .small
-            bind(sw) { [weak self] sender in set((sender as? NSSwitch)?.state == .on); self?.refreshToggles() }
-            var parts: [NSView] = [label, NSView()]
+            let toggle = PillButton(title: title, symbol: nil, style: .toggle, height: 22)
+            toggle.isOn = get()
+            bind(toggle) { [weak self] sender in
+                guard let b = sender as? PillButton else { return }
+                b.isOn.toggle()
+                set(b.isOn)
+                self?.refreshToggles()
+            }
+            var parts: [NSView] = [toggle, NSView()]
             if let options {
-                let b = NSPopUpButton(frame: .zero, pullsDown: true)
-                b.controlSize = .small
-                b.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
-                options.insertItem(NSMenuItem(title: "Options…", action: nil, keyEquivalent: ""), at: 0)
+                let b = PillPopUp(pullsDown: true, height: 22, style: .keycap)
+                options.insertItem(NSMenuItem(title: "Options", action: nil, keyEquivalent: ""), at: 0)   // the face
                 b.menu = options
+                b.synchronizeTitleAndSelectedItem()
+                b.toolTip = "\(title): options"
                 parts.append(b)
             }
-            parts.append(sw)
             let r = NSStackView(views: parts)
             r.spacing = 8
+            r.alignment = .centerY
             views.append(r)
         }
         header("General")
@@ -550,13 +564,14 @@ final class RecordAreaPicker: NSObject {
         header("Keystrokes")
         row("Show keystrokes", { Preferences.recordShowKeystrokes }, options: keystrokeOptions()) { [weak self] in self?.setKeystrokes($0) }
         header("Video")
-        let fps = NSPopUpButton(frame: .zero, pullsDown: false)
-        fps.controlSize = .small
-        fps.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        for rate in [30, 60] { fps.addItem(withTitle: "\(rate) fps"); fps.lastItem?.tag = rate }
+        let fps = RetroSegmented(caption: "Frame rate", height: 22)
+        for rate in [30, 60] { fps.addItem("\(rate) fps", tag: rate, help: "\(rate) frames per second") }
         fps.selectItem(withTag: Preferences.recordFrameRate)
-        bind(fps) { Preferences.recordFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 30 }
-        let fpsRow = NSStackView(views: [NSTextField(labelWithString: "Frame rate"), NSView(), fps])
+        let fpsAction = Action { Preferences.recordFrameRate = ($0 as? RetroSegmented)?.selectedTag() ?? 30 }
+        actions.append(fpsAction)
+        fps.target = fpsAction
+        fps.action = #selector(Action.fire(_:))
+        let fpsRow = NSStackView(views: [fps, NSView()])
         views.append(fpsRow)
 
         let stack = NSStackView(views: views)
@@ -566,7 +581,8 @@ final class RecordAreaPicker: NSObject {
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18)
         for v in views { v.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -36).isActive = true }
         stack.widthAnchor.constraint(equalToConstant: 360).isActive = true
-        return stack
+        // A square plate: the popover rounds its own edge.
+        return Self.card(stack, radius: 0)
     }
 
     private func spacer(_ h: CGFloat) -> NSView {
@@ -615,75 +631,60 @@ final class RecordAreaPicker: NSObject {
     }
 }
 
-/// A symbol above a short title, the picker's mode bar and recording toggles. The symbol and title are laid out
-/// here rather than by the button cell, which clips an image placed above a title in a fixed-height button. Fills
-/// faintly on hover, more while pressed or when `isOn` (the chosen mode, a toggle that is on).
+/// An SK-1 key with a symbol above a short title in small capitals: the picker's mode bar. The symbol and title are
+/// laid out here rather than by the button cell, which clips an image placed above a title in a fixed-height button.
+/// It goes down while pressed, and stays down with the orange light while `isOn` (the chosen mode).
 private final class TileButton: NSButton {
     static let height: CGFloat = 50
+    private static let radius: CGFloat = 7
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
-    private var hover = false { didSet { applyColors() } }
-    private var pressed = false { didSet { applyColors() } }
+    private let tileTitle: String
+    private var contentCenterY: NSLayoutConstraint?
+    private var pressed = false { didSet { refresh() } }
 
-    var isOn = false { didSet { applyColors() } }
+    var isOn = false { didSet { refresh() } }
 
     override var isEnabled: Bool {
-        didSet { alphaValue = isEnabled ? 1 : 0.4; applyColors() }
-    }
-
-    /// Makes a row of tiles exactly as tall as a tile plus its insets. A stack view doesn't hold its height to its
-    /// views' at a required priority, so the mode bar's card shrank to the size card beside it and its mask cut
-    /// off the tops of the symbols.
-    static func holdHeight(of row: NSStackView) {
-        row.setClippingResistancePriority(.required, for: .vertical)
-        row.heightAnchor.constraint(equalToConstant: height + row.edgeInsets.top + row.edgeInsets.bottom).isActive = true
+        didSet { alphaValue = isEnabled ? 1 : 0.4; refresh() }
     }
 
     init(symbol: String, title: String, width: CGFloat) {
+        tileTitle = title
         super.init(frame: .zero)
         isBordered = false
         self.title = ""
         wantsLayer = true
-        layer?.cornerRadius = 9
-        layer?.cornerCurve = .continuous
         let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
         icon.imageScaling = .scaleNone
-        label.stringValue = title
-        label.font = .systemFont(ofSize: 11, weight: .medium)
         label.alignment = .center
         label.lineBreakMode = .byClipping
         let content = NSStackView(views: [icon, label])
         content.orientation = .vertical
         content.alignment = .centerX
-        content.spacing = 3
+        content.spacing = 4
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
         translatesAutoresizingMaskIntoConstraints = false
+        let centerY = content.centerYAnchor.constraint(equalTo: centerYAnchor)
+        contentCenterY = centerY
         NSLayoutConstraint.activate([
             // A fixed symbol box, so titles line up whatever each symbol's shape.
             icon.heightAnchor.constraint(equalToConstant: 20),
             content.centerXAnchor.constraint(equalTo: centerXAnchor),
-            content.centerYAnchor.constraint(equalTo: centerYAnchor),
+            centerY,
             widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: Self.height),
         ])
         setAccessibilityLabel(title)
-        applyColors()
+        refresh()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// Clicks on the symbol or title belong to the button.
     override func hitTest(_ point: NSPoint) -> NSView? { !isHidden && frame.contains(point) ? self : nil }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-    override func mouseEntered(with event: NSEvent) { hover = true }
-    override func mouseExited(with event: NSEvent) { hover = false }
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
@@ -692,63 +693,111 @@ private final class TileButton: NSButton {
         pressed = false
     }
 
-    private func applyColors() {
-        let active = isEnabled && (isOn || pressed)
-        let alpha: CGFloat = active ? 0.2 : (isEnabled && hover ? 0.1 : 0)
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(alpha).cgColor
-        // On the dark cards: white when on, a softer white otherwise (as the toggles' off state).
-        let content = NSColor.white.withAlphaComponent(isOn ? 1 : 0.85)
-        icon.contentTintColor = content
-        label.textColor = content
+    override func draw(_ dirtyRect: NSRect) {
+        let colors = Retro.keyColors(.cream, Retro.palette(for: self))
+        let face = Retro.drawKey(in: bounds, radius: Self.radius, colors: colors, down: isOn || pressed,
+                                 skirt: PillButton.keycapSkirt, flipped: isFlipped)
+        if isOn { Retro.drawOnBar(in: face, flipped: isFlipped) }
+    }
+
+    override func layout() {
+        super.layout()
+        updateShadow()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refresh()
+    }
+
+    /// The ink, where the content sits (on the face, sinking with it) and the shadow the key casts.
+    private func refresh() {
+        needsDisplay = true
+        let p = Retro.palette(for: self)
+        let ink = Retro.keyColors(.cream, p).ink
+        icon.contentTintColor = ink
+        label.attributedStringValue = Retro.caption(tileTitle, color: ink, kern: 0.6)
+        let down = isOn || pressed
+        // Clear of the orange light at the bottom of the face.
+        contentCenterY?.constant = down ? 0 : -2
+        updateShadow()
+    }
+
+    private func updateShadow() {
+        let p = Retro.palette(for: self)
+        let down = isOn || pressed
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = Float(p.keyShadow) * (down ? 1.3 : 1)
+        layer?.shadowRadius = down ? 1 : 2
+        layer?.shadowOffset = CGSize(width: 0, height: down ? -1 : -2)
+        let rect = down ? bounds.insetBy(dx: 0, dy: PillButton.keycapSkirt / 2) : bounds
+        guard rect.width > 1, rect.height > 1 else { layer?.shadowPath = nil; return }
+        let r = min(Self.radius, rect.width / 2, rect.height / 2)
+        layer?.shadowPath = CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
     }
 }
 
-/// "Record GIF  ⌥↩"-style row: icon, title, shortcut on the right; the whole row is clickable.
-private final class RecordRow: NSView {
-    private let run: () -> Void
-    private var hover = false { didSet { needsDisplay = true } }
+/// A groove in the chassis between two groups of controls, with the light line under it.
+private final class Groove: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 2).isActive = true
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    init(symbol: String, title: String, shortcut: String, run: @escaping () -> Void) {
-        self.run = run
-        super.init(frame: .zero)
-        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
-        icon.contentTintColor = .labelColor
-        let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 14, weight: .medium)
-        let key = NSTextField(labelWithString: shortcut)
-        key.textColor = .secondaryLabelColor
-        let row = NSStackView(views: [icon, label, NSView(), key])
-        row.spacing = 10
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor), row.trailingAnchor.constraint(equalTo: trailingAnchor),
-            row.topAnchor.constraint(equalTo: topAnchor), row.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 42),
-        ])
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(title)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-    override func mouseEntered(with event: NSEvent) { hover = true }
-    override func mouseExited(with event: NSEvent) { hover = false }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) {}
-    override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { run() }
-    }
-    override func accessibilityPerformPress() -> Bool { run(); return true }
     override func draw(_ dirtyRect: NSRect) {
-        guard hover else { return }
-        NSColor.white.withAlphaComponent(0.1).setFill()
-        bounds.fill()
+        let p = Retro.palette(for: self)
+        let top = isFlipped ? bounds.minY : bounds.maxY - 1, lip = isFlipped ? bounds.minY + 1 : bounds.maxY - 2
+        Retro.color(p.groove).setFill()
+        NSRect(x: bounds.minX, y: top, width: bounds.width, height: 1).fill()
+        NSColor.white.withAlphaComponent(p.grooveLip).setFill()
+        NSRect(x: bounds.minX, y: lip, width: bounds.width, height: 1).fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// A text field on an LCD chip: the size fields, typed in mono ink on the olive glass.
+private final class LCDFieldBox: NSView {
+    init(_ field: NSTextField) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        field.isBezeled = false
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = Retro.mono(13, weight: .semibold)
+        field.textColor = Retro.color(Retro.lcdInk)
+        field.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 26),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        Retro.drawGlass(bounds, radius: 4, top: Retro.chipTop, middle: 0xc7cdb1, bottom: Retro.chipBottom,
+                        brightness: p.lcdBrightness, grid: false, shadowBlur: 2, shadowOffset: 1, flipped: isFlipped)
+    }
+
+    /// A click on the chip around the field edits it.
+    override func mouseDown(with event: NSEvent) {
+        if let field = subviews.first as? NSTextField { window?.makeFirstResponder(field) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }
 

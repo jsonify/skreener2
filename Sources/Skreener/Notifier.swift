@@ -119,7 +119,7 @@ private final class NotificationDelegate: NSObject, UNUserNotificationCenterDele
     }
 }
 
-/// A short message on a dark capsule (the scrolling-capture bar's style): near the pointer for problems, at the top
+/// A short message on the SK-1 chassis (the capture bars' style): near the pointer for problems, at the top
 /// of the screen for confirmations. It fades after a few seconds; a click on it dismisses it. One at a time.
 final class MessageHUD {
     enum Placement { case pointer, top }
@@ -133,46 +133,48 @@ final class MessageHUD {
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
 
-        let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 18, weight: .medium))
-        icon.contentTintColor = placement == .pointer ? .systemYellow : .systemGreen
+        // The SK-1 look (#344): the symbol on a small LCD (an orange lamp beside it for a problem), the text in the
+        // chassis' ink, on a rounded chassis that follows the system's appearance.
+        let icon = HUDIcon(symbol: symbol, warning: placement == .pointer)
         icon.setContentHuggingPriority(.required, for: .horizontal)
 
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        titleLabel.textColor = .white
         let text = NSStackView(views: [titleLabel])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
-        if let detail {
+        let detailLabel = detail.map { detail in
             let d = NSTextField(wrappingLabelWithString: detail)
             d.font = .systemFont(ofSize: 12)
-            d.textColor = NSColor.white.withAlphaComponent(0.75)
             d.preferredMaxLayoutWidth = 320
-            text.addArrangedSubview(d)
+            return d
         }
+        if let detailLabel { text.addArrangedSubview(detailLabel) }
         var views: [NSView] = [icon, text]
         if let button {
-            views.append(PillButton(title: button.title, symbol: nil, style: .tinted) {
+            let key = PillButton(title: button.title, symbol: nil, style: .keycap, height: 26) {
                 button.run()
                 MessageHUD.dismiss()
-            })
+            }
+            key.keyVariant = .orange
+            views.append(key)
         }
         let row = NSStackView(views: views)
         row.spacing = 12
         row.alignment = .centerY
-        row.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        row.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 16)
 
-        let bg = HUDView()
-        bg.onClick = { MessageHUD.dismiss() }
-        bg.wantsLayer = true
-        bg.layer?.backgroundColor = PillButton.barColor.cgColor
-        bg.layer?.cornerRadius = 14
-        bg.layer?.cornerCurve = .continuous
-        bg.layer?.borderWidth = 0.5
-        bg.layer?.borderColor = PillButton.barBorderColor.cgColor
+        let bg = RetroBarPlate(radius: 14, click: .run({ MessageHUD.dismiss() }))
+        // The labels' ink follows the chassis' appearance.
+        let ink = { [weak bg, weak titleLabel, weak detailLabel] in
+            guard let bg else { return }
+            let p = Retro.palette(dark: Retro.isDark(bg.effectiveAppearance))
+            titleLabel?.textColor = Retro.color(p.ink)
+            detailLabel?.textColor = Retro.color(p.inkSoft)
+        }
+        bg.onAppearanceChange = { [weak bg] in ink(); bg?.window?.invalidateShadow() }
+        ink()
         row.translatesAutoresizingMaskIntoConstraints = false
         bg.addSubview(row)
         NSLayoutConstraint.activate([
@@ -199,10 +201,12 @@ final class MessageHUD {
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        p.appearance = NSAppearance(named: .darkAqua)
         p.contentView = bg
         p.alphaValue = 0
         p.orderFrontRegardless()
+        // The shadow follows the rounded chassis once it has been drawn.
+        p.display()
+        p.invalidateShadow()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
             p.animator().alphaValue = 1
@@ -234,8 +238,50 @@ final class MessageHUD {
     }
 }
 
-private final class HUDView: NSView {
-    var onClick: (() -> Void)?
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { onClick?() }
+/// The toast's symbol on a small square of LCD glass in a bezel; for a problem, an orange lamp in its corner.
+private final class HUDIcon: NSView {
+    private let image: NSImage?
+    private let warning: Bool
+    private static let side: CGFloat = 34
+
+    init(symbol: String, warning: Bool) {
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+            .applying(.init(paletteColors: [Retro.color(Retro.lcdInk)]))
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        self.warning = warning
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: Self.side).isActive = true
+        heightAnchor.constraint(equalToConstant: Self.side).isActive = true
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Clicks go to the chassis, which dismisses the toast.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let outer = NSRect(x: 0, y: isFlipped ? 0 : 1, width: bounds.width, height: bounds.height - 1)
+        let glass = RetroBars.drawLCD(in: outer, radius: 8, inset: 3, palette: p, flipped: isFlipped)
+        if let image {
+            let s = image.size
+            image.draw(in: NSRect(x: glass.midX - s.width / 2, y: glass.midY - s.height / 2, width: s.width, height: s.height))
+        }
+        guard warning else { return }
+        let lamp = NSRect(x: glass.maxX - 7, y: isFlipped ? glass.minY + 3 : glass.maxY - 7, width: 4, height: 4)
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = Retro.color(Retro.orange)
+        glow.shadowBlurRadius = 3
+        glow.set()
+        Retro.color(Retro.orange).setFill()
+        NSBezierPath(ovalIn: lamp).fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 }

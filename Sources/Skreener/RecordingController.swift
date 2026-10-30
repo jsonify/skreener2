@@ -11,8 +11,7 @@ final class RecordingController {
     private var hud: NSPanel?
     private var frame: NSPanel?
     private var dims: [NSPanel] = []
-    private var timeLabel: NSTextField?
-    private var dot: NSView?
+    private var lcd: ElapsedLCD?
     private var pauseButton: PillButton?
     private var ticker: Timer?
     private var startedAt = Date()
@@ -65,7 +64,9 @@ final class RecordingController {
         if gif { options.systemAudio = false; options.microphone = false }
         effectsWindows = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
         let keep = effectsWindows + alsoRecorded
-        if Preferences.recordShowControls { showHUD(near: rect ?? screen.frame, on: screen, fullscreen: rect == nil) }
+        if Preferences.recordShowControls {
+            showHUD(near: rect ?? screen.frame, on: screen, fullscreen: rect == nil, options: options, gif: gif)
+        }
         startedAt = Date(); pausedAt = nil; pausedTotal = 0
         tick()
         ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.tick() }
@@ -101,7 +102,8 @@ final class RecordingController {
         recorder.setPaused(paused)
         pauseButton?.toolTip = paused ? "Resume" : "Pause"
         pauseButton?.setContent(title: nil, symbol: paused ? "play.fill" : "pause.fill")
-        dot?.layer?.backgroundColor = (paused ? NSColor.systemOrange : NSColor.systemRed).cgColor
+        pauseButton?.setAccessibilityLabel(paused ? "Resume" : "Pause")
+        lcd?.isPaused = paused
         tick()
     }
 
@@ -184,9 +186,10 @@ final class RecordingController {
     private func tick() {
         var elapsed = Date().timeIntervalSince(startedAt) - pausedTotal
         if let p = pausedAt { elapsed -= Date().timeIntervalSince(p) }
-        let s = max(0, Int(elapsed))
-        let text = String(format: "%02d:%02d", s / 60, s % 60)
-        timeLabel?.stringValue = text
+        let text = RetroBars.elapsed(Int(max(0, elapsed)))
+        lcd?.time = text
+        // The REC lamp blinks once a second, lit for the first half of it.
+        lcd?.lampLit = Int(Date().timeIntervalSince(startedAt) * 2) % 2 == 0
         onTick?(text)
     }
 
@@ -228,29 +231,44 @@ final class RecordingController {
         frame = p
     }
 
-    /// The control bar: below the area if there's room, else above it, else inside its bottom edge. The same dark
-    /// capsule and pill buttons as the scrolling-capture bar.
-    private func showHUD(near area: CGRect, on screen: NSScreen, fullscreen: Bool) {
-        let d = NSView()
-        d.wantsLayer = true
-        d.layer?.cornerRadius = 5
-        d.layer?.backgroundColor = NSColor.systemRed.cgColor
-        d.translatesAutoresizingMaskIntoConstraints = false
-        d.widthAnchor.constraint(equalToConstant: 10).isActive = true
-        d.heightAnchor.constraint(equalToConstant: 10).isActive = true
-        let l = NSTextField(labelWithString: "00:00")
-        l.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
-        l.textColor = NSColor.white.withAlphaComponent(0.9)
-        let pause = PillButton(title: nil, symbol: "pause.fill", style: .tinted) { [weak self] in self?.togglePause() }
-        pause.toolTip = "Pause"
-        let stop = PillButton(title: "Stop", symbol: "stop.fill", style: .filled) { [weak self] in self?.stop() }
-        stop.toolTip = ShortcutStore.combo(for: .recordScreen).map { "Stop Recording (\($0.displayString))" } ?? "Stop Recording"
-        let row = NSStackView(views: [d, l, pause, stop])
-        row.spacing = 8
-        row.setCustomSpacing(14, after: l)
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 7)
+    /// The control bar, in the SK-1 look (#344): an LCD with the REC lamp, the format and the elapsed time; what is
+    /// recorded (microphone, system audio, keystrokes) as orange squares; the Pause and Stop keys (Stop orange) in a
+    /// tray. Below the area if there's room, else above it, else inside its bottom edge. Drag the chassis to move it.
+    private func showHUD(near area: CGRect, on screen: NSScreen, fullscreen: Bool, options: ScreenRecorder.Options, gif: Bool) {
+        let display = ElapsedLCD()
+        display.detail = RetroBars.formatLabel(gif: gif, fps: options.fps)
+        let micOn: Bool
+        if #available(macOS 15.0, *) { micOn = options.microphone } else { micOn = false }
+        let keysOn = Preferences.recordShowKeystrokes && AccessibilityAccess.granted
+        let mic = RetroIndicator("Mic", isOn: micOn)
+        mic.toolTip = micOn ? "Recording the microphone" : "Not recording the microphone"
+        let system = RetroIndicator("System", isOn: options.systemAudio)
+        system.toolTip = options.systemAudio ? "Recording system audio" : "Not recording system audio"
+        let keys = RetroIndicator("Keys", isOn: keysOn)
+        keys.toolTip = keysOn ? "Showing keystrokes in the recording" : "Not showing keystrokes"
+        let lamps = NSStackView(views: [mic, system, keys])
+        lamps.orientation = .vertical
+        lamps.alignment = .leading
+        lamps.spacing = 7
 
-        let size = NSSize(width: ceil(row.fittingSize.width), height: 44)
+        let keyHeight: CGFloat = 38
+        let pause = PillButton(title: nil, symbol: "pause.fill", style: .keycap, height: keyHeight) { [weak self] in self?.togglePause() }
+        pause.toolTip = "Pause"
+        pause.setAccessibilityLabel("Pause")
+        let stop = PillButton(title: nil, symbol: "stop.fill", style: .keycap, height: keyHeight) { [weak self] in self?.stop() }
+        stop.keyVariant = .orange
+        stop.toolTip = ShortcutStore.combo(for: .recordScreen).map { "Stop Recording (\($0.displayString))" } ?? "Stop Recording"
+        stop.setAccessibilityLabel("Stop Recording")
+        let tray = KeycapTray([pause, stop], spacing: 5)
+
+        let row = NSStackView(views: [display, lamps, tray])
+        row.alignment = .centerY
+        row.spacing = 14
+        row.setCustomSpacing(18, after: lamps)
+        row.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+
+        let fit = row.fittingSize
+        let size = NSSize(width: ceil(fit.width), height: ceil(max(fit.height, 86)))
         let vis = screen.visibleFrame
         var y = area.minY - size.height - 10
         if fullscreen || y < vis.minY { y = area.maxY + 10 }
@@ -264,23 +282,24 @@ final class RecordingController {
         p.hasShadow = true
         p.isMovableByWindowBackground = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.appearance = NSAppearance(named: .darkAqua)
 
-        let bg = NSView(frame: NSRect(origin: .zero, size: size))
-        bg.wantsLayer = true
-        bg.layer?.backgroundColor = PillButton.barColor.cgColor
-        bg.layer?.cornerRadius = size.height / 2; bg.layer?.cornerCurve = .continuous; bg.layer?.masksToBounds = true
-        bg.layer?.borderWidth = 0.5; bg.layer?.borderColor = PillButton.barBorderColor.cgColor
+        // The chassis follows the system's appearance (charcoal in Dark Mode).
+        let plate = RetroBarPlate(radius: 14, click: .drag)
+        plate.frame = NSRect(origin: .zero, size: size)
+        plate.onAppearanceChange = { [weak p] in p?.invalidateShadow() }
         row.translatesAutoresizingMaskIntoConstraints = false
-        bg.addSubview(row)
+        plate.addSubview(row)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
-            row.centerYAnchor.constraint(equalTo: bg.centerYAnchor),
+            row.leadingAnchor.constraint(equalTo: plate.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: plate.trailingAnchor),
+            row.centerYAnchor.constraint(equalTo: plate.centerYAnchor),
         ])
-        p.contentView = bg
+        p.contentView = plate
         p.orderFrontRegardless()
-        hud = p; timeLabel = l; dot = d; pauseButton = pause
+        // The shadow follows the rounded chassis once it has been drawn.
+        p.display()
+        p.invalidateShadow()
+        hud = p; lcd = display; pauseButton = pause
     }
 }
 
