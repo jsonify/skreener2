@@ -378,6 +378,23 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         quickAccessSidePopup()),
                 ], note: "Capture Text and Capture Area & Pin skip these. Actions set to run after every capture "
                     + "(Settings → Send To) run once the screenshot is saved."),
+                group("Quick Access Preview", [
+                    row("Buttons", "Close is always there.", checkboxes(QuickAccessButton.allCases.map { b -> Checkbox in
+                        (b.title, !Preferences.hiddenQuickAccessButtons.contains(b), { (on: Bool) in
+                            var hidden = Preferences.hiddenQuickAccessButtons
+                            if on { hidden.remove(b) } else { hidden.insert(b) }
+                            Preferences.hiddenQuickAccessButtons = hidden
+                        })
+                    }, columns: 3)),
+                    row("Smart action buttons", "Shown when Smart actions after capture is on. The editor's Smart "
+                        + "Actions menu has them all.", checkboxes(SmartChip.allCases.map { c -> Checkbox in
+                        (c.title, !Preferences.hiddenSmartChips.contains(c), { (on: Bool) in
+                            var hidden = Preferences.hiddenSmartChips
+                            if on { hidden.remove(c) } else { hidden.insert(c) }
+                            Preferences.hiddenSmartChips = hidden
+                        })
+                    }, columns: 2)),
+                ], note: "Changes apply to the next preview."),
                 group("Capture Text", [
                     toggle("Edit the text before copying",
                            "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away.",
@@ -526,12 +543,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         Preferences.annotationShadow = $0
                         NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
                     },
-                    toggle("Match screenshot color past the edge",
-                           "Annotations dragged past the image grow the canvas. Fill it with the image's corner color; white when off.",
-                           Preferences.matchExtensionColor) {
-                        Preferences.matchExtensionColor = $0
-                        NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
-                    },
+                    row("Past the screenshot's edge",
+                        "Annotations dragged past the image grow the canvas. What fills it: white, nothing (see-through "
+                        + "in PNGs, white in JPEGs), or the screenshot's top-left corner color.", extensionFillPopup()),
                     toggle("Snap to objects", "Boxes, ellipses, blur, pixelate, erase and spotlight snap to the edges of "
                         + "buttons, fields and other shapes in the screenshot while drawn or resized. Hold ⌘ to draw freely.",
                            Preferences.snapToObjects) { Preferences.snapToObjects = $0 },
@@ -636,6 +650,41 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
         }
         return popup
+    }
+
+    private func extensionFillPopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.addItems(withTitles: ExtensionFill.allCases.map(\.title))
+        popup.selectItem(at: ExtensionFill.allCases.firstIndex(of: Preferences.extensionFill) ?? 0)
+        bind(popup) {
+            let i = ($0 as? NSPopUpButton)?.indexOfSelectedItem ?? 0
+            Preferences.extensionFill = ExtensionFill.allCases[max(i, 0)]
+            NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
+        }
+        return popup
+    }
+
+    /// A checkbox's title, whether it starts checked, and what a click sets.
+    private typealias Checkbox = (title: String, on: Bool, set: (Bool) -> Void)
+
+    /// Checkboxes in rows of `columns`, for picking several of a set.
+    private func checkboxes(_ items: [Checkbox], columns: Int) -> NSView {
+        let boxes = items.map { item -> NSButton in
+            let box = NSButton(checkboxWithTitle: item.title, target: nil, action: nil)
+            box.controlSize = .small
+            box.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            box.state = item.on ? .on : .off
+            bind(box) { item.set(($0 as? NSButton)?.state == .on) }
+            return box
+        }
+        let rows = stride(from: 0, to: boxes.count, by: columns).map { i -> [NSView] in
+            let row: [NSView] = Array(boxes[i..<min(i + columns, boxes.count)])
+            return row + Array(repeating: NSGridCell.emptyContentView, count: columns - row.count)
+        }
+        let grid = NSGridView(views: rows)
+        grid.rowSpacing = 4
+        grid.columnSpacing = 12
+        return grid
     }
 
     private func quickAccessSidePopup() -> NSPopUpButton {
