@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     /// Menu items that show their action's global shortcut (see `updateMenuShortcuts`).
     private var shortcutItems: [HotKeyAction: NSMenuItem] = [:]
     /// The tiles and recent captures at the top of the menu.
-    private lazy var launcher = MenuLauncher()
+    @MainActor private lazy var launcher = MenuLauncher()
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         }
     }
 
-    private func buildMenu() -> NSMenu {
+    @MainActor private func buildMenu() -> NSMenu {
         let m = NSMenu()
         m.delegate = self
         // The launcher: tiles for the everyday capture modes and the newest captures.
