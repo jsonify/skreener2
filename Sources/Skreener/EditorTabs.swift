@@ -92,6 +92,9 @@ import AppKit
 /// The editor's window: the Window menu's tab commands act on its `EditorTabGroup`.
 final class EditorWindow: NSWindow {
     private var group: EditorTabGroup? { (windowController as? EditorWindowController)?.tabGroup }
+    /// Called when the title changes: the editor draws it in the title bar's strip, the window's own being hidden.
+    var onTitleChange: (() -> Void)?
+    override var title: String { didSet { onTitleChange?() } }
 
     override func selectNextTab(_ sender: Any?) { group?.select(offset: 1) }
     override func selectPreviousTab(_ sender: Any?) { group?.select(offset: -1) }
@@ -170,10 +173,8 @@ final class EditorDock: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        let background = NSVisualEffectView()
-        background.material = .sidebar
-        background.blendingMode = .withinWindow
-        background.state = .followsWindowActiveState
+        // Clear: the editor's chassis shows through (#344).
+        let background = NSView()
 
         header.font = .systemFont(ofSize: 11, weight: .semibold)
         header.textColor = .secondaryLabelColor
