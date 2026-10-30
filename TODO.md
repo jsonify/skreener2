@@ -42,6 +42,7 @@ Issues: `(#N)` links each open item to its GitHub issue (`[~]` items: a "needs t
 - [~] Auto-hide desktop icons only while capturing (menu toggle; restores after the capture) — S (#51)
 - [~] Self-timer for area/window/fullscreen (pick first, then count down; delay 3/5/10 s in the menu), cancel via Esc or a click — S (#52)
 - [~] Menu-bar launcher: the menu opens on a 3 × 2 grid of tiles (Area, Window, Fullscreen, Scrolling, Text, Record; symbol, name, current shortcut; accent fill on hover) and a Recent row of the four newest history captures (click opens in the editor, editable; Show All opens Capture History; hint when empty; hidden with history off); every capture mode and Self-Timer move into an All Capture Modes submenu (`MenuLauncher`) — M
+- [~] Content file names: the default template is `%t %Y-%m-%d at %H.%M.%S`; `%t` is the browser page's title, else the capture's tallest line of words (Vision, on device), `%a` the app (left out with its separator when unknown); saved as "Skreener …" and renamed in place once known, followed like a filed file (`ContentNaming`, unit-tested) — M
 
 ## Batch 3 — screen recording (biggest gap)
 - [~] Record area/fullscreen to MP4 (SCStream + AVAssetWriter; Record Screen ⌃⇧7: drag an area or Space to pick a window, whole-screen button in the picker; saved to the save folder; afterwards the same Quick Access preview as screenshots, with open / show in Finder / share / copy; control bar matches the scrolling-capture bar (#95)) — L (#53)

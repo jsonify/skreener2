@@ -1081,17 +1081,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
 
     /// For a capture of a browser, asks it for the page in its front tab and keeps that with the saved file and the
     /// history entry (#269). Nothing happens for other apps, or when the browser doesn't answer.
-    private func rememberSourcePage(of pid: pid_t?, saved: URL?, history: URL?) {
-        guard saved != nil || history != nil else { return }
+    /// `answered` hears the page, or nil, once the browser has answered (at once for other apps).
+    private func rememberSourcePage(of pid: pid_t?, saved: URL?, history: URL?,
+                                    answered: ((SourcePage.Page?) -> Void)? = nil) {
+        guard saved != nil || history != nil else { answered?(nil); return }
         let bundleID = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
         SourcePage.lookup(bundleID: bundleID) { page in
-            guard let page else { return }
-            // A text filing rule may have moved the file meanwhile (#277).
-            if let saved = saved.map(AutoFiling.current) {
-                SavedLibrary.shared.note(saved, page: page)
-                SourcePage.writeWhereFroms(page.url, to: saved)
+            if let page {
+                // A text filing rule may have moved the file meanwhile (#277).
+                if let saved = saved.map(AutoFiling.current) {
+                    SavedLibrary.shared.note(saved, page: page)
+                    SourcePage.writeWhereFroms(page.url, to: saved)
+                }
+                if let history { CaptureHistory.noteSource(page, for: history) }
             }
-            if let history { CaptureHistory.noteSource(page, for: history) }
+            answered?(page)
         }
     }
 
@@ -1103,8 +1107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         var saved: URL?
         // The window's own app when one window was captured, else the app in front.
         let appName = owner.flatMap { NSRunningApplication(processIdentifier: $0) }?.localizedName ?? lastOtherAppName
+        let date = Date()
         if actions.contains(.save) {
-            saved = Output.save(image)
+            saved = Output.save(image, date: date, app: appName)
             if let file = saved {
                 // For the library's App filter and search (#117).
                 SavedLibrary.shared.note(file, app: appName)
@@ -1116,7 +1121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
                                  detail: "Check the export location in Settings → General.")
             }
         }
-        rememberSourcePage(of: owner ?? lastOtherApp, saved: saved, history: historyEntry)
+        // Renamed after what it shows once the page or the text is known (%t in the file name template).
+        let naming = saved.flatMap { ContentNaming.Job(file: $0, image: image, date: date, app: appName) }
+        rememberSourcePage(of: owner ?? lastOtherApp, saved: saved, history: historyEntry) { naming?.pageAnswered($0) }
         // The user's own after-capture commands (Settings → Send To), once the file is saved.
         MainActor.assumeIsolated { SendTo.runAfterCapture(image: image, saved: saved, app: appName) }
         // Area & Pin, Capture Text and the editor's own Add Image captures don't come through here.

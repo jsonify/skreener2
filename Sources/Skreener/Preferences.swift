@@ -64,7 +64,8 @@ enum Preferences {
         get { d.bool(forKey: "compressRecordings") }
         set { d.set(newValue, forKey: "compressRecordings") }
     }
-    static let defaultFilenameTemplate = "Skreener %Y-%m-%d at %H.%M.%S"
+    /// Named after what the capture shows (`ContentNaming`); "Skreener" when it shows no text.
+    static let defaultFilenameTemplate = "%t %Y-%m-%d at %H.%M.%S"
     /// Saved file names; see `Output.filename` for the tokens.
     static var filenameTemplate: String {
         get { d.string(forKey: "filenameTemplate").flatMap { $0.isEmpty ? nil : $0 } ?? defaultFilenameTemplate }

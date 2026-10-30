@@ -231,6 +231,12 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   with Shift.
 - **Capture History.** Recent captures slide down from the top of the screen. The **Saved Files** view searches
   everything in your export folder by file name, app, or the text inside the screenshots.
+- **Named after what they show.** A saved screenshot is named after its content, e.g. `Pricing · Stripe 2026-10-30 at
+  14.25.03.png`: the page's title for a browser capture, else the biggest line of text in it, read on your Mac (nothing
+  is sent anywhere). It is saved as `Skreener …` straight away and renamed a moment later, and Quick Access, the
+  editor and Saved Files follow it. A capture with no text keeps `Skreener …`. The name comes from the file name
+  template in **Settings → Screenshots**: `%t` is what the capture shows, `%a` the app it came from, and `%Y %y %m %d
+  %H %M %S` the date and time. Take `%t` out of the template to turn the naming off.
 - **Source page.** Captures of Safari, Chrome, Arc, Edge or Brave remember the page's address and title. Saved Files
   and History can open it again, Saved Files searches it and filters by site, and Finder shows it under Where from.
   macOS asks once per browser for Automation access; without it the capture just has no page. A switch in

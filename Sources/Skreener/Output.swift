@@ -32,24 +32,35 @@ enum Output {
         return ctx.makeImage()
     }
 
-    /// File name (without extension) from the template in Settings. Tokens: %Y %y %m %d %H %M %S, %% for a percent sign.
-    static func filename(for date: Date = Date(), template: String = Preferences.filenameTemplate) -> String {
+    /// File name (without extension) from the template in Settings. Tokens: %Y %y %m %d %H %M %S, %% for a percent sign,
+    /// %t for what the capture shows (`title`, see `ContentNaming`; "Skreener" until it is known) and %a for the app it
+    /// came from (left out when unknown, with the separator next to it).
+    static func filename(for date: Date = Date(), template: String = Preferences.filenameTemplate,
+                         app: String? = nil, title: String? = nil) -> String {
         let patterns: [Character: String] = ["Y": "yyyy", "y": "yy", "m": "MM", "d": "dd", "H": "HH", "M": "mm", "S": "ss"]
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         var out = ""
+        var dropped = false
         var chars = template.makeIterator()
         while let c = chars.next() {
             guard c == "%", let token = chars.next() else { out.append(c); continue }
             if let p = patterns[token] {
                 f.dateFormat = p
                 out += f.string(from: date)
+            } else if token == "t" {
+                let shows = ContentNaming.clean(title ?? "")
+                out += shows.isEmpty ? "Skreener" : shows
+            } else if token == "a" {
+                let source = ContentNaming.clean(app ?? "")
+                if source.isEmpty { dropped = true } else { out += source }
             } else if token == "%" {
                 out.append("%")
             } else {
                 out.append(c); out.append(token)
             }
         }
+        if dropped { out = ContentNaming.tidySeparators(out) }
         // "/" separates folders and ":" shows as "/" in Finder.
         out = out.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: ".")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,8 +95,8 @@ enum Output {
     }
 
     @discardableResult
-    static func save(_ image: NSImage, to dir: URL = Preferences.saveDirectory) -> URL? {
-        let url = uniqueURL(in: dir, name: filename(), ext: Preferences.imageFormat.fileExtension)
+    static func save(_ image: NSImage, to dir: URL = Preferences.saveDirectory, date: Date = Date(), app: String? = nil) -> URL? {
+        let url = uniqueURL(in: dir, name: filename(for: date, app: app), ext: Preferences.imageFormat.fileExtension)
         guard let data = savedData(image) else { return nil }
         do { try data.write(to: url); return url } catch { NSLog("Save failed: \(error)"); return nil }
     }
