@@ -72,6 +72,15 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 ## Major features
 
+### Menu-bar menu
+
+- **Launcher.** The top of the menu has large tiles for **Area**, **Window**, **Fullscreen**, **Scrolling**,
+  **Text** and **Record**, each with its current shortcut. Click one to start that capture mode.
+- **Recent.** Under the tiles are your four newest captures. Click one to open it in the editor, with its annotations
+  still editable, or click **Show All** for Capture History. This row is hidden when Capture History is turned off.
+- **All Capture Modes** lists every capture mode, including Self-Timer, with its shortcut. The keyboard can reach
+  everything in it.
+
 ### Screenshots
 
 - **Area, window and full screen**, plus **Previous Area** to repeat the last selection, and **Capture Active

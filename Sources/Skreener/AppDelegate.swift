@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     private var desktopIconsItem: NSMenuItem!
     /// Menu items that show their action's global shortcut (see `updateMenuShortcuts`).
     private var shortcutItems: [HotKeyAction: NSMenuItem] = [:]
+    /// The tiles and recent captures at the top of the menu.
+    private lazy var launcher = MenuLauncher()
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
     private let recordPicker = RecordAreaPicker()
@@ -150,25 +152,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     private func buildMenu() -> NSMenu {
         let m = NSMenu()
         m.delegate = self
+        // The launcher: tiles for the everyday capture modes and the newest captures.
+        launcher.onTile = { action in ShortcutCenter.shared.handlers[action]?() }
+        launcher.onShowHistory = { CaptureHistoryPanel.shared.show() }
+        let launcherItem = NSMenuItem()
+        launcherItem.view = launcher
+        m.addItem(launcherItem)
+        m.addItem(.separator())
+        // Every capture mode, also the launcher's, where the keyboard reaches them.
+        let all = NSMenuItem(title: "All Capture Modes", action: nil, keyEquivalent: "")
+        let cm = NSMenu()
+        all.submenu = cm; m.addItem(all)
         // Key equivalents come from the global shortcuts (`updateMenuShortcuts`).
-        func add(_ t: String, _ s: Selector, _ shortcut: HotKeyAction) {
+        func add(_ t: String, _ s: Selector, _ shortcut: HotKeyAction, in menu: NSMenu? = nil) {
             let i = NSMenuItem(title: t, action: s, keyEquivalent: "")
-            i.target = self; m.addItem(i)
+            i.target = self; (menu ?? m).addItem(i)
             shortcutItems[shortcut] = i
         }
-        add("Capture Area", #selector(captureArea), .captureArea)
-        add("All-in-One", #selector(allInOne), .allInOne)
-        add("Capture Previous Area", #selector(capturePreviousArea), .capturePreviousArea)
-        add("Capture Area & Pin", #selector(captureAreaAndPin), .captureAreaAndPin)
-        add("Capture Area & Live Pin", #selector(captureAreaAndLivePin), .captureAreaAndLivePin)
-        add("Live Pin Window…", #selector(livePinWindow), .livePinWindow)
-        add("Capture Fullscreen", #selector(captureFullscreen), .captureFullscreen)
-        add("Capture Window", #selector(captureWindow), .captureWindow)
-        add("Capture Active Window", #selector(captureActiveWindow), .captureActiveWindow)
-        add("Capture Scrolling", #selector(captureScrolling), .captureScrolling)
-        add("Capture Text (OCR)", #selector(captureText), .captureText)
-        add("Capture Code (OCR)", #selector(captureCode), .captureCode)
-        add("Scan QR Code", #selector(scanQRCode), .scanQRCode)
+        add("Capture Area", #selector(captureArea), .captureArea, in: cm)
+        add("All-in-One", #selector(allInOne), .allInOne, in: cm)
+        add("Capture Previous Area", #selector(capturePreviousArea), .capturePreviousArea, in: cm)
+        add("Capture Area & Pin", #selector(captureAreaAndPin), .captureAreaAndPin, in: cm)
+        add("Capture Area & Live Pin", #selector(captureAreaAndLivePin), .captureAreaAndLivePin, in: cm)
+        add("Live Pin Window…", #selector(livePinWindow), .livePinWindow, in: cm)
+        add("Capture Fullscreen", #selector(captureFullscreen), .captureFullscreen, in: cm)
+        add("Capture Window", #selector(captureWindow), .captureWindow, in: cm)
+        add("Capture Active Window", #selector(captureActiveWindow), .captureActiveWindow, in: cm)
+        add("Capture Scrolling", #selector(captureScrolling), .captureScrolling, in: cm)
+        add("Capture Text (OCR)", #selector(captureText), .captureText, in: cm)
+        add("Capture Code (OCR)", #selector(captureCode), .captureCode, in: cm)
+        add("Scan QR Code", #selector(scanQRCode), .scanQRCode, in: cm)
         let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
         let timerMenu = NSMenu()
         for (title, sel, shortcut) in [("Area…", #selector(timedArea), HotKeyAction.timedArea),
@@ -183,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             i.target = self; i.tag = s; timerMenu.addItem(i)
         }
         timerMenu.delegate = self
-        timerItem.submenu = timerMenu; m.addItem(timerItem)
+        timerItem.submenu = timerMenu; cm.addItem(timerItem)
         m.addItem(.separator())
         add("Record Screen", #selector(recordScreen), .recordScreen)
         add("Zoom & Draw on Screen", #selector(togglePresenter), .presenter)
@@ -336,6 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         // No activation here: it would take focus from the app in front on every menu use. The editor that
         // opens the picture activates Skreener itself.
         if menu === self.menu {
+            launcher.refresh()
             ContinuityCamera.opensInNewTab = true
             watchItem?.title = watcher.isWatching ? "Stop Watching" : "Watch This Area…"
         }
