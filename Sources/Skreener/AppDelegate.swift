@@ -1121,8 +1121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
                                  detail: "Check the export location in Settings → General.")
             }
         }
-        // Renamed after what it shows once the page or the text is known (%t in the file name template).
-        let naming = saved.flatMap { ContentNaming.Job(file: $0, image: image, date: date, app: appName) }
+        // Renamed after what it shows once the page or the text is known (%t in the file name template). Found for
+        // every capture, so a Save from its preview or editor later gets the name too.
+        let naming = ContentNaming.Job(image: image, date: date, app: appName)
+        if let saved { naming?.add(saved) }
         rememberSourcePage(of: owner ?? lastOtherApp, saved: saved, history: historyEntry) { naming?.pageAnswered($0) }
         // The user's own after-capture commands (Settings → Send To), once the file is saved.
         MainActor.assumeIsolated { SendTo.runAfterCapture(image: image, saved: saved, app: appName) }

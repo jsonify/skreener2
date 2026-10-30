@@ -109,9 +109,9 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 ### Text recognition (OCR)
 
 - **Smart actions** look through each capture for dates, addresses, phone numbers, links, flights and QR codes or
-  barcodes, off the main thread. Quick Access shows buttons for them (Add to Calendar, Open in Maps, Call, Open Link,
-  Copy or Open QR content), with more in a menu; the editor's text menu has the same under Smart Actions. Turn it
-  off in Settings → After Capture. **Scan QR Code** (no default shortcut, or `skreener://qr`) copies what the codes
+  barcodes, off the main thread. Quick Access shows buttons for them (Open in Maps, Call, Open Link, Copy or Open QR
+  content, and Add to Calendar once turned on), with more in a menu; the editor's text menu has the same under Smart
+  Actions. Turn it off, or pick which kinds get a button, in Settings → After Capture. **Scan QR Code** (no default shortcut, or `skreener://qr`) copies what the codes
   in an area say and offers to open a link.
 
 - **Capture Text** recognizes the text in an area on your Mac, using Apple's Vision framework. The text opens in a
@@ -223,7 +223,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 ### After capture
 
 - **Quick Access preview.** A thumbnail appears in the corner with buttons to copy, save, edit, pin, share or close.
-  Later captures stack above it.
+  Later captures stack above it. Settings → After Capture → Quick Access Preview picks which buttons it has.
 - **Pins.** Float any screenshot above other windows. You can scroll to change opacity and pinch to zoom.
   To check a build against a mockup, pin the mockup over the app and right-click it. **Onion Skin** makes it
   see-through, and **Difference** lights up every pixel that doesn't match the app underneath. **Click-Through**
@@ -234,7 +234,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Named after what they show.** A saved screenshot is named after its content, e.g. `Pricing · Stripe 2026-10-30 at
   14.25.03.png`: the page's title for a browser capture, else the biggest line of text in it, read on your Mac (nothing
   is sent anywhere). It is saved as `Skreener …` straight away and renamed a moment later, and Quick Access, the
-  editor and Saved Files follow it. A capture with no text keeps `Skreener …`. The name comes from the file name
+  editor and Saved Files follow it. Save in Quick Access or the editor, and Save As, use the same name. A capture with no text keeps `Skreener …`. The name comes from the file name
   template in **Settings → Screenshots**: `%t` is what the capture shows, `%a` the app it came from, and `%Y %y %m %d
   %H %M %S` the date and time. Take `%t` out of the template to turn the naming off.
 - **Source page.** Captures of Safari, Chrome, Arc, Edge or Brave remember the page's address and title. Saved Files

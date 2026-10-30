@@ -113,6 +113,33 @@ final class SmartActionsTests: XCTestCase {
         XCTAssertEqual(a.first?.text, "WIFI:S:home;T:WPA;P:secret;;")
     }
 
+    // MARK: Quick Access chips
+
+    func testHiddenKindsGetNoChipOrMenuItem() {
+        let found: [SmartDetection] = [.date(start: start, duration: 0, line: "Lunch"), .phone("555 123 4567"),
+                                       .address("1 Main St, Town")]
+        let (chips, more) = SmartActions.quickAccess(SmartActions.actions(for: found), hiding: [.calendar])
+        XCTAssertEqual(chips.map(\.kind), [.maps, .call])
+        XCTAssertTrue(more.isEmpty)
+        XCTAssertEqual(SmartActions.quickAccess(SmartActions.actions(for: found), hiding: Set(SmartChip.allCases)).chips, [])
+    }
+
+    func testTwoChipsNeverReadTheSame() {
+        let found: [SmartDetection] = [.date(start: start, duration: 0, line: "One"),
+                                       .date(start: start.addingTimeInterval(86400), duration: 0, line: "Two"),
+                                       .phone("555 123 4567")]
+        let (chips, more) = SmartActions.quickAccess(SmartActions.actions(for: found), hiding: [])
+        XCTAssertEqual(chips.map(\.chipTitle), ["Calendar", "Call"])
+        XCTAssertEqual(more.map(\.kind), [.calendar])
+    }
+
+    func testQRCodeActionsShareOneSetting() {
+        XCTAssertEqual(SmartChip(.openCode), .qrCode)
+        XCTAssertEqual(SmartChip(.copyCode), .qrCode)
+        let actions = SmartActions.actions(for: [.code("https://example.com")])
+        XCTAssertEqual(SmartActions.quickAccess(actions, hiding: [.qrCode]).chips, [])
+    }
+
     func testLimitAndNonWebLinks() {
         let many = (0..<20).map { SmartDetection.phone("415-555-01\(String(format: "%02d", $0))") }
         XCTAssertEqual(SmartActions.actions(for: many, limit: 5).count, 5)

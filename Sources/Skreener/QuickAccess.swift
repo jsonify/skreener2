@@ -96,12 +96,13 @@ import AVFoundation
         }
     }
 
-    /// A strip of chips under the thumbnail: the first two actions, and the rest in a menu.
+    /// A strip of chips under the thumbnail: two actions of different kinds, and the rest in a menu. Kinds turned off
+    /// in Settings → After Capture are left out.
     private func showSmartActions(_ actions: [SmartAction]) {
-        guard !actions.isEmpty, Self.live.contains(where: { $0 === self }), let card, !card.hasChips else { return }
-        let rest = Array(actions.dropFirst(2))
-        let chips = actions.prefix(2).map { a in (title: a.chipTitle, symbol: a.symbol, run: { SmartActionRunner.perform(a) }) }
-        card.addChips(Array(chips), more: rest.isEmpty ? nil : { [weak self] button in self?.showMore(rest, from: button) })
+        let (shown, rest) = SmartActions.quickAccess(actions, hiding: Preferences.hiddenSmartChips)
+        guard !shown.isEmpty, Self.live.contains(where: { $0 === self }), let card, !card.hasChips else { return }
+        let chips = shown.map { a in (title: a.chipTitle, symbol: a.symbol, run: { SmartActionRunner.perform(a) }) }
+        card.addChips(chips, more: rest.isEmpty ? nil : { [weak self] button in self?.showMore(rest, from: button) })
         var frame = panel.frame
         frame.size.height += QuickAccessCard.chipBarHeight
         panel.setFrame(frame, display: false)
@@ -158,34 +159,46 @@ import AVFoundation
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let card = QuickAccessCard(frame: NSRect(origin: .zero, size: size), image: image)
+        // Settings → After Capture can leave buttons out (Close stays).
+        let hidden = Preferences.hiddenQuickAccessButtons
         card.addCorner(symbol: "xmark", label: "Close", at: .topLeft) { [weak self] in self?.close() }
         if recording != nil {
             // The recording is already saved, so there is no Save; nor an editor or a pin for a video.
             card.addCorner(symbol: "play.fill", label: "Open", at: .topRight) { [weak self] in self?.open() }
             card.addCorner(symbol: "folder", label: "Show in Finder", at: .bottomLeft) { [weak self] in self?.showInFinder() }
         } else {
-            card.addCorner(symbol: "pencil", label: "Edit", at: .topRight) { [weak self] in self?.edit() }
-            card.addCorner(symbol: "pin.fill", label: "Pin", at: .bottomLeft) { [weak self] in self?.pin() }
+            if !hidden.contains(.edit) {
+                card.addCorner(symbol: "pencil", label: "Edit", at: .topRight) { [weak self] in self?.edit() }
+            }
+            if !hidden.contains(.pin) {
+                card.addCorner(symbol: "pin.fill", label: "Pin", at: .bottomLeft) { [weak self] in self?.pin() }
+            }
         }
-        let shareButton = card.addCorner(symbol: "square.and.arrow.up", label: "Share", at: .bottomRight) { [weak self, weak card] in
-            if let card { self?.share(from: card) }
+        var shareButton: PillButton?
+        if !hidden.contains(.share) {
+            shareButton = card.addCorner(symbol: "square.and.arrow.up", label: "Share", at: .bottomRight) { [weak self, weak card] in
+                if let card { self?.share(from: card) }
+            }
         }
         // Send To (custom actions, notes apps) sits beside Share.
-        weak var sendButton: PillButton?
-        sendButton = card.addCorner(symbol: "paperplane", label: "Send To", at: .bottomRight, beside: shareButton) { [weak self] in
-            if let sendButton { self?.sendTo(from: sendButton) }
+        if !hidden.contains(.sendTo) {
+            weak var sendButton: PillButton?
+            sendButton = card.addCorner(symbol: "paperplane", label: "Send To", at: .bottomRight, beside: shareButton) { [weak self] in
+                if let sendButton { self?.sendTo(from: sendButton) }
+            }
         }
-        var center: [(String, () -> Void)] = [("Copy", { [weak self] in self?.copy() })]
+        var center: [(String, () -> Void)] = []
+        if !hidden.contains(.copy) { center.append(("Copy", { [weak self] in self?.copy() })) }
         if recording != nil {
             center.append(("Trim", { [weak self] in self?.trim() }))
-        } else {
+        } else if !hidden.contains(.save) {
             center.append(("Save", { [weak self] in self?.save() }))
         }
         // A saved PNG or an MP4 recording can be made smaller (#279).
-        if let file = recording ?? saved, Compressor.canCompress(file) {
+        if !hidden.contains(.compress), let file = recording ?? saved, Compressor.canCompress(file) {
             center.append(("Compress", { [weak self] in self?.compress(AutoFiling.current(file)) }))
         }
-        card.addCenter(center)
+        if !center.isEmpty { card.addCenter(center) }
         // Double-clicking the preview does what Edit does (Open for a recording) (#127).
         card.onDoubleClick = { [weak self] in
             guard let self else { return }
@@ -264,9 +277,9 @@ import AVFoundation
         close()
     }
 
-    /// Saves to the export location, like the auto-save after a capture.
+    /// Saves to the export location, like the auto-save after a capture, named after what the capture shows.
     private func save() {
-        guard Output.save(image) != nil else { NSSound.beep(); return }
+        guard ContentNaming.save(image, capture: image) != nil else { NSSound.beep(); return }
         close()
     }
 

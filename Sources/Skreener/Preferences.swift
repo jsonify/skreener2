@@ -6,6 +6,36 @@ extension Notification.Name {
     static let skreenerPreferencesChanged = Notification.Name("SkreenerPreferencesChanged")
 }
 
+/// What fills the canvas past the screenshot's edge when annotations grow it.
+enum ExtensionFill: String, CaseIterable {
+    case white, transparent, matchImage
+
+    var title: String {
+        switch self {
+        case .white: return "White"
+        case .transparent: return "Transparent"
+        case .matchImage: return "Screenshot's Corner Color"
+        }
+    }
+}
+
+/// A button on the Quick Access preview that Settings → After Capture can leave out.
+enum QuickAccessButton: String, CaseIterable {
+    case copy, save, edit, pin, share, sendTo, compress
+
+    var title: String {
+        switch self {
+        case .copy: return "Copy"
+        case .save: return "Save"
+        case .edit: return "Edit"
+        case .pin: return "Pin"
+        case .share: return "Share"
+        case .sendTo: return "Send To"
+        case .compress: return "Compress"
+        }
+    }
+}
+
 /// File format for saved screenshots (the capture history always keeps PNG).
 enum ImageFormat: String {
     case png, jpeg
@@ -166,10 +196,14 @@ enum Preferences {
         get { d.object(forKey: "showTipsAndHints") as? Bool ?? true }
         set { d.set(newValue, forKey: "showTipsAndHints") }
     }
-    /// Fill the area an annotation grows the canvas into with the image's top-left pixel colour instead of white.
-    static var matchExtensionColor: Bool {
-        get { d.bool(forKey: "matchExtensionColor") }
-        set { d.set(newValue, forKey: "matchExtensionColor") }
+    /// What fills the area an annotation grows the canvas into. Before it was a choice, an on/off "match the
+    /// screenshot's color" switch (still read when nothing was picked since).
+    static var extensionFill: ExtensionFill {
+        get {
+            d.string(forKey: "extensionFill").flatMap(ExtensionFill.init(rawValue:))
+                ?? (d.bool(forKey: "matchExtensionColor") ? .matchImage : .white)
+        }
+        set { d.set(newValue.rawValue, forKey: "extensionFill") }
     }
     /// How the editor's color picker writes colors (#108).
     static var colorFormat: ColorFormat {
@@ -260,6 +294,20 @@ enum Preferences {
     static var smartActions: Bool {
         get { d.object(forKey: "smartActions") as? Bool ?? true }
         set { d.set(newValue, forKey: "smartActions") }
+    }
+    /// Smart action kinds kept off the Quick Access preview; Calendar until it is turned on. The editor's Smart Actions
+    /// menu still has them all.
+    static var hiddenSmartChips: Set<SmartChip> {
+        get {
+            guard let names = d.stringArray(forKey: "hiddenSmartChips") else { return [.calendar] }
+            return Set(names.compactMap(SmartChip.init(rawValue:)))
+        }
+        set { d.set(newValue.map(\.rawValue).sorted(), forKey: "hiddenSmartChips") }
+    }
+    /// Buttons the Quick Access preview leaves out. Close is always there.
+    static var hiddenQuickAccessButtons: Set<QuickAccessButton> {
+        get { Set((d.stringArray(forKey: "hiddenQuickAccessButtons") ?? []).compactMap(QuickAccessButton.init(rawValue:))) }
+        set { d.set(newValue.map(\.rawValue).sorted(), forKey: "hiddenQuickAccessButtons") }
     }
     /// The editor's dock of open screenshots (#140): hidden with its button or ⌃⌘S, and on the left or right.
     static var editorDockCollapsed: Bool {

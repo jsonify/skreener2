@@ -317,14 +317,31 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     /// Called after `extent` changes, with the previous extent.
     var onExtentChange: ((NSRect) -> Void)?
     private var imageRect: NSRect { NSRect(origin: .zero, size: base.size) }
-    /// Fill for the grown area: white, or the color of the image's top-left pixel (a Settings option).
+    /// Fill for the grown area (Settings → Editor): white, nothing, or the color of the image's top-left pixel. Nothing
+    /// shows as a checkerboard on screen when there's no background or frame behind it.
     private var backdrop: NSColor {
-        guard Preferences.matchExtensionColor else { return .white }
-        if let c = cachedBackdrop { return c }
-        let c = bitmap()?.colorAt(x: 0, y: 0) ?? .white
-        cachedBackdrop = c
-        return c
+        switch Preferences.extensionFill {
+        case .white:
+            return .white
+        case .transparent:
+            return exporting || activeBackground != nil || activeFrame != nil ? .clear : Self.checkerboard
+        case .matchImage:
+            if let c = cachedBackdrop { return c }
+            let c = bitmap()?.colorAt(x: 0, y: 0) ?? .white
+            cachedBackdrop = c
+            return c
+        }
     }
+    private static let checkerboard: NSColor = {
+        let tile = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { r in
+            NSColor.white.setFill(); r.fill()
+            NSColor(white: 0.85, alpha: 1).setFill()
+            NSRect(x: 0, y: 0, width: 8, height: 8).fill()
+            NSRect(x: 8, y: 8, width: 8, height: 8).fill()
+            return true
+        }
+        return NSColor(patternImage: tile)
+    }()
     private var cachedBackdrop: NSColor?
     /// Starts as the last tool used in any editor, and is remembered for the next one (#139).
     var tool: Tool = Preferences.editorTool {
@@ -2375,7 +2392,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
         // Past the image (grown by annotations, or letterboxed in a device's screen) the screen shows the backdrop.
         let screenRect = layout?.screen ?? contentRect
-        if screenRect != imageRect { backdrop.setFill(); screenRect.fill() }
+        if screenRect != imageRect { backdrop.setFill(); screenRect.fill(using: .sourceOver) }
         base.draw(in: imageRect)
         let all = items + (draft.map { [$0] } ?? [])
         for a in all {
@@ -2816,7 +2833,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let path = lensPath(a)
         ctx.saveGState()
         path.addClip()
-        backdrop.setFill(); lens.fill()   // what lies past the screenshot's edge
+        backdrop.setFill(); lens.fill(using: .sourceOver)   // what lies past the screenshot's edge
         if let cg = baseCG {
             // The area's center lands on the lens's center, scaled by the magnification.
             ctx.translateBy(x: lens.midX - src.midX * f, y: lens.midY - src.midY * f)

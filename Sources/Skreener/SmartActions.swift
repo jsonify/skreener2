@@ -51,6 +51,33 @@ struct SmartAction: Equatable {
     }
 }
 
+/// The kinds of smart action that Settings → After Capture can keep off the Quick Access preview.
+enum SmartChip: String, CaseIterable {
+    case qrCode, calendar, maps, call, link, flight
+
+    init(_ kind: SmartAction.Kind) {
+        switch kind {
+        case .openCode, .copyCode: self = .qrCode
+        case .calendar: self = .calendar
+        case .maps: self = .maps
+        case .call: self = .call
+        case .link: self = .link
+        case .flight: self = .flight
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .qrCode: return "QR Codes"
+        case .calendar: return "Calendar"
+        case .maps: return "Maps"
+        case .call: return "Call"
+        case .link: return "Links"
+        case .flight: return "Flights"
+        }
+    }
+}
+
 /// Turns what was found in a capture into actions: the mapping, URLs, ordering and de-duplication (#243).
 enum SmartActions {
     /// An event with no length of its own lasts this long.
@@ -142,6 +169,21 @@ enum SmartActions {
         // Stable: actions of one kind keep the order they were found in.
         let ranked = out.enumerated().sorted { ($0.element.kind, $0.offset) < ($1.element.kind, $1.offset) }
         return ranked.prefix(limit).map(\.element)
+    }
+
+    /// What the Quick Access preview offers of `actions`: those whose kind isn't in `hidden`, the first of each chip
+    /// title as a chip (so two chips never read the same), up to `limit`, and the rest for its More menu.
+    static func quickAccess(_ actions: [SmartAction], hiding hidden: Set<SmartChip>,
+                            limit: Int = 2) -> (chips: [SmartAction], more: [SmartAction]) {
+        var chips: [SmartAction] = [], more: [SmartAction] = []
+        for a in actions where !hidden.contains(SmartChip(a.kind)) {
+            if chips.count < limit, !chips.contains(where: { $0.chipTitle == a.chipTitle }) {
+                chips.append(a)
+            } else {
+                more.append(a)
+            }
+        }
+        return (chips, more)
     }
 
     // MARK: URLs

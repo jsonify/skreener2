@@ -94,9 +94,12 @@ enum Output {
         return PNGQuantizer.compressed(png: data) ?? data
     }
 
+    /// `title` is what the capture shows, for %t (see `filename`).
     @discardableResult
-    static func save(_ image: NSImage, to dir: URL = Preferences.saveDirectory, date: Date = Date(), app: String? = nil) -> URL? {
-        let url = uniqueURL(in: dir, name: filename(for: date, app: app), ext: Preferences.imageFormat.fileExtension)
+    static func save(_ image: NSImage, to dir: URL = Preferences.saveDirectory, date: Date = Date(), app: String? = nil,
+                     title: String? = nil) -> URL? {
+        let url = uniqueURL(in: dir, name: filename(for: date, app: app, title: title),
+                            ext: Preferences.imageFormat.fileExtension)
         guard let data = savedData(image) else { return nil }
         do { try data.write(to: url); return url } catch { NSLog("Save failed: \(error)"); return nil }
     }

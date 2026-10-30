@@ -91,29 +91,56 @@ enum ContentNaming {
 
     // MARK: Renaming
 
-    /// Renames one saved capture once its title is known: the browser's page title as soon as it answers, else the
-    /// text, once both the browser (or the lack of one) and Vision have answered. Main thread.
+    /// The job for each capture still on screen (a Quick Access preview or an editor holds the image), so a save made
+    /// later is named after what it shows too.
+    private static let jobs = NSMapTable<NSImage, Job>(keyOptions: [.weakMemory, .objectPointerPersonality],
+                                                        valueOptions: .strongMemory)
+
+    /// Saves `image` (the capture `capture`, or an edit of it) to the export location for a Save after the capture:
+    /// named after what the capture shows when that is known, else "Skreener …" and renamed once it is.
+    static func save(_ image: NSImage, capture: NSImage) -> URL? {
+        guard let job = jobs.object(forKey: capture) else { return Output.save(image) }
+        let url = Output.save(image, date: job.date, app: job.app, title: job.title)
+        if let url { job.add(url) }
+        return url
+    }
+
+    /// The name the save panel offers for `capture` once its title is known; nil before, or when the file name
+    /// template has no %t.
+    static func suggestedName(for capture: NSImage) -> String? {
+        guard let job = jobs.object(forKey: capture), let title = job.title else { return nil }
+        return Output.filename(for: job.date, app: job.app, title: title)
+    }
+
+    /// Finds one capture's title: the browser's page title as soon as it answers, else its text, once both the browser
+    /// (or the lack of one) and Vision have answered. Files saved before then are renamed when it is known. Main thread.
     final class Job {
-        private let file: URL
-        private let date: Date
-        private let app: String?
+        let date: Date
+        let app: String?
+        /// Nil until known, and when nothing reads as a title.
+        private(set) var title: String?
+        private var files: [URL] = []
         private var page: SourcePage.Page??
         private var lines: [Line]?
         private var done = false
 
         /// Nil when the file name template has no %t. Starts reading the text right away.
-        init?(file: URL, image: NSImage, date: Date, app: String?,
-              template: String = Preferences.filenameTemplate) {
+        init?(image: NSImage, date: Date, app: String?, template: String = Preferences.filenameTemplate) {
             guard usesTitle(template), let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 return nil
             }
-            self.file = file
             self.date = date
             self.app = app
+            ContentNaming.jobs.setObject(self, forKey: image)
             DispatchQueue.global(qos: .utility).async {
                 let lines = ContentNaming.lines(in: cg)
                 DispatchQueue.main.async { self.textRead(lines) }
             }
+        }
+
+        /// A file saved as "Skreener …": renamed once the title is known. One saved after that already has it.
+        func add(_ file: URL) {
+            if !done { files.append(file) }
         }
 
         /// The browser's front page, or nil for any other app or no answer.
@@ -135,8 +162,11 @@ enum ContentNaming {
         private func finish(_ title: String?) {
             guard !done else { return }
             done = true
+            lines = nil
             guard let title = title.map(ContentNaming.shorten), !title.isEmpty else { return }   // stays "Skreener …"
-            ContentNaming.rename(file, to: Output.filename(for: date, app: app, title: title))
+            self.title = title
+            for file in files { ContentNaming.rename(file, to: Output.filename(for: date, app: app, title: title)) }
+            files = []
         }
     }
 
