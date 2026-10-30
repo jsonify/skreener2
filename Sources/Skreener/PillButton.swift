@@ -421,26 +421,6 @@ final class KeycapTray: NSView {
     }
 }
 
-/// A `KeycapTray` with a small caption under it naming what its keys are for.
-final class CaptionedTray: NSStackView {
-    init(_ tray: KeycapTray, caption: String) {
-        super.init(frame: .zero)
-        orientation = .vertical
-        alignment = .centerX
-        spacing = 2
-        translatesAutoresizingMaskIntoConstraints = false
-        let label = NSTextField(labelWithAttributedString: NSAttributedString(string: caption.uppercased(), attributes: [
-            .font: NSFont.systemFont(ofSize: 8.5, weight: .semibold),
-            .foregroundColor: NSColor.secondaryLabelColor,
-            .kern: 0.6,
-        ]))
-        label.setAccessibilityElement(false)   // the tray carries the same name
-        addArrangedSubview(tray)
-        addArrangedSubview(label)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-}
-
 /// A small upright switch for a tray, like a hardware toggle: a dark capsule with a symbol on it, and an LED under it
 /// that glows in the accent colour while it is on. A click flips `state` and sends the action.
 final class KeySwitch: NSButton {
