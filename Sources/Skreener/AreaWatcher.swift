@@ -251,85 +251,88 @@ enum WatchSetup {
     /// The choice, or nil when cancelled. The options are remembered for next time.
     static func run(hasPreviousArea: Bool) -> (Pick, WatchSettings)? {
         let form = WatchForm(settings: .load(), hasPreviousArea: hasPreviousArea)
-        let alert = NSAlert()
-        alert.messageText = "Watch This Area"
-        alert.informativeText = "Skreener checks it and notifies you, with a before and after picture, when it changes."
-        alert.accessoryView = form.view
-        alert.addButton(withTitle: "Choose…")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        while alert.runModal() == .alertFirstButtonReturn {
-            let settings = form.settings
-            guard settings.isValid else {
-                NSSound.beep()
-                alert.informativeText = "Type the text to watch for."
-                continue
-            }
-            settings.save()
-            return (form.pick, settings)
-        }
-        return nil
+        let dialog = RetroDialog(
+            title: "Watch This Area",
+            message: "Skreener checks it and notifies you, with a before and after picture, when it changes.",
+            body: form.view, primary: "Choose…", width: 440)
+        dialog.validate = { form.settings.isValid ? nil : "Type the text to watch for." }
+        guard dialog.runModal() else { return nil }
+        let settings = form.settings
+        settings.save()
+        return (form.pick, settings)
     }
 }
 
-/// The controls of the Watch This Area dialog.
+/// The controls of the Watch This Area dialog: segmented choices, an LCD stepper and a toggle on the SK-1 chassis.
 private final class WatchForm: NSObject {
     let view: NSView
     private let textField = NSTextField(string: "")
-    private let pickPopup = NSPopUpButton()
-    private let intervalPopup = NSPopUpButton()
-    private let triggerPopup = NSPopUpButton()
-    private let sensitivityPopup = NSPopUpButton()
-    private let keepWatching = NSButton(checkboxWithTitle: "Keep watching after it notifies", target: nil, action: nil)
+    private let pickControl = RetroSegmented()
+    private let intervalStepper = RetroUI.stepper(tip: "How often the area is checked", target: nil, action: nil)
+    private let triggerControl = RetroSegmented()
+    private let sensitivityControl = RetroSegmented()
+    private let keepWatching = RetroUI.toggle("Keep watching after it notifies", target: nil, action: nil)
 
     init(settings: WatchSettings, hasPreviousArea: Bool) {
         let picks = WatchSetup.Pick.allCases.filter { $0 != .previousArea || hasPreviousArea }
-        pickPopup.addItems(withTitles: picks.map(\.title))
-        for (menuItem, pick) in zip(pickPopup.itemArray, picks) { menuItem.tag = pick.rawValue }
-        intervalPopup.addItems(withTitles: WatchSettings.Interval.allCases.map(\.title))
-        intervalPopup.selectItem(at: WatchSettings.Interval.allCases.firstIndex(of: settings.interval) ?? 0)
-        triggerPopup.addItems(withTitles: WatchSettings.Trigger.allCases.map(\.title))
-        triggerPopup.selectItem(at: WatchSettings.Trigger.allCases.firstIndex(of: settings.trigger) ?? 0)
-        sensitivityPopup.addItems(withTitles: WatchSettings.Sensitivity.allCases.map(\.title))
-        sensitivityPopup.selectItem(at: WatchSettings.Sensitivity.allCases.firstIndex(of: settings.sensitivity) ?? 0)
+        // Short names on the keys; the full wording is the tooltip.
+        let pickNames: [WatchSetup.Pick: String] = [.area: "Area", .window: "Window", .previousArea: "Previous"]
+        for pick in picks { pickControl.addItem(pickNames[pick] ?? pick.title, tag: pick.rawValue, help: pick.title) }
+        intervalStepper.addItems(withTitles: WatchSettings.Interval.allCases.map(\.title))
+        intervalStepper.selectItem(at: WatchSettings.Interval.allCases.firstIndex(of: settings.interval) ?? 0)
+        let triggerNames = ["Changes", "Text appears", "Text goes"]
+        for (i, trigger) in WatchSettings.Trigger.allCases.enumerated() {
+            triggerControl.addItem(triggerNames[i], tag: i, help: "Notify when " + trigger.title.lowercased())
+        }
+        triggerControl.selectItem(withTag: WatchSettings.Trigger.allCases.firstIndex(of: settings.trigger) ?? 0)
+        for (i, sensitivity) in WatchSettings.Sensitivity.allCases.enumerated() {
+            sensitivityControl.addItem(sensitivity.title, tag: i, help: "\(sensitivity.title) sensitivity")
+        }
+        sensitivityControl.selectItem(withTag: WatchSettings.Sensitivity.allCases.firstIndex(of: settings.sensitivity) ?? 0)
         textField.stringValue = settings.text
         textField.placeholderString = "e.g. Build succeeded"
-        keepWatching.state = settings.keepWatching ? .on : .off
+        textField.setAccessibilityLabel("Text to watch for")
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.widthAnchor.constraint(equalToConstant: 250).isActive = true
+        keepWatching.isOn = settings.keepWatching
         let grid = NSGridView(views: [
-            [NSTextField(labelWithString: "Watch:"), pickPopup],
-            [NSTextField(labelWithString: "Check every:"), intervalPopup],
-            [NSTextField(labelWithString: "Notify when:"), triggerPopup],
-            [NSTextField(labelWithString: "Text:"), textField],
-            [NSTextField(labelWithString: "Sensitivity:"), sensitivityPopup],
+            [RetroLabel(caption: "Watch"), pickControl],
+            [RetroLabel(caption: "Check every"), intervalStepper],
+            [RetroLabel(caption: "Notify when"), triggerControl],
+            [RetroLabel(caption: "Text"), textField],
+            [RetroLabel(caption: "Sensitivity"), sensitivityControl],
             [NSGridCell.emptyContentView, keepWatching],
         ])
-        grid.column(at: 0).xPlacement = .trailing
-        grid.rowAlignment = .firstBaseline
-        grid.rowSpacing = 8
-        textField.widthAnchor.constraint(equalToConstant: 260).isActive = true
-        grid.frame.size = grid.fittingSize
+        grid.column(at: 0).xPlacement = .leading
+        grid.rowSpacing = 10
+        grid.columnSpacing = 12
+        for i in 0..<grid.numberOfRows { grid.row(at: i).yPlacement = .center }
         view = grid
         super.init()
-        triggerPopup.target = self
-        triggerPopup.action = #selector(triggerChanged)
+        triggerControl.target = self
+        triggerControl.action = #selector(triggerChanged)
+        keepWatching.target = self
+        keepWatching.action = #selector(keepToggled(_:))
         triggerChanged()
     }
 
+    @objc private func keepToggled(_ sender: PillButton) { sender.isOn.toggle() }
+
     @objc private func triggerChanged() {
-        let text = WatchSettings.Trigger.allCases[max(0, triggerPopup.indexOfSelectedItem)].usesText
+        let text = WatchSettings.Trigger.allCases[max(0, triggerControl.selectedTag())].usesText
         textField.isEnabled = text
-        sensitivityPopup.isEnabled = !text
+        sensitivityControl.isEnabled = !text
     }
 
-    var pick: WatchSetup.Pick { WatchSetup.Pick(rawValue: pickPopup.selectedTag()) ?? .area }
+    var pick: WatchSetup.Pick { WatchSetup.Pick(rawValue: pickControl.selectedTag()) ?? .area }
 
     var settings: WatchSettings {
         var s = WatchSettings()
-        s.interval = WatchSettings.Interval.allCases[max(0, intervalPopup.indexOfSelectedItem)]
-        s.trigger = WatchSettings.Trigger.allCases[max(0, triggerPopup.indexOfSelectedItem)]
-        s.sensitivity = WatchSettings.Sensitivity.allCases[max(0, sensitivityPopup.indexOfSelectedItem)]
+        s.interval = WatchSettings.Interval.allCases[max(0, intervalStepper.indexOfSelectedItem)]
+        s.trigger = WatchSettings.Trigger.allCases[max(0, triggerControl.selectedTag())]
+        s.sensitivity = WatchSettings.Sensitivity.allCases[max(0, sensitivityControl.selectedTag())]
         s.text = textField.stringValue
-        s.keepWatching = keepWatching.state == .on
+        s.keepWatching = keepWatching.isOn
         return s
     }
 }

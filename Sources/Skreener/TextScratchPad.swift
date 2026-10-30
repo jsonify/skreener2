@@ -49,11 +49,11 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     }
 
     private let textView = ScratchTextView()
-    private let count = NSTextField(labelWithString: "")
-    private let speakButton = NSButton(title: "Speak", target: nil, action: nil)
+    private let count = RetroUI.hint()
+    private let speakButton = RetroUI.key("Speak")
     private let speaker = TextSpeaker()
     private let toolbar = NSStackView()
-    private let paragraphMenu = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let paragraphMenu = RetroUI.menuKey(tip: "Make the paragraph a title, a heading or body text", target: nil, action: nil)
     private var formatted = false
     /// The running one-entry-per-line copy (#334); cancelled by another copy or by closing the pad.
     private var separateCopy: Task<Void, Never>?
@@ -69,12 +69,12 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     private static let kinds: [FormattedText.Paragraph] = [.heading(1), .heading(2), .body]
 
     private init() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 360),
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 380),
                          styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         w.title = "Captured Text"
         w.level = .floating
         w.isReleasedWhenClosed = false
-        w.minSize = NSSize(width: 460, height: 260)
+        w.minSize = NSSize(width: 580, height: 280)
         super.init(window: w)
         w.delegate = self
 
@@ -116,14 +116,14 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
 
-        let join = NSButton(title: "Join Lines", target: self, action: #selector(joinLines))
+        let join = RetroUI.key("Join Lines", target: self, action: #selector(joinLines))
         join.toolTip = "Turn the selected lines (or all of them) into one line"
         speakButton.target = self
         speakButton.action = #selector(toggleSpeech)
         speakButton.keyEquivalent = "s"
         speakButton.keyEquivalentModifierMask = [.command, .option]
         speakButton.toolTip = "Read the selection, or all the text, aloud (⌥⌘S)"
-        speaker.onFinish = { [weak self] in self?.speakButton.title = "Speak" }
+        speaker.onFinish = { [weak self] in self?.speakButton.setContent(title: "Speak", symbol: nil) }
         let markdown = NSMenuItem(title: "Copy as Markdown", action: #selector(copyMarkdownAndClose), keyEquivalent: "\r")
         markdown.keyEquivalentModifierMask = [.command, .shift]
         markdown.toolTip = "Copy with the Markdown as the plain text, for GitHub (⇧⌘Return)"
@@ -132,16 +132,16 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         plainOnly.toolTip = "Copy clean text and nothing else (⌥⌘Return)"
         let copyMenu = NSMenu()
         [markdown, plainOnly].forEach { $0.target = self; copyMenu.addItem($0) }
-        let copy = NSComboButton(title: "Copy to Clipboard", menu: copyMenu, target: self, action: #selector(copyAndClose))
-        copy.style = .split
-        copy.toolTip = "Copy all the text and close (⌘Return). The arrow has Copy as Markdown and Copy Plain Text Only."
-        count.textColor = .secondaryLabelColor
-        count.font = .systemFont(ofSize: 11)
+        // The main key, orange; its corner arrow (or a press and hold) opens the other two copies.
+        let copy = RetroUI.key("Copy to Clipboard", variant: .orange, height: 28, target: self, action: #selector(copyAndClose))
+        copy.variantMenu = { copyMenu }
+        copy.toolTip = "Copy all the text and close (⌘Return). The corner arrow (or press and hold) has Copy as Markdown and Copy Plain Text Only."
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let bar = NSStackView(views: [join, speakButton, count, spacer, copy])
         bar.spacing = 10
+        bar.alignment = .centerY
 
         buildToolbar()
         // The toolbar shows only with formatting; a hidden view leaves no gap in the stack.
@@ -154,73 +154,59 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         scroll.setContentHuggingPriority(.init(1), for: .vertical)
         scroll.setContentCompressionResistancePriority(.init(1), for: .vertical)
 
-        let content = NSView()
+        // One chassis behind the toolbar and the keys; the text area stays a plain text view.
+        let content = RetroUI.useChassis(w)
         column.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(column)
         NSLayoutConstraint.activate([
-            column.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            column.topAnchor.constraint(equalTo: RetroUI.contentTop(of: w, in: content), constant: 8),
             column.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
             column.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
             column.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
             scroll.widthAnchor.constraint(equalTo: column.widthAnchor),
             bar.widthAnchor.constraint(equalTo: column.widthAnchor),
         ])
-        w.contentView = content
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Title / Heading / Body, Bold, Italic, Code, the two lists, Outdent / Indent, the colors and Clear formatting.
+    /// Title / Heading / Body, Bold, Italic, Code, the two lists, Outdent / Indent, the colors and Clear formatting,
+    /// as captioned trays of keys.
     private func buildToolbar() {
         paragraphMenu.addItems(withTitles: ["Title", "Heading", "Body"])
         paragraphMenu.selectItem(at: 2)
-        paragraphMenu.controlSize = .small
-        paragraphMenu.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         paragraphMenu.target = self
         paragraphMenu.action = #selector(changeParagraph(_:))
-        paragraphMenu.toolTip = "Make the paragraph a title, a heading or body text"
 
-        func button(_ image: NSImage?, _ tip: String, _ action: Selector, tag: Int = 0) -> NSButton {
-            let b = NSButton(image: image ?? NSImage(), target: self, action: action)
-            b.controlSize = .small
-            b.toolTip = tip
-            b.tag = tag
-            b.widthAnchor.constraint(equalToConstant: 28).isActive = true
-            return b
+        func symbol(_ name: String, _ tip: String, _ action: Selector) -> PillButton {
+            RetroUI.key(symbol: name, tip: tip, target: self, action: action)
         }
-        func symbol(_ name: String, _ tip: String, _ action: Selector) -> NSButton {
-            button(NSImage(systemSymbolName: name, accessibilityDescription: tip), tip, action)
+        let dots: [NSView] = zip(Self.palette, ["Red", "Blue", "Green"]).enumerated().map { i, color in
+            RoundSwatch(color: Self.swatchColor(color.0), name: "\(color.1) text; again to take it off", size: 20) { [weak self] in
+                self?.applyColor(index: i)
+            }
         }
-        let dots = zip(Self.palette, ["Red", "Blue", "Green"]).enumerated().map { i, color in
-            button(Self.dot(color.0), "\(color.1) text; again to take it off", #selector(applyColor(_:)), tag: i)
-        }
-        let groups: [[NSView]] = [
-            [paragraphMenu],
-            [symbol("bold", "Bold (⌘B)", #selector(toggleBold)),
-             symbol("italic", "Italic (⌘I)", #selector(toggleItalic)),
-             symbol("chevron.left.forwardslash.chevron.right", "Code", #selector(toggleCode))],
-            [symbol("list.bullet", "Bulleted list", #selector(toggleBullets)),
-             symbol("list.number", "Numbered list", #selector(toggleNumbers)),
-             symbol("decrease.indent", "Outdent (⇧Tab in a list)", #selector(outdentItems)),
-             symbol("increase.indent", "Indent (Tab in a list)", #selector(indentItems))],
-            dots + [symbol("eraser", "Clear formatting: plain text, keeping headings and lists", #selector(clearFormatting))],
-            [symbol("text.line.first.and.arrowtriangle.forward", "Split into Lines (⇧⌥I)", #selector(splitIntoLines))],
+        let trays: [(String, [NSView])] = [
+            ("Style", [paragraphMenu]),
+            ("Text", [symbol("bold", "Bold (⌘B)", #selector(toggleBold)),
+                      symbol("italic", "Italic (⌘I)", #selector(toggleItalic)),
+                      symbol("chevron.left.forwardslash.chevron.right", "Code", #selector(toggleCode))]),
+            ("Lists", [symbol("list.bullet", "Bulleted list", #selector(toggleBullets)),
+                       symbol("list.number", "Numbered list", #selector(toggleNumbers)),
+                       symbol("decrease.indent", "Outdent (⇧Tab in a list)", #selector(outdentItems)),
+                       symbol("increase.indent", "Indent (Tab in a list)", #selector(indentItems))]),
+            ("Color", dots + [symbol("eraser", "Clear formatting: plain text, keeping headings and lists", #selector(clearFormatting))]),
+            ("Lines", [symbol("text.line.first.and.arrowtriangle.forward", "Split into Lines (⇧⌥I)", #selector(splitIntoLines))]),
         ]
-        toolbar.spacing = 0
-        for group in groups {
-            group.forEach { toolbar.addArrangedSubview($0) }
-            if let last = group.last { toolbar.setCustomSpacing(10, after: last) }
-        }
+        toolbar.orientation = .horizontal
+        toolbar.alignment = .top
+        toolbar.spacing = 10
+        for (caption, keys) in trays { toolbar.addArrangedSubview(RetroUI.tray(caption, keys)) }
         toolbar.isHidden = true
     }
 
-    /// A colored dot for a color button.
-    private static func dot(_ color: FormattedText.RGB) -> NSImage {
-        let (r, g, b) = (color.r, color.g, color.b)
-        return NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-            NSColor(srgbRed: r, green: g, blue: b, alpha: 1).setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
-            return true
-        }
+    /// The swatch colour of a toolbar colour.
+    private static func swatchColor(_ c: FormattedText.RGB) -> NSColor {
+        NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)
     }
 
     /// Rich text and the toolbar with formatting; otherwise plain text as before #326.
@@ -285,7 +271,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
             spoken = TextSpeaker.textToSpeak(textView.string, selection: selection)
         }
         guard let spoken else { NSSound.beep(); return }
-        speakButton.title = "Stop"
+        speakButton.setContent(title: "Stop", symbol: nil)
         speaker.speak(spoken)
     }
 
@@ -531,9 +517,9 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         restyle { $0.code = on }
     }
 
-    @objc private func applyColor(_ sender: NSButton) {
-        guard Self.palette.indices.contains(sender.tag) else { return }
-        let color = Self.palette[sender.tag]
+    private func applyColor(index: Int) {
+        guard Self.palette.indices.contains(index) else { return }
+        let color = Self.palette[index]
         let on = !allStyled({ $0.color == color })
         restyle { $0.color = on ? color : nil }
     }
@@ -696,7 +682,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         replaceParagraphs(old, with: new)
     }
 
-    @objc private func changeParagraph(_ sender: NSPopUpButton) {
+    @objc private func changeParagraph(_ sender: PillPopUp) {
         guard Self.kinds.indices.contains(sender.indexOfSelectedItem) else { return }
         let kind = Self.kinds[sender.indexOfSelectedItem]
         let old = paragraphs()

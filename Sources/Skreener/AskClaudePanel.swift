@@ -30,15 +30,15 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
     /// Whether a question is on its way, and whether the text below is an answer (not a message) that can be copied.
     private var busy = false
     private var hasAnswer = false
-    private let presets = NSSegmentedControl()
+    private let presets = RetroSegmented()
     private let questionField = NSTextField()
-    private let notice = NSTextField(wrappingLabelWithString: "")
-    private let askButton = NSButton(title: "Ask Claude", target: nil, action: nil)
-    private let settingsButton = NSButton(title: "Add API Key…", target: nil, action: nil)
-    private let handoffButton = NSButton(title: "Open in Claude", target: nil, action: nil)
+    private let notice = RetroUI.hint(wraps: true)
+    private let askButton = RetroUI.key("Ask Claude", variant: .orange, height: 28)
+    private let settingsButton = RetroUI.key("Add API Key…", height: 28)
+    private let handoffButton = RetroUI.key("Open in Claude", height: 28)
     private let spinner = NSProgressIndicator()
     private let answerView = NSTextView()
-    private let copyButton = NSButton(title: "Copy", target: nil, action: nil)
+    private let copyButton = RetroUI.key("Copy", height: 28)
 
     private init() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 440),
@@ -50,10 +50,9 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
         super.init(window: w)
         w.delegate = self
 
-        presets.segmentCount = AskClaude.Preset.allCases.count
-        for p in AskClaude.Preset.allCases { presets.setLabel(p.title, forSegment: p.rawValue) }
-        presets.trackingMode = .selectOne
-        presets.selectedSegment = AskClaude.Preset.explain.rawValue
+        for p in AskClaude.Preset.allCases { presets.addItem(p.title, tag: p.rawValue) }
+        presets.setAccessibilityLabel("Question")
+        presets.selectItem(withTag: AskClaude.Preset.explain.rawValue)
         presets.target = self
         presets.action = #selector(presetChanged)
 
@@ -61,12 +60,9 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
         questionField.target = self
         questionField.action = #selector(ask)
 
-        notice.font = .systemFont(ofSize: 11)
-        notice.textColor = .secondaryLabelColor
 
         askButton.target = self
         askButton.action = #selector(ask)
-        askButton.bezelColor = .controlAccentColor
         askButton.keyEquivalent = "\r"
         askButton.keyEquivalentModifierMask = [.command]
         askButton.toolTip = "Send the screenshot and the question to Claude (⌘Return)"
@@ -104,12 +100,14 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
         let copySpacer = NSView()
         copySpacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let copyBar = NSStackView(views: [copySpacer, copyButton])
+        askBar.alignment = .centerY
 
-        let content = NSView()
+        // The chassis runs behind the title bar, the presets and the keys; the answer stays a plain text view.
+        let content = RetroUI.useChassis(w)
         let views: [NSView] = [presets, questionField, notice, askBar, scroll, copyBar]
         views.forEach { $0.translatesAutoresizingMaskIntoConstraints = false; content.addSubview($0) }
         var constraints = [
-            presets.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
+            presets.topAnchor.constraint(equalTo: RetroUI.contentTop(of: w, in: content), constant: 10),
             presets.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             questionField.topAnchor.constraint(equalTo: presets.bottomAnchor, constant: 12),
             notice.topAnchor.constraint(equalTo: questionField.bottomAnchor, constant: 8),
@@ -123,7 +121,6 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
                             v.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14)]
         }
         NSLayoutConstraint.activate(constraints)
-        w.contentView = content
 
         // The key may be added or removed in Settings while the panel is open.
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in
@@ -132,7 +129,7 @@ final class AskClaudePanel: NSWindowController, NSWindowDelegate {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    private var preset: AskClaude.Preset { AskClaude.Preset(rawValue: presets.selectedSegment) ?? .explain }
+    private var preset: AskClaude.Preset { AskClaude.Preset(rawValue: presets.selectedTag()) ?? .explain }
 
     private func reset() {
         generation += 1

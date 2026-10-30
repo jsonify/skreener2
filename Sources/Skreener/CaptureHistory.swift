@@ -152,6 +152,8 @@ enum CaptureHistory {
 
 private final class HistoryPanel: NSPanel {
     override var canBecomeKey: Bool { true }
+    /// The panel hangs from the top of the screen: the chassis behind it must not drag it away (#344).
+    override func performDrag(with event: NSEvent) {}
 }
 
 /// CleanShot-style capture history that slides down from the top of the screen, with two views: History (recent
@@ -177,16 +179,15 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
     private var panel: HistoryPanel?
     private let strip = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "")
-    private let modeControl = NSSegmentedControl(labels: ["History", "Saved Files"], trackingMode: .selectOne,
-                                                 target: nil, action: nil)
+    private let modeControl = RetroSegmented()
     private let filterRow = NSStackView()
     private let searchField = NSSearchField()
-    private let monthPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let appPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let sitePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let kindPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let editedBox = NSButton(checkboxWithTitle: "Edited", target: nil, action: nil)
-    private let countLabel = NSTextField(labelWithString: "")
+    private let monthPopup = RetroUI.menuKey(tip: "Only files from this month", target: nil, action: nil)
+    private let appPopup = RetroUI.menuKey(tip: "Only captures of this app", target: nil, action: nil)
+    private let sitePopup = RetroUI.menuKey(tip: "Only captures of this site", target: nil, action: nil)
+    private let kindPopup = RetroUI.menuKey(tip: "Only this type of file", target: nil, action: nil)
+    private let editedBox = RetroUI.toggle("Edited", tip: "Only files edited in Skreener", target: nil, action: nil)
+    private let countLabel = RetroUI.hint()
     private var filterHeight: NSLayoutConstraint?
     private var cells: [HistoryCell] = []
     private var selection: Set<URL> = []
@@ -202,7 +203,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "historyPanelMode") }
     }
     private var tileSize: NSSize { HistoryCell.sizes[min(max(Preferences.libraryTileSize, 0), HistoryCell.sizes.count - 1)] }
-    private var height: CGFloat { tileSize.height + 98 + (mode == .library ? 26 : 0) }
+    private var height: CGFloat { tileSize.height + 112 + (mode == .library ? 26 : 0) }
 
     var isVisible: Bool { panel?.isVisible == true }
 
@@ -259,34 +260,31 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isReleasedWhenClosed = false
 
-        let bg = NSVisualEffectView()
-        bg.material = .hudWindow
-        bg.state = .active
+        // The SK-1 chassis, rounded at the corners; the thumbnails stay as they were.
+        let bg = ChassisView()
         bg.wantsLayer = true
         bg.layer?.cornerRadius = 16
         bg.layer?.masksToBounds = true
 
         modeControl.target = self
         modeControl.action = #selector(modeChanged)
-        modeControl.controlSize = .small
+        modeControl.addItem("History", tag: Mode.history.rawValue, help: "Recent captures")
+        modeControl.addItem("Saved Files", tag: Mode.library.rawValue, help: "Screenshots in the export location")
+        modeControl.setAccessibilityLabel("View")
 
         // Capture buttons, like the menu's; the panel slides away first.
-        let captures = NSStackView(views: Self.captureActions.enumerated().map { i, a in
-            let b = NSButton(image: NSImage(systemSymbolName: a.symbol, accessibilityDescription: a.title) ?? NSImage(),
-                             target: self, action: #selector(captureClicked(_:)))
-            b.isBordered = false
+        let captures = KeycapTray(Self.captureActions.enumerated().map { i, a in
+            let b = RetroUI.key(symbol: a.symbol, tip: a.title, target: self, action: #selector(captureClicked(_:)))
             b.tag = i
-            b.toolTip = a.title
             return b
         })
-        captures.spacing = 10
+        captures.setAccessibilityLabel("Capture")
 
-        let more = NSPopUpButton(frame: .zero, pullsDown: true)
-        more.bezelStyle = .texturedRounded
-        more.isBordered = false
+        // The menu is the pull-down's own: its first item (an ellipsis) is the face, a corner triangle says it opens.
+        let more = PillPopUp(pullsDown: true, height: RetroUI.iconKeyHeight, style: .keycap)
         let menu = NSMenu()
         menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
-        menu.item(at: 0)?.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: "More")
+        menu.item(at: 0)?.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More")
         menu.addItem(.sectionHeader(title: "Thumbnails"))
         for (i, t) in ["Small", "Medium", "Large"].enumerated() {
             let item = NSMenuItem(title: t, action: #selector(tileSizePicked(_:)), keyEquivalent: "")
@@ -300,11 +298,11 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         }
         menu.delegate = self
         more.menu = menu
+        more.synchronizeTitleAndSelectedItem()
+        more.toolTip = "More"
+        more.setAccessibilityLabel("More")
 
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close") ?? NSImage(),
-                             target: self, action: #selector(closeIt))
-        close.isBordered = false
-        close.toolTip = "Close (Esc)"
+        let close = RetroUI.key(symbol: "xmark", tip: "Close (Esc)", target: self, action: #selector(closeIt))
 
         buildFilterRow()
         filterHeight = filterRow.heightAnchor.constraint(equalToConstant: 0)
@@ -333,14 +331,14 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         }
         NSLayoutConstraint.activate([
             modeControl.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 18),
-            modeControl.topAnchor.constraint(equalTo: bg.topAnchor, constant: 10),
+            captures.topAnchor.constraint(equalTo: bg.topAnchor, constant: 10),
             captures.centerXAnchor.constraint(equalTo: bg.centerXAnchor),
-            captures.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
+            modeControl.centerYAnchor.constraint(equalTo: captures.centerYAnchor, constant: -1),
             close.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -16),
             close.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
             more.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -8),
             more.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
-            filterRow.topAnchor.constraint(equalTo: modeControl.bottomAnchor, constant: 10),
+            filterRow.topAnchor.constraint(equalTo: captures.bottomAnchor, constant: 10),
             filterRow.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 18),
             filterRow.trailingAnchor.constraint(lessThanOrEqualTo: bg.trailingAnchor, constant: -18),
             filterHeight!,
@@ -376,21 +374,17 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.widthAnchor.constraint(equalToConstant: 280).isActive = true
         for popup in [monthPopup, appPopup, sitePopup, kindPopup] {
-            popup.controlSize = .small
             popup.target = self; popup.action = #selector(filterChanged)
         }
-        editedBox.controlSize = .small
-        editedBox.toolTip = "Only files edited in Skreener"
-        editedBox.target = self; editedBox.action = #selector(filterChanged)
-        countLabel.font = .systemFont(ofSize: 11)
-        countLabel.textColor = .secondaryLabelColor
+        editedBox.target = self; editedBox.action = #selector(editedToggled(_:))
+        filterRow.alignment = .centerY
         [searchField, monthPopup, appPopup, sitePopup, kindPopup, editedBox, countLabel].forEach(filterRow.addArrangedSubview)
         filterRow.spacing = 8
     }
 
     /// Shows the view picked (History or Saved Files) at the current tile size.
     private func applyMode() {
-        modeControl.selectedSegment = mode.rawValue
+        modeControl.selectItem(withTag: mode.rawValue)
         filterRow.isHidden = mode != .library
         filterHeight?.constant = mode == .library ? 26 : 0
         if mode == .library {
@@ -407,7 +401,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
     /// Fills the Month, App, Site and Type filters from the files there, with how many each has; keeps what was picked.
     private func refreshFilters() {
         let entries = SavedLibrary.shared.entries
-        func fill(_ popup: NSPopUpButton, all: String, _ values: [(value: String, count: Int)], title: (String) -> String) {
+        func fill(_ popup: PillPopUp, all: String, _ values: [(value: String, count: Int)], title: (String) -> String) {
             let picked = popup.selectedItem?.representedObject as? String
             popup.removeAllItems()
             popup.addItem(withTitle: all)
@@ -438,7 +432,7 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
                            app: appPopup.selectedItem?.representedObject as? String,
                            site: sitePopup.selectedItem?.representedObject as? String,
                            kind: (kindPopup.selectedItem?.representedObject as? String).flatMap(SavedLibrary.Kind.init(rawValue:)),
-                           editedOnly: editedBox.state == .on)
+                           editedOnly: editedBox.isOn)
     }
 
     private func reload() {
@@ -640,12 +634,17 @@ final class CaptureHistoryPanel: NSObject, NSSearchFieldDelegate {
     }
 
     @objc private func modeChanged() {
-        mode = Mode(rawValue: modeControl.selectedSegment) ?? .history
+        mode = Mode(rawValue: modeControl.selectedTag()) ?? .history
         selection = []
         applyMode()
     }
 
     @objc private func filterChanged() { reload() }
+
+    @objc private func editedToggled(_ sender: PillButton) {
+        sender.isOn.toggle()
+        reload()
+    }
 
     func controlTextDidChange(_ obj: Notification) { reload() }
 

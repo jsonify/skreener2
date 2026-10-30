@@ -5,9 +5,9 @@ import AppKit
 final class ResizeForm: NSView, NSTextFieldDelegate {
     let widthField = NSTextField()
     private let heightField = NSTextField()
-    private let unitPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let keepProportions = NSButton(checkboxWithTitle: "Keep proportions", target: nil, action: nil)
-    private let presets = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let unitPopup = RetroSegmented()
+    private let keepProportions = RetroUI.toggle("Keep proportions", isOn: true, target: nil, action: nil)
+    private let presets = PillPopUp(pullsDown: true, height: RetroUI.textKeyHeight, style: .keycap)
     private let problem = NSTextField(labelWithString: "")
     private let original: (width: Int, height: Int)
     /// Pixels per point (2 for a Retina screenshot).
@@ -15,7 +15,7 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
     private(set) var pixels: (width: Int, height: Int)
     var onValidityChange: ((Bool) -> Void)?
 
-    private var inPoints: Bool { unitPopup.indexOfSelectedItem == 1 }
+    private var inPoints: Bool { unitPopup.selectedTag() == 1 }
 
     init(original: (width: Int, height: Int), density: CGFloat) {
         self.original = original
@@ -29,11 +29,12 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
             f.translatesAutoresizingMaskIntoConstraints = false
             f.widthAnchor.constraint(equalToConstant: 72).isActive = true
         }
-        unitPopup.addItems(withTitles: ["px", "pt"])
+        unitPopup.addItem("px", tag: 0, help: "Pixels")
+        unitPopup.addItem("pt", tag: 1, help: "Points")
         unitPopup.isEnabled = abs(density - 1) > 0.01   // points and pixels are the same at 1×
         unitPopup.target = self; unitPopup.action = #selector(unitChanged)
-        keepProportions.state = .on
-        keepProportions.target = self; keepProportions.action = #selector(proportionsToggled)
+        keepProportions.target = self; keepProportions.action = #selector(proportionsToggled(_:))
+        presets.toolTip = "Scale the image by a percentage"
         presets.addItem(withTitle: "Scale")
         for pct in [25, 50, 75, 200] {
             presets.addItem(withTitle: "\(pct)%")
@@ -44,11 +45,13 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
         problem.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         problem.textColor = .systemRed
 
-        let times = NSTextField(labelWithString: "×")
+        let times = RetroLabel(text: "×", tone: .ink, size: 13)
         let sizeRow = NSStackView(views: [widthField, times, heightField, unitPopup])
         sizeRow.spacing = 6
+        sizeRow.alignment = .centerY
         let optionsRow = NSStackView(views: [keepProportions, presets])
         optionsRow.spacing = 12
+        optionsRow.alignment = .centerY
         let stack = NSStackView(views: [sizeRow, optionsRow, problem])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -94,7 +97,7 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
         let isWidth = field === widthField
         let v = pixels(from: field)
         if isWidth { pixels.width = v } else { pixels.height = v }
-        if keepProportions.state == .on {
+        if keepProportions.isOn {
             let other = ImageOps.proportional(v, isWidth: isWidth, original: original)
             if isWidth { pixels.height = other; heightField.stringValue = text(other) } else {
                 pixels.width = other; widthField.stringValue = text(other)
@@ -105,8 +108,9 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
 
     @objc private func unitChanged() { showPixels() }
 
-    @objc private func proportionsToggled() {
-        guard keepProportions.state == .on else { return }
+    @objc private func proportionsToggled(_ sender: PillButton) {
+        sender.isOn.toggle()
+        guard keepProportions.isOn else { return }
         pixels.height = ImageOps.proportional(pixels.width, isWidth: true, original: original)
         showPixels()
     }
@@ -114,7 +118,7 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
     @objc private func presetPicked(_ item: NSMenuItem) {
         let f = Double(item.tag) / 100
         pixels = (max(1, Int((Double(original.width) * f).rounded())), max(1, Int((Double(original.height) * f).rounded())))
-        keepProportions.state = .on
+        keepProportions.isOn = true
         showPixels()
     }
 }

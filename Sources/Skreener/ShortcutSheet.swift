@@ -96,20 +96,33 @@ private final class ShortcutWindow: NSWindow {
         scroll.documentView = document
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
-        let done = NSButton(title: "Done", target: self, action: #selector(doneClicked))
-        done.bezelStyle = .rounded
+        let done = RetroUI.key("Done", variant: .orange, height: 28, target: self, action: #selector(doneClicked))
         done.translatesAutoresizingMaskIntoConstraints = false
+
+        let header = RetroLabel(caption: "Keyboard Shortcuts")
 
         let divider = NSBox()
         divider.boxType = .separator
         divider.translatesAutoresizingMaskIntoConstraints = false
 
-        let content = NSView()
-        [search, scroll, divider, done].forEach(content.addSubview)
-        window.contentView = content
+        // The chassis behind the header, the search field and the Done key; the list stays on it, as plain text.
+        let content: NSView
+        let top: NSLayoutYAxisAnchor
+        if parent == nil {
+            let chassis = RetroUI.useChassis(window)
+            content = chassis
+            top = RetroUI.contentTop(of: window, in: chassis)
+        } else {
+            content = ChassisView()
+            window.contentView = content
+            top = content.topAnchor
+        }
+        [header, search, scroll, divider, done].forEach(content.addSubview)
         let clip = scroll.contentView
         NSLayoutConstraint.activate([
-            search.topAnchor.constraint(equalTo: content.topAnchor, constant: 18),
+            header.topAnchor.constraint(equalTo: top, constant: 14),
+            header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            search.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             search.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
             search.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
             scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 12),
@@ -137,8 +150,7 @@ private final class ShortcutWindow: NSWindow {
         columns.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let shown = ShortcutCatalog.filter(sections, matching: search.stringValue)
         guard !shown.isEmpty else {
-            let none = NSTextField(labelWithString: "No shortcuts match “\(search.stringValue)”.")
-            none.textColor = .secondaryLabelColor
+            let none = RetroUI.hint("No shortcuts match “\(search.stringValue)”.", size: 13)
             columns.addArrangedSubview(none)
             return
         }
@@ -152,9 +164,7 @@ private final class ShortcutWindow: NSWindow {
         column.alignment = .leading
         column.spacing = 7
         for (n, section) in sections.enumerated() {
-            let header = NSTextField(labelWithString: section.title.uppercased())
-            header.font = .systemFont(ofSize: 11, weight: .semibold)
-            header.textColor = .secondaryLabelColor
+            let header = RetroLabel(caption: section.title)
             column.addArrangedSubview(header)
             column.setCustomSpacing(8, after: header)
             for entry in section.entries {
@@ -210,37 +220,40 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// One key drawn as a small rounded cap.
+/// One key drawn as a small cream key cap, like the keys on the toolbars.
 private final class KeyCap: NSView {
     private let label: NSTextField
 
     init(_ key: String) {
         label = NSTextField(labelWithString: key)
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 5
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = 1
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = .systemFont(ofSize: 12, weight: .semibold)
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         translatesAutoresizingMaskIntoConstraints = false
+        // The face is the top 22 pt; the 2 pt skirt is under it.
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 22),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 1),
+            heightAnchor.constraint(equalToConstant: 24),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 26),
         ])
+        refreshInk()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
-            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
-        }
+    private func refreshInk() { label.textColor = Retro.color(Retro.palette(for: self).keyInk) }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let colors = Retro.keyColors(.cream, Retro.palette(for: self))
+        Retro.drawKey(in: bounds, radius: 5, colors: colors, down: false, flipped: isFlipped)
     }
-    override var wantsUpdateLayer: Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshInk()
+        needsDisplay = true
+    }
 }
