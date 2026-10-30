@@ -165,7 +165,7 @@ final class MessageHUD {
         row.alignment = .centerY
         row.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 16)
 
-        let bg = RetroPlate(radius: 14, click: .run({ MessageHUD.dismiss() }))
+        let bg = RetroBarPlate(radius: 14, click: .run({ MessageHUD.dismiss() }))
         // The labels' ink follows the chassis' appearance.
         let ink = { [weak bg, weak titleLabel, weak detailLabel] in
             guard let bg else { return }

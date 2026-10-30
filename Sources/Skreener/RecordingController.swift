@@ -284,7 +284,7 @@ final class RecordingController {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // The chassis follows the system's appearance (charcoal in Dark Mode).
-        let plate = RetroPlate(radius: 14, click: .drag)
+        let plate = RetroBarPlate(radius: 14, click: .drag)
         plate.frame = NSRect(origin: .zero, size: size)
         plate.onAppearanceChange = { [weak p] in p?.invalidateShadow() }
         row.translatesAutoresizingMaskIntoConstraints = false

@@ -269,7 +269,7 @@ final class RecordAreaPicker: NSObject {
     /// `content` on a chassis plate. Clicks on bare chassis are swallowed: they must not start a selection drag
     /// underneath.
     private static func card(_ content: NSView, radius: CGFloat = 14) -> NSView {
-        let card = RetroPlate(radius: radius, click: .swallow)
+        let card = RetroBarPlate(radius: radius, click: .swallow)
         card.translatesAutoresizingMaskIntoConstraints = false
         if radius > 0 {
             // It floats over the screen like a window, so it casts a shadow like one.

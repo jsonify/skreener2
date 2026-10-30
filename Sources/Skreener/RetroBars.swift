@@ -2,7 +2,7 @@ import AppKit
 
 /// SK-1 pieces for the floating capture bars and overlays (#344): the recording bar, the scrolling-capture bar, the
 /// record options panel, the self-timer, the toast and the readouts on a selection. They build on `Retro`:
-/// - `RetroPlate`: a floating bar's chassis with rounded corners (a window's `ChassisView` is square), which drags
+/// - `RetroBarPlate`: a floating bar's chassis with rounded corners (a window's `ChassisView` is square), which drags
 ///   its window, swallows clicks or runs an action. `RetroBars.drawPlate` draws the same in a custom view.
 /// - `RetroBars.drawLCD`: a sunken bezel with olive glass in it. `ElapsedLCD`: the recording bar's LCD (a REC lamp,
 ///   the format and the elapsed time in seven-segment digits). `LCDReadout`: one line of mono text on LCD glass.
@@ -107,7 +107,7 @@ enum RetroBars {
 /// A floating bar's chassis: `RetroBars.drawPlate` filling the view, in the appearance's palette. What a click on
 /// bare chassis does is `click`: drag the window (a bar), swallow it (a panel over a selection, which must not start
 /// a new selection underneath) or run something (a toast that a click dismisses).
-final class RetroPlate: NSView {
+final class RetroBarPlate: NSView {
     enum Click {
         case drag, swallow
         case run(() -> Void)

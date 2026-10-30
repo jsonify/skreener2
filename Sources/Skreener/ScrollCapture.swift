@@ -574,7 +574,7 @@ final class ScrollCaptureController {
 
         // The SK-1 chassis (#344), following the system's appearance: the status on an LCD, then the keys in a tray.
         // Solid rather than a blur, so it reads the same over any page. Drag the chassis to move it.
-        let bg = RetroPlate(radius: 14, click: .drag)
+        let bg = RetroBarPlate(radius: 14, click: .drag)
         bg.frame = NSRect(origin: .zero, size: size)
         bg.onAppearanceChange = { [weak p] in p?.invalidateShadow() }
 
