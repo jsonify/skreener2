@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/jsonify/skreener2/compare/v1.5.0...v1.6.0) (2026-10-30)
+
+
+### Features
+
+* **editor:** SK-1 retro look for the editor toolbar, LCD and strip ([#344](https://github.com/jsonify/skreener2/issues/344)) ([#345](https://github.com/jsonify/skreener2/issues/345)) ([3ee74c2](https://github.com/jsonify/skreener2/commit/3ee74c2b3b212da335abe91883c0b95f28b91712))
+
 ## [1.5.0](https://github.com/jsonify/skreener2/compare/v1.4.1...v1.5.0) (2026-10-30)
 
 
