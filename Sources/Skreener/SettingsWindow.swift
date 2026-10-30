@@ -71,6 +71,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private var actions: [ControlAction] = []
     private let folderLabel = NSTextField(labelWithString: "")
     private let loginSwitch = NSSwitch()
+    /// Capture Text's scratch pad, also switched from the editor's Copy Text strip.
+    private let scratchPadSwitch = NSSwitch()
     /// Kept so it can follow the setting when a link's prompt turns it on (`refreshURLScheme`).
     private let urlSchemeSwitch = NSSwitch()
     private let shortcutsPane = ShortcutsPane()
@@ -397,8 +399,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 ], note: "Changes apply to the next preview."),
                 group("Capture Text", [
                     toggle("Edit the text before copying",
-                           "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away.",
-                           Preferences.textScratchPad) { Preferences.textScratchPad = $0 },
+                           "Opens what was read in a scratch pad; Copy to Clipboard (⌘Return) copies it. Off: copied straight away. "
+                           + "The editor's Copy Text follows this too, and its Scratch Pad button switches it.",
+                           Preferences.textScratchPad, using: scratchPadSwitch) { Preferences.textScratchPad = $0 },
                     toggle("Keep formatting as Markdown",
                            "Headings, bullet and numbered lists, bold and code, written as Markdown. Apps that take rich text (Notes, Mail, Pages) also get colored words. Bold, code and colors are read from the pixels, so they can be missed. Copies paste as formatted text in Google Docs, Notes, Mail and Pages, and as clean text (• bullets, no symbols) in plain fields; the scratch pad has Copy as Markdown for GitHub. Off: plain text.",
                            Preferences.keepTextFormatting) { Preferences.keepTextFormatting = $0 },
@@ -806,8 +809,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         return v
     }
 
-    private func toggle(_ title: String, _ subtitle: String?, _ on: Bool, _ set: @escaping (Bool) -> Void) -> NSView {
-        let s = NSSwitch()
+    private func toggle(_ title: String, _ subtitle: String?, _ on: Bool, using s: NSSwitch = NSSwitch(),
+                        _ set: @escaping (Bool) -> Void) -> NSView {
         s.controlSize = .small
         s.state = on ? .on : .off
         bind(s) { set(($0 as? NSSwitch)?.state == .on) }
@@ -824,6 +827,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private func refreshSystemState() {
         refreshPermissions()
+        scratchPadSwitch.state = Preferences.textScratchPad ? .on : .off   // may have been switched in the editor
         // A paste banner may have remembered a destination in the meantime.
         if pasteList.superview != nil { reloadPasteDestinations() }
         shortcutsPane.refreshMacShortcuts()

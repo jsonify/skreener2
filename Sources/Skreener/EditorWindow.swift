@@ -327,6 +327,14 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
     private let areaHint = NSTextField(labelWithString: "")
     private let contrastLabel = NSTextField(labelWithString: "")
     private lazy var copyAllTextButton = textButton("Copy All Text", canvas, #selector(CanvasView.copyAllText(_:)))
+    /// Copy Text opens the scratch pad, or copies straight away: the same setting as Capture Text's (Settings → After Capture).
+    private lazy var scratchPadButton: PillButton = {
+        let b = PillButton(title: "Scratch Pad", symbol: "note.text", style: .raised, height: pillHeight)
+        b.target = self; b.action = #selector(scratchPadToggled)
+        b.toolTip = "On: the text opens in the scratch pad to edit before copying, for Copy Text here and for Capture Text. "
+            + "Off: it is copied straight away."
+        return b
+    }()
     private lazy var contrastMethodButton = textButton("WCAG 2", self, #selector(contrastMethodToggled))
     private lazy var areaDoneButton = textButton("Cancel", self, #selector(areaPickCancel))
     private let backgroundBar = NSStackView()
@@ -758,10 +766,12 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         }
     }
 
-    private func textCopied(_ text: String) {
-        guard !text.isEmpty else { showToast("No text found"); NSSound.beep(); return }
-        let lines = text.split(separator: "\n").count
-        showToast(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+    private func textCopied(_ outcome: CaptureText.Outcome) {
+        switch outcome {
+        case .noText: showToast("No text found"); NSSound.beep()
+        case .openedPad: break   // the pad is in front
+        case .copied(let lines): showToast(lines == 1 ? "Copied 1 line of text" : "Copied \(lines) lines of text")
+        }
     }
 
     private func buildAttributesStrip() -> NSView {
@@ -1253,7 +1263,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         contrastLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         contrastLabel.textColor = .labelColor
         contrastMethodButton.toolTip = "Switch between WCAG 2 and APCA (or ⌥-click the screenshot)"
-        [areaHint, contrastLabel, contrastMethodButton, copyAllTextButton, areaDoneButton].forEach(areaBar.addArrangedSubview)
+        [areaHint, contrastLabel, contrastMethodButton, scratchPadButton, copyAllTextButton, areaDoneButton].forEach(areaBar.addArrangedSubview)
         areaBar.spacing = 6
         areaBar.setCustomSpacing(10, after: areaHint)
         areaBar.setCustomSpacing(10, after: contrastLabel)
@@ -1283,7 +1293,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         contrastMethodButton.isHidden = kind != .contrast
         contrastMethodButton.setContent(title: Preferences.contrastMethod == .wcag ? "WCAG 2" : "APCA", symbol: nil)
         copyAllTextButton.isHidden = kind != .text
+        scratchPadButton.isHidden = kind != .text
+        scratchPadButton.isOn = Preferences.textScratchPad
         areaDoneButton.setContent(title: kind == .contrast ? "Done" : "Cancel", symbol: nil)
+    }
+
+    @objc private func scratchPadToggled() {
+        Preferences.textScratchPad.toggle()
+        scratchPadButton.isOn = Preferences.textScratchPad
+        showToast(Preferences.textScratchPad ? "Text opens in the scratch pad" : "Text is copied straight away")
+        window?.makeFirstResponder(canvas)
     }
 
     private func buildBackgroundBar() {

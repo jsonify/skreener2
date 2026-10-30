@@ -1602,10 +1602,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
     }
 
-    // MARK: Copy text (OCR on the screenshot; the text goes to the clipboard)
+    // MARK: Copy text (OCR on the screenshot; the text goes to the scratch pad or the clipboard, as Capture Text's does)
 
-    /// Called with the text Copy Text found (empty when there was none); it is already on the clipboard.
-    var onTextCopied: ((String) -> Void)?
+    /// Called when Copy Text is done: the text is already in the scratch pad or on the clipboard.
+    var onTextCopied: ((CaptureText.Outcome) -> Void)?
     /// What a drag over the screenshot picks an area for, instead of drawing: Copy Text from Area, Copy Average Color,
     /// Check Contrast (which stays on, measuring each new area, until Esc), or the strip Cut Out removes.
     enum AreaPick { case text, averageColor, contrast, cutOut }
@@ -1654,20 +1654,23 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         ("Copy Text from Area…", #selector(CanvasView.copyTextFromArea(_:))), ("Copy All Text", #selector(CanvasView.copyAllText(_:))),
     ]
 
-    /// Reads the text in `area` of the screenshot (all of it when nil), copies it and reports it.
+    /// Reads the text in `area` of the screenshot (all of it when nil), opens it in the scratch pad or copies it, and
+    /// reports it.
     private func copyText(in area: NSRect?) {
-        let image = base
+        var image: NSImage? = base
         let size = base.size
-        var region: CGRect?
         if let area {
             let r = area.intersection(imageRect)
-            guard !r.isEmpty, size.width > 0, size.height > 0 else { onTextCopied?(""); return }
-            region = CGRect(x: r.minX / size.width, y: r.minY / size.height, width: r.width / size.width, height: r.height / size.height)
+            guard !r.isEmpty, size.width > 0, size.height > 0 else { onTextCopied?(.noText); return }
+            let region = CGRect(x: r.minX / size.width, y: r.minY / size.height, width: r.width / size.width, height: r.height / size.height)
+            // Cropped rather than limited with a region of interest, so formatting is read from just that area too.
+            image = CaptureText.cropped(base, to: region)
         }
+        guard let image else { onTextCopied?(.noText); return }
+        let screen = window?.screen
         Task { @MainActor [weak self] in
-            let text = await TextRecognizer.recognize(image, region: region)
-            if !text.isEmpty { TextRecognizer.copyText(text) }
-            self?.onTextCopied?(text)
+            let outcome = await CaptureText.deliver(image, on: screen)
+            self?.onTextCopied?(outcome)
         }
     }
 
