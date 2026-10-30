@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/jsonify/skreener2/compare/v1.4.0...v1.4.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **capture:** name Quick Access and editor saves after what the capture shows ([#340](https://github.com/jsonify/skreener2/issues/340)) ([0dbe1dc](https://github.com/jsonify/skreener2/commit/0dbe1dc1f144607b320c53bd3d1b1aab9ce20a1b))
+
 ## [1.4.0](https://github.com/jsonify/skreener2/compare/v1.3.0...v1.4.0) (2026-10-30)
 
 
