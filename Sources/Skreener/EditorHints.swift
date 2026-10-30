@@ -40,11 +40,6 @@ enum BoxSimilarity {
     }
 }
 
-/// A label that never takes the mouse: clicks go through to the canvas under it.
-private final class HintLine: NSTextField {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 /// A small accent-colored dot on a control for a feature not used yet (#303).
 private final class NewDot: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -58,7 +53,8 @@ private final class NewDot: NSView {
 /// find its controls; it never builds or rearranges them.
 @MainActor final class EditorHelp {
     private weak var canvas: CanvasView?
-    private let hintLine = HintLine(labelWithString: "")
+    /// Shows the live hint on the status display (nil: back to the tool's usage).
+    private let showLine: (String?) -> Void
     private var hintText: String?
     private var hintTask: Task<Void, Never>?
     /// Sizes of the rectangles and filled rectangles drawn by hand in this screenshot.
@@ -68,26 +64,15 @@ private final class NewDot: NSView {
     private let toolPill: (Tool) -> NSView?
     private let featurePills: () -> [PillPopUp]
 
-    /// `toolPill` finds a tool's button; `featurePills` the toolbar pull-downs, whose menus may hold new features.
-    init(canvas: CanvasView, over scroll: NSView, in content: NSView, toolPill: @escaping (Tool) -> NSView?,
-         featurePills: @escaping () -> [PillPopUp]) {
+    /// `toolPill` finds a tool's button; `featurePills` the toolbar pull-downs, whose menus may hold new features;
+    /// `showLine` puts a live hint on the status display.
+    init(canvas: CanvasView, toolPill: @escaping (Tool) -> NSView?, featurePills: @escaping () -> [PillPopUp],
+         showLine: @escaping (String?) -> Void) {
         self.canvas = canvas
+        self.showLine = showLine
         self.toolPill = toolPill
         self.featurePills = featurePills
         Tips.startWatching()
-
-        hintLine.font = .systemFont(ofSize: 11)
-        hintLine.textColor = .secondaryLabelColor
-        hintLine.alignment = .center
-        hintLine.lineBreakMode = .byTruncatingTail
-        hintLine.alphaValue = 0
-        hintLine.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(hintLine)
-        NSLayoutConstraint.activate([
-            hintLine.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            hintLine.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -3),
-            hintLine.leadingAnchor.constraint(greaterThanOrEqualTo: scroll.leadingAnchor, constant: 16),
-        ])
 
         canvas.onHint = { [weak self] text, dragging in self?.showHint(text, now: dragging) }
         canvas.onDrawnByHand = { [weak self] tool, box, id in self?.drew(tool, box, id) }
@@ -101,27 +86,17 @@ private final class NewDot: NSView {
 
     // MARK: Hint line
 
-    /// `text` under the canvas: at once during a drag, after 400 ms of hovering; nil fades it out.
+    /// `text` on the status display: at once during a drag, after 400 ms of hovering; nil takes it off.
     private func showHint(_ text: String?, now: Bool) {
         let text = Tips.enabled ? text : nil
         guard text != hintText else { return }
         hintText = text
         hintTask?.cancel()
-        guard let text else {
-            let line = hintLine
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.15
-                line.animator().alphaValue = 0
-            }
-            return
-        }
-        hintLine.alphaValue = 0
+        guard let text else { showLine(nil); return }
         hintTask = Task { @MainActor [weak self] in
             if !now { try? await Task.sleep(for: .milliseconds(400)) }
             guard !Task.isCancelled, let self else { return }
-            let line = self.hintLine
-            line.stringValue = text
-            line.animator().alphaValue = 1   // fades in over the default animation duration
+            self.showLine(text)
         }
     }
 
