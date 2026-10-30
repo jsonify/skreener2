@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 
 /// The first-run Welcome Guide, and What's New after an update (Help menu).
 @MainActor enum WelcomeGuide {
