@@ -1586,7 +1586,10 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
 
     /// Save As… (⇧⌘S): the save panel; later saves go to the file picked there.
     func saveScreenshotAs() {
-        let name = fileURL?.deletingPathExtension().lastPathComponent
+        // The file it was saved to as it is named now (renamed after what it shows, or moved by a filing rule), else
+        // what the capture shows.
+        let name = fileURL.map(AutoFiling.current)?.deletingPathExtension().lastPathComponent
+            ?? ContentNaming.suggestedName(for: image)
         if let url = Output.saveAs(canvas.flattened(), name: name) { fileURL = url }
     }
 
@@ -1605,7 +1608,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             NSSound.beep()
             return nil
         }
-        guard let url = Output.save(image) else {
+        guard let url = ContentNaming.save(image, capture: self.image) else {
             showToast("Couldn't save: check the export location in Settings")
             NSSound.beep()
             return nil
