@@ -129,8 +129,8 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   `**` or `#`). With formatting kept, the scratch pad edits the formatted text itself, with no Markdown symbols: a
   toolbar above it has Title / Heading / Body, Bold (Command-B), Italic (Command-I), Code, bulleted and numbered
   lists, Outdent / Indent (Tab and Shift-Tab in a list), three colors and Clear formatting, and Return in a list
-  starts the next item (on an empty item it ends the list). The arrow on the scratch pad's Copy to Clipboard
-  button has **Copy as Markdown** (Shift-Command-Return, for GitHub) and **Copy Plain Text Only** (Option-Command-Return).
+  starts the next item (on an empty item it ends the list). The corner arrow on the scratch pad's Copy to Clipboard
+  key (or press and hold it) has **Copy as Markdown** (Shift-Command-Return, for GitHub) and **Copy Plain Text Only** (Option-Command-Return).
   Bold, code and colors are read from the pixels, so they can be missed; Settings → After Capture → Capture Text →
   **Keep formatting as Markdown** turns it off, and the scratch pad is plain text again.
 - **Paste destinations**: a Capture Text copy pastes as clean text by default, and as Markdown where Markdown is
@@ -187,6 +187,11 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   it (or what the pointer is doing) and the zoom in seven-segment digits. The strip under it has round color
   swatches, ◀ ▶ steppers for sizes (click the readout for the full list), segmented choices and orange-square
   toggles. Settings is the dark key and Save the orange one.
+- **The same look elsewhere.** The Capture Text scratch pad (its toolbar is captioned trays of keys, with round color
+  swatches and an orange Copy key), Step Guide, Capture History, Ask Claude, the Combine Screenshots, Watch This Area
+  and Resize Image forms, the shortcut list (its keys drawn as key caps) and the tip popovers use the same cream
+  chassis (charcoal in Dark Mode), keys, segmented choices and orange-square toggles. Settings keeps the standard macOS
+  controls.
 - **Tabs.** Each capture opens as a tab, shown as thumbnails in a dock beside the canvas.
 - **Tools.** Arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter, text, numbered counter, pixelate,
   blur, erase, spotlight and magnifier. Every tool has a single-key shortcut (V A R F O L P H T N X B E S M).

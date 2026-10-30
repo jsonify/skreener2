@@ -219,31 +219,34 @@ final class KeycapView: NSView {
     init(_ key: String) {
         label = NSTextField(labelWithString: key)
         super.init(frame: .zero)
-        label.font = .systemFont(ofSize: 11, weight: .medium)
-        label.textColor = .labelColor
+        label.font = .systemFont(ofSize: 11, weight: .semibold)
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 18),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 1),
+            heightAnchor.constraint(equalToConstant: 20),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
         ])
+        refreshInk()
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel(key)
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    private func refreshInk() { label.textColor = Retro.color(Retro.palette(for: self).keyInk) }
+
+    /// A small cream key (the SK-1 keys), 18 pt of face on a 2 pt skirt.
     override func draw(_ dirtyRect: NSRect) {
-        let r = bounds.insetBy(dx: 0.5, dy: 0.5)
-        let path = NSBezierPath(roundedRect: r, xRadius: 4, yRadius: 4)
-        NSColor.quaternaryLabelColor.setFill()
-        path.fill()
-        NSColor.tertiaryLabelColor.setStroke()
-        path.lineWidth = 1
-        path.stroke()
+        Retro.drawKey(in: bounds, radius: 4, colors: Retro.keyColors(.cream, Retro.palette(for: self)), down: false, flipped: isFlipped)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshInk()
+        needsDisplay = true
     }
 }
 
@@ -278,15 +281,13 @@ final class KeycapView: NSView {
     }
 
     private func content(_ tip: TipID, actionTitle: String?) -> NSView {
-        let title = NSTextField(labelWithString: tip.title)
+        let title = RetroLabel(text: tip.title, tone: .ink, size: 13)
         title.font = .systemFont(ofSize: 13, weight: .semibold)
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close") ?? NSImage(),
-                             target: self, action: #selector(closePressed))
-        close.isBordered = false
-        close.imagePosition = .imageOnly
-        close.contentTintColor = .secondaryLabelColor
-        close.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let close = PillButton(title: nil, symbol: "xmark", style: .round, height: 20)
+        close.target = self
+        close.action = #selector(closePressed)
         close.toolTip = "Close"
+        close.setAccessibilityLabel("Close")
         let head = NSStackView()
         head.addView(title, in: .leading)
         head.addView(close, in: .trailing)
@@ -294,21 +295,18 @@ final class KeycapView: NSView {
 
         let line = NSStackView(views: TipText.segments(tip.line).map { seg -> NSView in
             if seg.isKey { return KeycapView(seg.text) }
-            let l = NSTextField(labelWithString: seg.text)
-            l.font = .systemFont(ofSize: 12)
-            l.textColor = .secondaryLabelColor
-            return l
+            return RetroLabel(text: seg.text, tone: .soft, size: 12)
         })
         line.spacing = 4
         line.alignment = .centerY
 
         var buttons: [NSView] = []
-        let gotIt = NSButton(title: actionTitle == nil ? "Got it" : "Not Now", target: self, action: #selector(closePressed))
-        gotIt.controlSize = .small
+        // Got it is the orange key when it is the only choice; with an action, that is the orange one.
+        let gotIt = RetroUI.key(actionTitle == nil ? "Got it" : "Not Now", variant: actionTitle == nil ? .orange : .cream,
+                                target: self, action: #selector(closePressed))
         buttons.append(gotIt)
         if let actionTitle {
-            let run = NSButton(title: actionTitle, target: self, action: #selector(actionPressed))
-            run.controlSize = .small
+            let run = RetroUI.key(actionTitle, variant: .orange, target: self, action: #selector(actionPressed))
             run.keyEquivalent = "\r"
             buttons.append(run)
         } else {

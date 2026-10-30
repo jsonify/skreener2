@@ -21,12 +21,13 @@ final class StepGuideWindow: NSWindowController, NSWindowDelegate, NSTableViewDa
     private struct WeakEditor { weak var editor: EditorWindowController? }
 
     private let table = NSTableView()
-    private let countLabel = NSTextField(labelWithString: "")
+    private let countLabel = RetroUI.hint(size: 12)
     private let emptyLabel = NSTextField(wrappingLabelWithString:
         "No steps yet. Choose Start Step Recorder in Skreener's menu, then click through the task: each click becomes a step.")
-    private let recordButton = NSButton(title: "", target: nil, action: nil)
-    private let exportButton = NSPopUpButton(frame: .zero, pullsDown: true)
-    private let newButton = NSButton(title: "New Guide…", target: nil, action: nil)
+    private let recordButton = RetroUI.key("Record Steps")
+    /// The main key, orange: a pull-down with the three formats.
+    private let exportButton = PillPopUp(pullsDown: true, height: 28, style: .keycap)
+    private let newButton = RetroUI.key("New Guide…")
     /// Small copies of the step screenshots, by step and the file's modification date.
     private var thumbnails: [UUID: (date: Date, image: NSImage)] = [:]
     private var editors: [UUID: WeakEditor] = [:]
@@ -55,11 +56,8 @@ final class StepGuideWindow: NSWindowController, NSWindowDelegate, NSTableViewDa
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
 
-        let hint = NSTextField(wrappingLabelWithString:
-            "Edit a step's text (**bold** marks a name; Return finishes, ⌥Return adds a line), move it, annotate its "
-                + "screenshot or delete it, then export the guide.")
-        hint.font = .systemFont(ofSize: 12)
-        hint.textColor = .secondaryLabelColor
+        let hint = RetroUI.hint("Edit a step's text (**bold** marks a name; Return finishes, ⌥Return adds a line), move it, "
+                                + "annotate its screenshot or delete it, then export the guide.", size: 12, wraps: true)
         emptyLabel.alignment = .center
         emptyLabel.textColor = .secondaryLabelColor
 
@@ -68,6 +66,8 @@ final class StepGuideWindow: NSWindowController, NSWindowDelegate, NSTableViewDa
         newButton.toolTip = "Delete every step and start over"
         recordButton.target = self
         recordButton.action = #selector(toggleRecording)
+        exportButton.keyVariant = .orange
+        exportButton.toolTip = "Export the guide as Markdown with images, HTML or PDF"
         exportButton.addItem(withTitle: "Export")
         for (title, action) in [("Markdown and Images…", #selector(exportMarkdown)), ("HTML…", #selector(exportHTML)),
                                 ("PDF…", #selector(exportPDF))] {
@@ -75,17 +75,17 @@ final class StepGuideWindow: NSWindowController, NSWindowDelegate, NSTableViewDa
             item.target = self
             exportButton.menu?.addItem(item)
         }
-        countLabel.textColor = .secondaryLabelColor
-        countLabel.font = .systemFont(ofSize: 12)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let bar = NSStackView(views: [newButton, countLabel, spacer, recordButton, exportButton])
         bar.spacing = 10
+        bar.alignment = .centerY
 
-        let content = NSView()
+        // The chassis runs behind the title bar, the hint and the bar; the steps stay on a plain table.
+        let content = RetroUI.useChassis(w)
         [hint, scroll, emptyLabel, bar].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; content.addSubview($0) }
         NSLayoutConstraint.activate([
-            hint.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            hint.topAnchor.constraint(equalTo: RetroUI.contentTop(of: w, in: content), constant: 10),
             hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             hint.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
             scroll.topAnchor.constraint(equalTo: hint.bottomAnchor, constant: 10),
@@ -99,7 +99,6 @@ final class StepGuideWindow: NSWindowController, NSWindowDelegate, NSTableViewDa
             bar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
             bar.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
         ])
-        w.contentView = content
 
         store.onChange = { [weak self] in self?.reload() }
         let nc = NotificationCenter.default
@@ -128,7 +127,7 @@ final class StepGuideWindow: NSWindowController, NSWindowDelegate, NSTableViewDa
         emptyLabel.isHidden = n > 0
         exportButton.isEnabled = n > 0
         newButton.isEnabled = n > 0
-        recordButton.title = StepRecorder.shared.isOn ? "Stop Recording" : "Record Steps"
+        recordButton.setContent(title: StepRecorder.shared.isOn ? "Stop Recording" : "Record Steps", symbol: nil)
     }
 
     private func thumbnail(for step: RecordedStep) -> NSImage? {
@@ -319,16 +318,11 @@ private final class StepRow: NSTableCellView {
 
     init(target: StepGuideWindow) {
         func button(_ symbol: String, _ tip: String, _ action: Selector) -> NSButton {
-            let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip) ?? NSImage(),
-                             target: target, action: action)
-            b.bezelStyle = .texturedRounded
-            b.toolTip = tip
-            return b
+            RetroUI.key(symbol: symbol, tip: tip, height: 28, target: target, action: action)
         }
         up = button("chevron.up", "Move Up", #selector(StepGuideWindow.moveStepUp(_:)))
         down = button("chevron.down", "Move Down", #selector(StepGuideWindow.moveStepDown(_:)))
-        let annotate = NSButton(title: "Annotate", target: target, action: #selector(StepGuideWindow.annotate(_:)))
-        annotate.bezelStyle = .texturedRounded
+        let annotate = RetroUI.key("Annotate", height: 28, target: target, action: #selector(StepGuideWindow.annotate(_:)))
         annotate.toolTip = "Open the screenshot in the editor"
         let delete = button("trash", "Delete Step", #selector(StepGuideWindow.deleteStep(_:)))
         super.init(frame: .zero)
@@ -348,10 +342,8 @@ private final class StepRow: NSTableCellView {
         field.delegate = target
         field.placeholderString = "What to do in this step"
 
-        let moves = NSStackView(views: [up, down])
-        moves.spacing = 4
-        let actions = NSStackView(views: [annotate, delete])
-        actions.spacing = 4
+        let moves = RetroUI.tray(nil, [up, down])
+        let actions = RetroUI.tray(nil, [annotate, delete])
         let buttons = NSStackView(views: [moves, actions])
         buttons.orientation = .vertical
         buttons.alignment = .trailing
