@@ -186,6 +186,9 @@ private func symbol(_ name: String, _ description: String? = nil) -> NSImage {
 /// Height of the editor's pills: small enough for everything to fit the minimum window width.
 private let pillHeight: CGFloat = 26
 
+/// Height of the toolbar's keycaps: a little taller than the pills, so their walls and face show.
+private let keyHeight: CGFloat = 28
+
 /// A tray of keycap buttons for the toolbar, with `label` as a small caption under it.
 @MainActor private func keyTray(_ views: [NSView], _ label: String) -> NSView {
     let tray = KeycapTray(views)
@@ -221,8 +224,9 @@ private let pillHeight: CGFloat = 26
 }
 
 /// A symbol pill with a ▾ that opens `menu`.
-@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu, style: PillButton.Style = .raised) -> PillPopUp {
-    let b = PillPopUp(pullsDown: true, height: pillHeight, style: style)
+@MainActor private func iconMenuButton(_ sym: String, _ tip: String, _ menu: NSMenu, style: PillButton.Style = .raised,
+                                       height: CGFloat = pillHeight) -> PillPopUp {
+    let b = PillPopUp(pullsDown: true, height: height, style: style)
     menu.insertItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""), at: 0)   // the pull-down's face
     b.menu = menu
     b.setContent(title: nil, symbol: sym)
@@ -243,7 +247,7 @@ private let pillHeight: CGFloat = 26
 /// The window never gets smaller than `minimumSize`.
 final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMenuDelegate, NSServicesMenuRequestor {
     /// Wide enough for the whole toolbar, captions included, without items dropping into its overflow menu.
-    static let minimumSize = NSSize(width: 1100, height: 750)
+    static let minimumSize = NSSize(width: 1150, height: 750)
     /// A new editor is at least this wide when the screen has room, so the toolbar and the strip under it aren't crowded.
     static let defaultWidth: CGFloat = 1200
     static var live: [EditorWindowController] = []
@@ -988,19 +992,19 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
         switch id {
         case .imageActionsItem:
             return trayItem(id, "Image", [keyTray([
-                iconButton("crop", "Crop (C)", self, #selector(cropIt), style: .keycap),
+                iconButton("crop", "Crop (C)", self, #selector(cropIt), style: .keycap, height: keyHeight),
                 iconMenuButton("rotate.right", "Rotate, flip, resize or cut out part of the screenshot",
-                               commands(CanvasView.imageCommands, CanvasView.sizeCommands, CanvasView.snapCommands), style: .keycap),
+                               commands(CanvasView.imageCommands, CanvasView.sizeCommands, CanvasView.snapCommands), style: .keycap, height: keyHeight),
                 iconMenuButton("plus.rectangle.on.rectangle",
                                "Add an image from a new capture, the capture history, a file or the clipboard", buildAddImageMenu(),
-                               style: .keycap),
-                iconButton("photo", "Background", self, #selector(backgroundIt), style: .keycap),
-                iconButton("macwindow", "Device or browser frame", self, #selector(deviceFrameIt), style: .keycap),
+                               style: .keycap, height: keyHeight),
+                iconButton("photo", "Background", self, #selector(backgroundIt), style: .keycap, height: keyHeight),
+                iconButton("macwindow", "Device or browser frame", self, #selector(deviceFrameIt), style: .keycap, height: keyHeight),
             ], "Image"), keyTray([
                 iconMenuButton("eye.slash", "Find text in the screenshot and pixelate it", commands(CanvasView.redactCommands),
-                               style: .keycap),
+                               style: .keycap, height: keyHeight),
                 iconMenuButton("text.viewfinder", "Copy text from the screenshot (OCR), or act on dates, addresses, links and QR codes",
-                               textMenu(commands(CanvasView.textCommands)), style: .keycap),
+                               textMenu(commands(CanvasView.textCommands)), style: .keycap, height: keyHeight),
                 scratchPadSwitch,
             ], "Read Text")])
         case .toolsItem:
@@ -1010,7 +1014,7 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             for group in Self.toolGroups {
                 let pills = group.tools.map { b in
                     let hasVariants = b.tool == .rect || b.tool == .arrow
-                    let pill = iconButton(b.symbol, b.tool.tooltip(variants: hasVariants), self, #selector(toolChanged(_:)), style: .keycap)
+                    let pill = iconButton(b.symbol, b.tool.tooltip(variants: hasVariants), self, #selector(toolChanged(_:)), style: .keycap, height: keyHeight)
                     pill.isOn = b.tool == canvas.tool
                     // Rectangle and Arrow: a corner triangle, or a long press, opens their variants.
                     if b.tool == .rect { pill.variantMenu = { [weak self] in self?.rectangleVariantMenu() } }
@@ -1024,16 +1028,16 @@ final class EditorWindowController: NSWindowController, NSToolbarDelegate, NSMen
             item.view?.setAccessibilityLabel("Tools")
             return item
         case .undoRedoItem:
-            return trayItem(id, "Undo", [keyTray([iconButton("arrow.uturn.backward", "Undo (⌘Z)", self, #selector(undoIt), style: .keycap),
-                                                  iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", self, #selector(redoIt), style: .keycap)],
+            return trayItem(id, "Undo", [keyTray([iconButton("arrow.uturn.backward", "Undo (⌘Z)", self, #selector(undoIt), style: .keycap, height: keyHeight),
+                                                  iconButton("arrow.uturn.forward", "Redo (⇧⌘Z)", self, #selector(redoIt), style: .keycap, height: keyHeight)],
                                                  "Undo")])
         case .settingsItem:
-            let b = iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings), style: .keycap)
+            let b = iconButton("gearshape", "Settings (⌘,)", self, #selector(openSettings), style: .keycap, height: keyHeight)
             b.keycapTint = .systemOrange
             return trayItem(id, "Settings", [keyTray([b], "Settings")])
         case .saveAsItem:
             // ⇧⌘S is in the File menu.
-            let b = PillButton(title: "Save as…", symbol: "square.and.arrow.down", style: .keycap, height: pillHeight)
+            let b = PillButton(title: "Save as…", symbol: "square.and.arrow.down", style: .keycap, height: keyHeight)
             b.target = self; b.action = #selector(saveAsIt)
             b.toolTip = "Save as… (⇧⌘S)"
             return trayItem(id, "Save as…", [keyTray([b], "Save")])

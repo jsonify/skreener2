@@ -179,46 +179,68 @@ class PillButton: NSButton {
     /// The colour a `.keycap`'s face is lit with: the accent colour when on, else its own tint, if any.
     private var litColor: NSColor? { isOn ? .controlAccentColor : keycapTint }
 
-    /// The key: a darker skirt along the bottom edge with the face above it, lit from the top. Pressed, the face sinks
-    /// onto the skirt.
+    /// The key, as seen from a little above: side walls all round (deepest along the bottom, where the light doesn't
+    /// reach) and a slightly dished top face, lit from above. Pressed, the face sinks and the bottom wall shrinks.
     private func drawKeycap() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let skirtDepth: CGFloat = pressed ? 1 : 2.5
-        let body = bounds.insetBy(dx: 0.5, dy: 0.5)
-        var face = body
-        face.size.height -= skirtDepth
-        if !isFlipped { face.origin.y += skirtDepth }
         let r = Self.keycapRadius
-        let top: NSColor, bottom: NSColor, skirt: NSColor
+        let body = bounds.insetBy(dx: 0.5, dy: 0.5)
+        // The face's insets from the body: the side walls left and right, a thin one at the top, a deep one at the bottom.
+        let (side, topWall, bottomWall): (CGFloat, CGFloat, CGFloat) = pressed ? (2.5, 2.5, 2.5) : (2.5, 1.5, 4.5)
+        let face = NSRect(x: body.minX + side, y: body.minY + (isFlipped ? topWall : bottomWall),
+                          width: body.width - 2 * side, height: body.height - topWall - bottomWall)
+        // Gradients run from the bottom (start) to the top, whichever way the view is flipped.
+        let up: CGFloat = isFlipped ? -90 : 90
+        let faceTop: NSColor, faceMid: NSColor, faceBottom: NSColor, wallTop: NSColor, wallBottom: NSColor
         if let lit = litColor {
             let c = lit.usingColorSpace(.sRGB) ?? lit
-            top = c.blended(withFraction: 0.3, of: .white) ?? c
-            bottom = c
-            skirt = c.blended(withFraction: 0.45, of: .black) ?? c
+            faceTop = c.blended(withFraction: 0.35, of: .white) ?? c
+            faceMid = c
+            faceBottom = c.blended(withFraction: 0.1, of: .white) ?? c
+            wallTop = c.blended(withFraction: 0.25, of: .black) ?? c
+            wallBottom = c.blended(withFraction: 0.6, of: .black) ?? c
         } else if dark {
-            top = NSColor(white: 0.74, alpha: 1); bottom = NSColor(white: 0.55, alpha: 1); skirt = NSColor(white: 0.30, alpha: 1)
+            faceTop = NSColor(white: 0.84, alpha: 1); faceMid = NSColor(white: 0.66, alpha: 1); faceBottom = NSColor(white: 0.72, alpha: 1)
+            wallTop = NSColor(white: 0.56, alpha: 1); wallBottom = NSColor(white: 0.26, alpha: 1)
         } else {
-            top = NSColor(white: 0.99, alpha: 1); bottom = NSColor(white: 0.86, alpha: 1); skirt = NSColor(white: 0.66, alpha: 1)
+            faceTop = NSColor(white: 1, alpha: 1); faceMid = NSColor(white: 0.88, alpha: 1); faceBottom = NSColor(white: 0.93, alpha: 1)
+            wallTop = NSColor(white: 0.82, alpha: 1); wallBottom = NSColor(white: 0.55, alpha: 1)
         }
-        skirt.setFill()
-        NSBezierPath(roundedRect: body, xRadius: r, yRadius: r).fill()
-        let facePath = NSBezierPath(roundedRect: face, xRadius: r - 0.5, yRadius: r - 0.5)
-        // From the bottom (start) to the top, whichever way the view is flipped.
-        NSGradient(starting: pressed ? bottom.blended(withFraction: 0.1, of: .black) ?? bottom : bottom, ending: top)?
-            .draw(in: facePath, angle: isFlipped ? -90 : 90)
-        // A thin highlight along the top of the face, and a hairline around the whole key.
-        let shine = face.insetBy(dx: 0.5, dy: 0.5)
-        let shinePath = NSBezierPath(roundedRect: shine, xRadius: r - 1, yRadius: r - 1)
-        NSColor.white.withAlphaComponent(litColor != nil ? 0.35 : (dark ? 0.45 : 0.9)).setStroke()
+
+        // The walls, darker toward the bottom and shaded at the left and right edges.
+        let bodyPath = NSBezierPath(roundedRect: body, xRadius: r, yRadius: r)
+        NSGradient(starting: wallBottom, ending: wallTop)?.draw(in: bodyPath, angle: up)
+        let clear = NSColor.black.withAlphaComponent(0), shade = NSColor.black.withAlphaComponent(dark ? 0.28 : 0.16)
+        NSGradient(colors: [shade, clear, clear, shade], atLocations: [0, 0.18, 0.82, 1], colorSpace: .sRGB)?
+            .draw(in: bodyPath, angle: 0)
+
+        // The face: lightest at the top, dipping in the middle and catching a little light again at the bottom, so it
+        // reads as dished.
+        let facePath = NSBezierPath(roundedRect: face, xRadius: r - 1.5, yRadius: r - 1.5)
+        NSGradient(colors: [faceBottom, faceMid, faceTop], atLocations: [0, 0.45, 1], colorSpace: .sRGB)?
+            .draw(in: facePath, angle: up)
+        // Where the face meets the walls: a bright rim along its top, a soft dark line along its bottom.
+        let rim = NSBezierPath(roundedRect: face.insetBy(dx: 0.5, dy: 0.5), xRadius: r - 2, yRadius: r - 2)
+        rim.lineWidth = 1
+        func half(_ top: Bool) -> NSRect {
+            let upper = top != isFlipped   // the visually upper half has the larger y unless flipped
+            return NSRect(x: face.minX - 1, y: upper ? face.midY : face.minY - 1, width: face.width + 2, height: face.height / 2 + 1)
+        }
         NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(rect: NSRect(x: shine.minX, y: isFlipped ? shine.minY : shine.midY, width: shine.width, height: shine.height / 2)).addClip()
-        shinePath.lineWidth = 1
-        shinePath.stroke()
+        NSBezierPath(rect: half(true)).addClip()
+        NSColor.white.withAlphaComponent(litColor != nil ? 0.45 : (dark ? 0.55 : 0.95)).setStroke()
+        rim.stroke()
         NSGraphicsContext.restoreGraphicsState()
-        NSColor.black.withAlphaComponent(dark ? 0.55 : 0.22).setStroke()
-        let edge = NSBezierPath(roundedRect: body, xRadius: r, yRadius: r)
-        edge.lineWidth = 1
-        edge.stroke()
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: half(false)).addClip()
+        NSColor.black.withAlphaComponent(dark ? 0.25 : 0.12).setStroke()
+        rim.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+
+        // A hairline around the whole key.
+        NSColor.black.withAlphaComponent(dark ? 0.65 : 0.3).setStroke()
+        bodyPath.lineWidth = 1
+        bodyPath.stroke()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -237,8 +259,9 @@ class PillButton: NSButton {
         chevron.contentTintColor = onDark ? NSColor.white.withAlphaComponent(0.75)
             : style == .keycap ? Self.keycapInk.withAlphaComponent(0.6) : .secondaryLabelColor
         if style == .keycap {
-            // The content sits on the face, above the skirt, and sinks with it when pressed.
-            contentCenterY?.constant = isFlipped ? -(pressed ? 0.5 : 1.25) : (pressed ? 0.5 : 1.25)
+            // The content sits on the face, above the deep bottom wall, and sinks with it when pressed.
+            let lift: CGFloat = pressed ? 0 : 1.5
+            contentCenterY?.constant = isFlipped ? -lift : lift
             applyKeycapShadow(dark: dark)
             return
         }
@@ -261,13 +284,14 @@ class PillButton: NSButton {
             if let lit = litColor {
                 layer?.shadowColor = lit.cgColor
                 layer?.shadowOpacity = (dark ? 0.85 : 0.6) * (isOn ? 1 : 0.6)
-                layer?.shadowRadius = 5
+                layer?.shadowRadius = 6
                 layer?.shadowOffset = .zero
             } else {
+                // The key standing on the tray floor.
                 layer?.shadowColor = NSColor.black.cgColor
-                layer?.shadowOpacity = pressed ? 0.2 : (dark ? 0.5 : 0.25)
+                layer?.shadowOpacity = pressed ? 0.3 : (dark ? 0.75 : 0.35)
                 layer?.shadowRadius = pressed ? 0.5 : 1.5
-                layer?.shadowOffset = CGSize(width: 0, height: pressed ? -0.5 : -1.5)
+                layer?.shadowOffset = CGSize(width: 0, height: pressed ? -0.5 : -2)
             }
         }
     }
@@ -364,21 +388,35 @@ final class KeycapTray: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let r = PillButton.keycapRadius + 3
-        let well = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: r, yRadius: r)
+        let outer = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let well = NSBezierPath(roundedRect: outer, xRadius: r, yRadius: r)
         // Darker at the top, where the rim shades it.
-        let top = dark ? NSColor(white: 0.05, alpha: 1) : NSColor(white: 0.70, alpha: 1)
-        let bottom = dark ? NSColor(white: 0.14, alpha: 1) : NSColor(white: 0.80, alpha: 1)
+        let top = dark ? NSColor(white: 0.02, alpha: 1) : NSColor(white: 0.62, alpha: 1)
+        let bottom = dark ? NSColor(white: 0.11, alpha: 1) : NSColor(white: 0.76, alpha: 1)
         NSGradient(starting: bottom, ending: top)?.draw(in: well, angle: isFlipped ? -90 : 90)
-        NSColor.black.withAlphaComponent(dark ? 0.6 : 0.18).setStroke()
+        // An inner shadow along the top edge, so the floor sits below the rim.
+        NSGraphicsContext.saveGraphicsState()
+        well.addClip()
+        let inner = NSShadow()
+        inner.shadowColor = NSColor.black.withAlphaComponent(dark ? 0.9 : 0.45)
+        inner.shadowBlurRadius = 3
+        inner.shadowOffset = NSSize(width: 0, height: -1.5)   // down, in either orientation
+        inner.set()
+        let ring = NSBezierPath(rect: outer.insetBy(dx: -20, dy: -20))
+        ring.append(well.reversed)
+        ring.windingRule = .evenOdd
+        NSColor.black.setFill()
+        ring.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.black.withAlphaComponent(dark ? 0.7 : 0.25).setStroke()
         well.lineWidth = 1
         well.stroke()
         // The lip: a light line along the bottom edge.
         NSGraphicsContext.saveGraphicsState()
         let half = NSRect(x: bounds.minX, y: isFlipped ? bounds.midY : bounds.minY, width: bounds.width, height: bounds.height / 2)
         NSBezierPath(rect: half).addClip()
-        NSColor.white.withAlphaComponent(dark ? 0.1 : 0.6).setStroke()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5).offsetBy(dx: 0, dy: isFlipped ? 0.5 : -0.5),
-                     xRadius: r, yRadius: r).stroke()
+        NSColor.white.withAlphaComponent(dark ? 0.14 : 0.7).setStroke()
+        NSBezierPath(roundedRect: outer.offsetBy(dx: 0, dy: isFlipped ? 0.5 : -0.5), xRadius: r, yRadius: r).stroke()
         NSGraphicsContext.restoreGraphicsState()
     }
 }
@@ -419,7 +457,7 @@ final class KeySwitch: NSButton {
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 18).isActive = true
-        heightAnchor.constraint(equalToConstant: 26).isActive = true
+        heightAnchor.constraint(equalToConstant: 28).isActive = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
@@ -429,9 +467,9 @@ final class KeySwitch: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let on = state == .on
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        // From the top: the capsule (18 pt), a gap, the LED (4 pt).
+        // From the top: the capsule (20 pt), a gap, the LED (4 pt).
         func y(_ fromTop: CGFloat, _ height: CGFloat) -> CGFloat { isFlipped ? fromTop : bounds.height - fromTop - height }
-        let body = NSRect(x: 1, y: y(0.5, 18), width: bounds.width - 2, height: 18)
+        let body = NSRect(x: 1, y: y(0.5, 20), width: bounds.width - 2, height: 20)
         let capsule = NSBezierPath(roundedRect: body, xRadius: body.width / 2, yRadius: body.width / 2)
         let top = NSColor(white: dark ? 0.30 : 0.36, alpha: 1), bottom = NSColor(white: dark ? 0.10 : 0.16, alpha: 1)
         NSGradient(starting: bottom, ending: top)?.draw(in: capsule, angle: isFlipped ? -90 : 90)
@@ -452,7 +490,7 @@ final class KeySwitch: NSButton {
             image.draw(in: NSRect(x: body.midX - s.width / 2, y: body.midY - s.height / 2, width: s.width, height: s.height))
         }
 
-        let led = NSRect(x: bounds.midX - 2, y: y(20.5, 4), width: 4, height: 4)
+        let led = NSRect(x: bounds.midX - 2, y: y(22.5, 4), width: 4, height: 4)
         let dot = NSBezierPath(ovalIn: led)
         if on {
             NSGraphicsContext.saveGraphicsState()
