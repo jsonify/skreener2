@@ -172,7 +172,7 @@ final class ScrollCaptureController {
     private let work = DispatchQueue(label: "skreener.scroll-stitch", qos: .userInitiated)
     private var frameWindow: NSPanel?
     private var controls: NSPanel?
-    private let status = NSTextField(labelWithString: "")
+    private let status = LCDReadout()
     private var escHotKey: UInt32?
     private var completion: ((NSImage?) -> Void)?
     /// Bumped on every start, so a previous capture's frame loop stops even if a new one has begun.
@@ -364,6 +364,7 @@ final class ScrollCaptureController {
         lastTick = nil
         velocity = max(rect.height * 0.25, 40)   // a slow start; measured and sped up over the first frames
         autoButton?.setContent(title: "Stop", symbol: "stop.fill")
+        autoButton?.isOn = true   // held down while it scrolls
         setStatus("Scrolling…")
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.scrollTick() }
         RunLoop.main.add(timer, forMode: .common)
@@ -375,6 +376,7 @@ final class ScrollCaptureController {
         scrollTimer?.invalidate()
         scrollTimer = nil
         autoButton?.setContent(title: "Auto-Scroll", symbol: "arrow.down")
+        autoButton?.isOn = false
     }
 
     /// Posts the next bit of the steady scroll, from the time since the last tick (ticks run late while the main thread
@@ -519,7 +521,7 @@ final class ScrollCaptureController {
     }
 
     private func setStatus(_ text: String) {
-        status.stringValue = text
+        status.text = text
         status.toolTip = text   // the whole text, should the bar cut it short
     }
 
@@ -545,7 +547,7 @@ final class ScrollCaptureController {
     private func showControls() {
         guard let screen else { return }
         let visible = screen.visibleFrame
-        var size = NSSize(width: 540, height: 44)
+        var size = NSSize(width: 540, height: 56)
         var origin: NSPoint
         if rect.width >= 316 && rect.height >= size.height * 4 {
             // Inside the area, about a tenth of the way down: clicking Auto-Scroll leaves the pointer over the content.
@@ -569,46 +571,44 @@ final class ScrollCaptureController {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.appearance = NSAppearance(named: .darkAqua)
 
-        // A dark capsule, like an iOS floating toolbar. Solid rather than a blur: over a light page a blur turns pale
-        // grey and the white text on it is hard to read.
-        let bg = NSView(frame: NSRect(origin: .zero, size: size))
-        bg.wantsLayer = true
-        bg.layer?.backgroundColor = PillButton.barColor.cgColor
-        bg.layer?.cornerRadius = size.height / 2; bg.layer?.cornerCurve = .continuous; bg.layer?.masksToBounds = true
-        bg.layer?.borderWidth = 0.5; bg.layer?.borderColor = PillButton.barBorderColor.cgColor
+        // The SK-1 chassis (#344), following the system's appearance: the status on an LCD, then the keys in a tray.
+        // Solid rather than a blur, so it reads the same over any page. Drag the chassis to move it.
+        let bg = RetroPlate(radius: 14, click: .drag)
+        bg.frame = NSRect(origin: .zero, size: size)
+        bg.onAppearanceChange = { [weak p] in p?.invalidateShadow() }
 
-        status.font = .systemFont(ofSize: 12, weight: .medium)
-        status.textColor = NSColor.white.withAlphaComponent(0.9)
-        status.lineBreakMode = .byTruncatingTail
-        status.maximumNumberOfLines = 1
-        let auto = PillButton(title: "Auto-Scroll", symbol: "arrow.down", style: .tinted) { [weak self] in self?.toggleAutoScroll() }
+        let keyHeight: CGFloat = 30
+        let auto = PillButton(title: "Auto-Scroll", symbol: "arrow.down", style: .keycap, height: keyHeight) { [weak self] in
+            self?.toggleAutoScroll()
+        }
         auto.toolTip = "Scroll automatically until the end of the content"
         autoButton = auto
-        let cancel = PillButton(title: nil, symbol: "xmark", style: .tinted) { [weak self] in self?.cancel() }
+        let cancel = PillButton(title: nil, symbol: "xmark", style: .keycap, height: keyHeight) { [weak self] in self?.cancel() }
         cancel.toolTip = "Cancel (Esc)"
-        let done = PillButton(title: "Done", symbol: "checkmark", style: .filled) { [weak self] in self?.finish() }
-        // The buttons are pinned to the right; the text gets whatever is left and is cut short rather than pushing
+        cancel.setAccessibilityLabel("Cancel")
+        let done = PillButton(title: "Done", symbol: "checkmark", style: .keycap, height: keyHeight) { [weak self] in self?.finish() }
+        done.keyVariant = .orange
+        // The keys are pinned to the right; the status gets whatever is left and is cut short rather than pushing
         // them off the end of the bar.
-        let buttons = NSStackView(views: [auto, cancel, done])
-        buttons.spacing = 8
-        buttons.translatesAutoresizingMaskIntoConstraints = false
-        buttons.setHuggingPriority(.required, for: .horizontal)
-        status.translatesAutoresizingMaskIntoConstraints = false
+        let buttons = KeycapTray([auto, cancel, done], spacing: 5)
+        buttons.setContentHuggingPriority(.required, for: .horizontal)
+        buttons.setContentCompressionResistancePriority(.required, for: .horizontal)
         status.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         status.setContentHuggingPriority(.defaultLow, for: .horizontal)
         bg.addSubview(status)
         bg.addSubview(buttons)
         NSLayoutConstraint.activate([
-            status.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 18),
-            status.trailingAnchor.constraint(lessThanOrEqualTo: buttons.leadingAnchor, constant: -14),
+            status.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 12),
+            status.trailingAnchor.constraint(equalTo: buttons.leadingAnchor, constant: -12),
             status.centerYAnchor.constraint(equalTo: bg.centerYAnchor),
-            buttons.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -7),
+            buttons.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -10),
             buttons.centerYAnchor.constraint(equalTo: bg.centerYAnchor),
         ])
         p.contentView = bg
         p.orderFrontRegardless()
+        p.display()
+        p.invalidateShadow()
         controls = p
     }
 }

@@ -86,7 +86,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Area, window and full screen**, plus **Previous Area** to repeat the last selection, and **Capture Active
   Window** to grab the front window without picking.
 - **Area selection** comes with a pixel magnifier (or the pointer's coordinates when it is off), crosshair lines
-  across the screen, and a live size readout. Arrow keys nudge the pointer (Shift
+  across the screen, and a live size readout on a small LCD chip. Arrow keys nudge the pointer (Shift
   moves 10 pt). Hold Space to move the selection, Shift for a square, and Option to drag from the center.
 - **Adjust before capturing.** After the drag the selection stays on screen. You can drag its handles or move it.
   Arrow keys move it, and Command + arrows resize it. The scroll wheel grows or shrinks every side. Return or a
@@ -94,7 +94,8 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Window capture.** The visible part of the window under the pointer gets a tint, and a click captures the whole
   window, even if something covers it. You can add a shadow, a transparent or white background, and padding.
 - **Freeze screen.** This optionally freezes the screen while you pick, so menus and hover states stay put.
-- **Self-timer.** Pick an area, window or the full screen, then wait a 3, 5 or 10 second countdown.
+- **Self-timer.** Pick an area, window or the full screen, then wait a 3, 5 or 10 second countdown, shown in
+  seven-segment digits on an olive LCD.
 - **Capture Area & Pin.** This captures an area and pins it in place at 100%.
 - **Live Pin.** A pin that keeps updating, like picture-in-picture for an area (**Capture Area & Live Pin**, or the
   All-in-One bar) or a window (**Live Pin Window…**, which keeps showing it when other windows cover it). It runs at
@@ -105,6 +106,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 - Pick an area, then scroll its content yourself. Or click **Auto-Scroll** and Skreener scrolls to the end for you.
 - The frames are stitched into one tall image. Sticky headers and footers appear only once.
+- Its bar is an SK-1 chassis: the status on an LCD, then Auto-Scroll, Cancel and an orange Done key.
 
 ### Text recognition (OCR)
 
@@ -162,7 +164,14 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - Other options: a countdown, dimming the rest of the screen, showing the cursor, click highlighting, keystroke
   display, a cursor spotlight (dims all but a soft circle around the pointer; radius and dim amount are in the
   options, and Control-Shift-S turns it on or off while recording), and the elapsed time in the menu bar.
-- A control bar shows the elapsed time, with pause, resume and stop.
+- A control bar shows the elapsed time, with pause, resume and stop. Like the editor it has the SK-1 look: a cream
+  chassis (charcoal in Dark Mode) with an olive LCD showing a blinking REC lamp, the format and the elapsed time in
+  seven-segment digits, orange squares for what is recorded (microphone, system audio, keystrokes), and Pause and an
+  orange Stop key. Drag the bar to move it.
+- The record options panel in the selection is built the same way: the Options key, orange-square toggles for the
+  microphone, system audio, clicks and keystrokes, and Record GIF / Record Video keys with their shortcuts printed
+  on them. The mode bar at the bottom of the screen has the capture modes as keys in trays and the size on LCD
+  readouts.
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
 - **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
   Command-Z undoes), scroll or press Command-Plus / Command-Minus to zoom in around the pointer, and move the pointer

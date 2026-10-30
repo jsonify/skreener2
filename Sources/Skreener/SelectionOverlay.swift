@@ -1,18 +1,41 @@
 import AppKit
 import ScreenCaptureKit
 
-/// CleanShot-style instruction pill ("Drag to record a part of the screen…"), drawn in the current view. An empty
-/// string draws nothing, so a mode can take part in Space-cycling without showing a banner.
+/// The instruction banner ("Drag to record a part of the screen…"), drawn in the current (unflipped) view in the SK-1
+/// look (#344): a rounded chassis plate with an orange lamp and the text in its ink, cream or charcoal as the view's
+/// appearance is. An empty string draws nothing, so a mode can take part in Space-cycling without showing a banner.
 func drawHintBanner(_ text: String, centeredAt c: NSPoint) {
     guard !text.isEmpty else { return }
-    let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 20, weight: .regular),
-                                                .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
+    let p = Retro.palette(dark: Retro.isDark(NSAppearance.currentDrawing()))
+    let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 18, weight: .medium),
+                                                .foregroundColor: Retro.color(p.ink)]
     let s = text as NSString
     let size = s.size(withAttributes: attrs)
-    let box = NSRect(x: c.x - size.width / 2 - 28, y: c.y - size.height / 2 - 18, width: size.width + 56, height: size.height + 36)
-    NSColor.white.withAlphaComponent(0.88).setFill()
-    NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2).fill()
-    s.draw(at: NSPoint(x: box.minX + 28, y: box.minY + 18), withAttributes: attrs)
+    let padX: CGFloat = 24, padY: CGFloat = 16, lamp: CGFloat = 8, lampGap: CGFloat = 12
+    let width = size.width + lamp + lampGap + padX * 2
+    let box = NSRect(x: c.x - width / 2, y: c.y - size.height / 2 - padY, width: width, height: size.height + padY * 2)
+    let radius: CGFloat = 16
+    // A soft shadow under the plate, so it stands off any screen.
+    NSGraphicsContext.saveGraphicsState()
+    let shadow = NSShadow()
+    shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+    shadow.shadowBlurRadius = 14
+    shadow.shadowOffset = NSSize(width: 0, height: -4)
+    shadow.set()
+    Retro.color(p.chassis).setFill()
+    NSBezierPath(roundedRect: box, xRadius: radius, yRadius: radius).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    RetroBars.drawPlate(box, radius: radius, palette: p, flipped: false)
+    let dot = NSRect(x: box.minX + padX, y: box.midY - lamp / 2, width: lamp, height: lamp)
+    NSGraphicsContext.saveGraphicsState()
+    let glow = NSShadow()
+    glow.shadowColor = Retro.color(Retro.orange)
+    glow.shadowBlurRadius = 4
+    glow.set()
+    Retro.color(Retro.orange).setFill()
+    NSBezierPath(ovalIn: dot).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    s.draw(at: NSPoint(x: dot.maxX + lampGap, y: box.minY + padY), withAttributes: attrs)
 }
 
 enum Selection {
@@ -543,14 +566,11 @@ private final class SelectionView: NSView {
         }
         do {
             let dims = "\(Int(h.width)) × \(Int(h.height))"
-            let label = (adjusted != nil && drag == nil ? dims + "   ↩ Capture · Esc Cancel" : dims) as NSString
-            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                                                        .foregroundColor: NSColor.white]
-            let size = label.size(withAttributes: attrs)
-            let box = NSRect(x: h.minX, y: max(h.minY - size.height - 8, 2), width: size.width + 10, height: size.height + 4)
-            NSColor.black.withAlphaComponent(0.7).setFill()
-            NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
-            label.draw(at: NSPoint(x: box.minX + 5, y: box.minY + 2), withAttributes: attrs)
+            // On an LCD chip (#344) under the selection's lower left corner.
+            let label = adjusted != nil && drag == nil ? dims + "   ↩ Capture · Esc Cancel" : dims
+            let size = RetroBars.chipSize(label)
+            let x = min(max(h.minX, bounds.minX + 2), bounds.maxX - size.width - 2)
+            RetroBars.drawChip(label, at: NSPoint(x: x, y: max(h.minY - size.height - 8, 3)))
         }
     }
 
@@ -561,24 +581,15 @@ private final class SelectionView: NSView {
         drawPointerLabel("\(Int(r.width)) × \(Int(r.height))", near: p, leftOfPointer: !loupeOnLeft)
     }
 
-    /// `text` on a dark pill just below the pointer, on its left or right, kept on screen: it reads over anything.
+    /// `text` on an LCD chip (#344) just below the pointer, on its left or right, kept on screen: its dark rim and
+    /// shadow make it read over anything.
     private func drawPointerLabel(_ text: String, near p: NSPoint, leftOfPointer: Bool) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
-                                                    .foregroundColor: NSColor.white]
-        let label = text as NSString
-        let size = label.size(withAttributes: attrs)
-        let pill = NSSize(width: size.width + 12, height: size.height + 6)
+        let pill = RetroBars.chipSize(text, size: 12)
         var origin = NSPoint(x: leftOfPointer ? p.x - 12 - pill.width : p.x + 12, y: p.y - 12 - pill.height)
         if !leftOfPointer, origin.x + pill.width > bounds.maxX - 2 { origin.x = p.x - 12 - pill.width }
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
         if origin.y < bounds.minY + 2 { origin.y = p.y + 12 }
-        let box = NSRect(origin: origin, size: pill)
-        NSColor.black.withAlphaComponent(0.75).setFill()
-        NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
-        NSColor.white.withAlphaComponent(0.35).setStroke()
-        let edge = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)
-        edge.lineWidth = 1; edge.stroke()
-        label.draw(at: NSPoint(x: box.minX + 6, y: box.minY + 3), withAttributes: attrs)
+        RetroBars.drawChip(text, at: origin, size: 12)
     }
 
     /// Greenshot-style guides: a horizontal and a vertical line through the pointer across the whole screen, for
@@ -658,14 +669,10 @@ private final class SelectionView: NSView {
         NSGraphicsContext.restoreGraphicsState()
         NSColor.white.setStroke(); shape.lineWidth = 2; shape.stroke()
 
-        let label = "\(Int(p.x)), \(Int(bounds.height - p.y))" as NSString
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                                                    .foregroundColor: NSColor.white]
-        let size = label.size(withAttributes: attrs)
-        let pill = NSRect(x: img.midX - (size.width + 12) / 2, y: box.minY, width: size.width + 12, height: size.height + 4)
-        NSColor.black.withAlphaComponent(0.75).setFill()
-        NSBezierPath(roundedRect: pill, xRadius: 5, yRadius: 5).fill()
-        label.draw(at: NSPoint(x: pill.minX + 6, y: pill.minY + 2), withAttributes: attrs)
+        // The coordinates on an LCD chip (#344) under the lens.
+        let label = "\(Int(p.x)), \(Int(bounds.height - p.y))"
+        let pill = RetroBars.chipSize(label, padding: NSSize(width: 6, height: 2))
+        RetroBars.drawChip(label, at: NSPoint(x: img.midX - pill.width / 2, y: box.minY + 1), padding: NSSize(width: 6, height: 2))
     }
 }
 
@@ -695,20 +702,15 @@ extension SelectionView {
         }
     }
 
-    /// A small dark label above the selection (below it at the top of the screen). The overlay is never in the capture.
+    /// A small LCD chip (#344) above the selection (below it at the top of the screen). The overlay is never in the
+    /// capture.
     fileprivate func drawMoveTip(beside r: NSRect) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium),
-                                                    .foregroundColor: NSColor.white.withAlphaComponent(tipAlpha)]
-        let label = TipText.plain(TipID.moveSelection.line) as NSString
-        let size = label.size(withAttributes: attrs)
-        let pill = NSSize(width: size.width + 14, height: size.height + 6)
+        let label = TipText.plain(TipID.moveSelection.line)
+        let pill = RetroBars.chipSize(label, size: 11.5)
         var origin = NSPoint(x: r.minX, y: r.maxY + 8)
         if origin.y + pill.height > bounds.maxY - 2 { origin.y = r.minY - 8 - pill.height }
         origin.y = min(max(origin.y, bounds.minY + 2), bounds.maxY - pill.height - 2)
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
-        let box = NSRect(origin: origin, size: pill)
-        NSColor.black.withAlphaComponent(0.75 * tipAlpha).setFill()
-        NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
-        label.draw(at: NSPoint(x: box.minX + 7, y: box.minY + 3), withAttributes: attrs)
+        RetroBars.drawChip(label, at: origin, size: 11.5, alpha: tipAlpha)
     }
 }
