@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.0](https://github.com/jsonify/skreener2/compare/v1.6.0...v1.7.0) (2026-10-30)
+
+
+### Features
+
+* **capture:** SK-1 retro look for the recording, scrolling and self-timer bars ([#344](https://github.com/jsonify/skreener2/issues/344)) ([#351](https://github.com/jsonify/skreener2/issues/351)) ([ab4548c](https://github.com/jsonify/skreener2/commit/ab4548c00fabeb2e71f82d6ef37686b690ee3928))
+* **quick-access:** SK-1 retro look for Quick Access, pins and the menu launcher ([#344](https://github.com/jsonify/skreener2/issues/344)) ([#347](https://github.com/jsonify/skreener2/issues/347)) ([678d2a3](https://github.com/jsonify/skreener2/commit/678d2a3a6a8dbe7bede96c6bb19bc04e96041453))
+* **settings:** Appearance setting to keep the SK-1 look light or dark ([#344](https://github.com/jsonify/skreener2/issues/344)) ([#350](https://github.com/jsonify/skreener2/issues/350)) ([619a165](https://github.com/jsonify/skreener2/commit/619a165b32f020cd7cdddfc655017398bdf2f01c))
+* **ui:** SK-1 retro look for the scratch pad, Step Guide, History and other windows ([#344](https://github.com/jsonify/skreener2/issues/344)) ([#349](https://github.com/jsonify/skreener2/issues/349)) ([bf1c071](https://github.com/jsonify/skreener2/commit/bf1c071631054b8a09fcdf080d604ae0acf214dd))
+
 ## [1.6.0](https://github.com/jsonify/skreener2/compare/v1.5.0...v1.6.0) (2026-10-30)
 
 
