@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Preferences.applyAppearance()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = menuBarIcon
         menu = buildMenu()

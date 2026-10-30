@@ -181,8 +181,8 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 ### Annotation editor
 
-- **SK-1 look.** The editor is built like a piece of hardware: a cream chassis (charcoal in Dark Mode, following the
-  system), the tools as keys in sunken trays with a caption under each, the current tool's key pressed down with an
+- **SK-1 look.** The editor is built like a piece of hardware: a cream chassis (cream by default; charcoal if you set
+  **Settings > General > Appearance** to Dark, or to System while macOS is in Dark Mode), the tools as keys in sunken trays with a caption under each, the current tool's key pressed down with an
   orange light, and each tool's shortcut letter printed on its key. An olive LCD shows the tool, its key, how to use
   it (or what the pointer is doing) and the zoom in seven-segment digits. The strip under it has round color
   swatches, ◀ ▶ steppers for sizes (click the readout for the full list), segmented choices and orange-square
