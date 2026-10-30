@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/jsonify/skreener2/compare/v1.4.1...v1.5.0) (2026-10-30)
+
+
+### Features
+
+* **editor:** keycap toolbar, LCD status display, and one scratch pad setting for Capture Text and Copy Text ([#342](https://github.com/jsonify/skreener2/issues/342)) ([92f799f](https://github.com/jsonify/skreener2/commit/92f799f7477274e27460312c9b5bb425f88f7d4f))
+
 ## [1.4.1](https://github.com/jsonify/skreener2/compare/v1.4.0...v1.4.1) (2026-10-30)
 
 
