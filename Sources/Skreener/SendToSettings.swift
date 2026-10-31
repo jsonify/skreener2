@@ -63,14 +63,11 @@ import AppKit
     }
 
     private func obsidianGroup() -> NSView {
-        let choose = NSButton(title: "Choose…", target: nil, action: nil)
+        let choose = RetroUI.key("Choose…")
         tools.bind(choose) { [weak self] _ in self?.chooseVault() }
         vaultLabel.lineBreakMode = .byTruncatingMiddle
-        vaultLabel.textColor = .secondaryLabelColor
-        vaultLabel.translatesAutoresizingMaskIntoConstraints = false
-        vaultLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
         refreshVault()
-        let folder = NSStackView(views: [vaultLabel, choose])
+        let folder = NSStackView(views: [LCDTextBox(vaultLabel, width: 220), choose])
         folder.spacing = 10
         return tools.group("Obsidian", [
             tools.row("Vault folder", "The vault's folder on your Mac. Pictures are copied into its Skreener folder.", folder),
@@ -108,7 +105,7 @@ import AppKit
         }
         let actions = Preferences.customActions
         var rows = actions.enumerated().map { actionRow($0.element, at: $0.offset, of: actions.count) }
-        let add = NSButton(title: "Add Action…", target: nil, action: nil)
+        let add = RetroUI.key("Add Action…")
         tools.bind(add) { [weak self] _ in self?.edit(nil) }
         rows.append(tools.row("Add an action", "A shell command to run on a capture.", add))
         let group = tools.group("Actions", rows,
@@ -138,11 +135,7 @@ import AppKit
     }
 
     private func iconButton(_ symbol: String, _ tip: String, enabled: Bool = true, _ run: @escaping () -> Void) -> NSButton {
-        let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip) ?? NSImage(),
-                         target: nil, action: nil)
-        b.isBordered = false
-        b.contentTintColor = .secondaryLabelColor
-        b.toolTip = tip
+        let b = RetroUI.key(symbol: symbol, tip: tip, height: RetroUI.textKeyHeight)
         b.isEnabled = enabled
         tools.bind(b) { _ in run() }
         return b
