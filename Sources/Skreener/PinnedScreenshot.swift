@@ -128,7 +128,7 @@ private final class PinnedView: NSView {
     private var differenceLoop: Task<Void, Never>?
 
     private let toolbar = PinToolbar()
-    private let zoomChip = RetroGlassChip()
+    private let zoomChip = LCDChip()
     private var hideToolbar: DispatchWorkItem?
     private var freezeButton: NSView?
     private let liveDot = NSImageView()
@@ -477,7 +477,7 @@ private final class PinToolbar: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { alphaValue < 0.5 ? nil : super.hitTest(point) }
 
     override func draw(_ dirtyRect: NSRect) {
-        RetroPlate.draw(bounds, radius: 11, palette: Retro.palette(for: self), flipped: isFlipped)
+        Retro.drawPlate(bounds, radius: 11, palette: Retro.palette(for: self), flipped: isFlipped)
     }
 
     override func viewDidChangeEffectiveAppearance() {

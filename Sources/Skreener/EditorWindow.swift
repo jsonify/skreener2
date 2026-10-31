@@ -422,8 +422,8 @@ final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServic
     /// What the pointer is doing right now (`EditorHelp`), shown in place of the usage while set.
     private var liveHint: String?
     private static let cropUsage = "Drag the corners or draw a new area · Return to apply · Esc to cancel"
-    private let toastBox = NSView()
-    private let toastLabel = NSTextField(labelWithString: "")
+    private let toastBox = ChassisPlate(radius: 16, click: .swallow)
+    private let toastLabel = RetroLabel(text: "", tone: .ink, size: 12)
     private var toastTask: Task<Void, Never>?
     /// Tips, the hint line under the canvas and "New" dots (#301, #303).
     private var help: EditorHelp?
@@ -875,19 +875,19 @@ final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServic
         lcd.isLive = liveHint != nil
     }
 
-    /// A short message over the bottom of the canvas (a dark capsule like the tab row), e.g. after Copy Text.
+    /// A short message over the bottom of the canvas, e.g. after Copy Text: a small chassis plate, like the toasts
+    /// elsewhere (`MessageHUD`), which a click dismisses.
     private func buildToast() -> NSView {
-        toastBox.wantsLayer = true
-        toastBox.layer?.backgroundColor = PillButton.barColor.cgColor
-        toastBox.layer?.cornerRadius = 16
-        toastBox.layer?.cornerCurve = .continuous
-        toastBox.layer?.borderWidth = 0.5
-        toastBox.layer?.borderColor = PillButton.barBorderColor.cgColor
+        toastBox.click = .run { [weak self] in self?.hideToast() }
+        // It floats over the canvas, so it casts a shadow.
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
+        shadow.shadowBlurRadius = 8
+        shadow.shadowOffset = NSSize(width: 0, height: -2)
+        toastBox.shadow = shadow
         toastBox.isHidden = true
         toastBox.translatesAutoresizingMaskIntoConstraints = false
         toastLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        toastLabel.textColor = .white
-        toastLabel.translatesAutoresizingMaskIntoConstraints = false
         toastBox.addSubview(toastLabel)
         NSLayoutConstraint.activate([
             toastLabel.leadingAnchor.constraint(equalTo: toastBox.leadingAnchor, constant: 16),
@@ -910,6 +910,12 @@ final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServic
             try? await Task.sleep(for: .seconds(0.4))
             if !Task.isCancelled { self.toastBox.isHidden = true }
         }
+    }
+
+    private func hideToast() {
+        toastTask?.cancel()
+        toastTask = nil
+        toastBox.isHidden = true
     }
 
     private func textCopied(_ outcome: CaptureText.Outcome) {
@@ -2118,16 +2124,16 @@ final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServic
         guard let w = window, w.attachedSheet == nil else { return }
         let original = canvas.pixelSize
         let form = ResizeForm(original: original, density: canvas.pixelDensity)
-        let alert = NSAlert()
-        alert.messageText = "Resize Image"
-        alert.informativeText = "Now \(original.width) × \(original.height) px. Annotations are resized with the image."
-        alert.accessoryView = form
-        let resize = alert.addButton(withTitle: "Resize")
-        alert.addButton(withTitle: "Cancel")
+        let dialog = RetroDialog(title: "Resize Image",
+                                 message: "Now \(original.width) × \(original.height) px. Annotations are resized with the image.",
+                                 body: form, primary: "Resize")
+        let resize = dialog.primaryKey
         form.onValidityChange = { resize.isEnabled = $0 }
-        alert.window.initialFirstResponder = form.widthField
-        alert.beginSheetModal(for: w) { [weak self] response in
-            guard let self, response == .alertFirstButtonReturn else { return }
+        resize.isEnabled = form.isValid
+        dialog.validate = { form.sizeProblem }
+        dialog.initialFirstResponder = form.widthField
+        dialog.beginSheet(on: w) { [weak self] resized in
+            guard let self, resized else { return }
             let size = form.pixels
             if size.width != original.width || size.height != original.height {
                 self.canvas.resize(toWidth: size.width, height: size.height)

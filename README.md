@@ -193,15 +193,16 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **SK-1 look.** The editor is built like a piece of hardware: a cream chassis (cream by default; charcoal if you set
   **Settings > General > Appearance** to Dark, or to System while macOS is in Dark Mode), the tools as keys in sunken trays with a caption under each, the current tool's key pressed down with an
   orange light, and each tool's shortcut letter printed on its key. An olive LCD shows the tool, its key, how to use
-  it (or what the pointer is doing) and the zoom in seven-segment digits. The strip under it has round color
+  it (or what the pointer is doing, with its LIVE lamp blinking) and the zoom in seven-segment digits. The strip under it has round color
   swatches, ◀ ▶ steppers for sizes (click the readout for the full list), segmented choices and orange-square
   toggles. Settings is the dark key and Save the orange one.
 - **The same look elsewhere.** The Capture Text scratch pad (its toolbar is captioned trays of keys, with round color
-  swatches and an orange Copy key), Step Guide, Capture History, Ask Claude, the Combine Screenshots, Watch This Area
+  swatches, the selected text's color ringed, and an orange Copy key), Step Guide, Capture History, Ask Claude, the Combine Screenshots, Watch This Area
   and Resize Image forms, the shortcut list (its keys drawn as key caps) and the tip popovers use the same cream
   chassis (charcoal in Dark Mode), keys, segmented choices and orange-square toggles. Settings keeps the standard macOS
   controls.
-- **Tabs.** Each capture opens as a tab, shown as thumbnails in a dock beside the canvas.
+- **Tabs.** Each capture opens as a tab, shown as thumbnails in a dock beside the canvas (the one showing outlined in
+  orange).
 - **Tools.** Arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter, text, numbered counter, pixelate,
   blur, erase, spotlight and magnifier. Every tool has a single-key shortcut (V A R F O L P H T N X B E S M).
 - **Shortcut list.** Press **?** in the editor, or choose **Help > Keyboard Shortcuts**, for a searchable list of

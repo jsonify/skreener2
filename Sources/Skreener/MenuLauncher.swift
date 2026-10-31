@@ -99,10 +99,8 @@ import ImageIO
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Retro.palette(for: self)
-        Retro.color(p.chassis).setFill()
-        bounds.fill()
-        Retro.fill(NSBezierPath(rect: bounds), top: NSColor.white.withAlphaComponent(p.chassisGlow * 0.6),
-                   bottom: NSColor.white.withAlphaComponent(0), flipped: true)
+        // Square: the menu has its own edge.
+        Retro.drawPlate(bounds, radius: 0, palette: p, flipped: true)
         Retro.drawWell(trayRect, radius: 10, palette: p, flipped: true)
     }
 
@@ -336,8 +334,8 @@ private final class LauncherTile: NSView {
         let colors = Retro.keyColors(variant, Retro.palette(for: self))
         let key = NSRect(x: 0, y: 0, width: bounds.width, height: Self.keyHeight)
         let face = Retro.drawKey(in: key, radius: PillButton.keycapRadius + 1, colors: colors, down: hovering, flipped: true)
-        RetroPlate.drawLamp(in: NSRect(x: face.maxX - 10, y: face.minY + 5, width: 4, height: 4), on: hovering,
-                            color: variant == .orange ? 0xffffff : RetroPlate.teal)
+        Retro.drawLamp(in: NSRect(x: face.maxX - 10, y: face.minY + 5, width: 4, height: 4),
+                       color: Retro.color(variant == .orange ? 0xffffff : Retro.teal), lit: hovering)
     }
 
     override func viewDidChangeEffectiveAppearance() {

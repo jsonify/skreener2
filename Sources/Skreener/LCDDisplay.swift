@@ -1,7 +1,11 @@
 import AppKit
 
+// The SK-1 kit's LCDs (#344; see `Retro`): the editor's status display, the recording bar's elapsed time, a one-line
+// readout and a small chip, all olive glass in the LCD's ink.
+
 /// The editor's status display, drawn like the SK-1's LCD: olive glass in a sunken bezel, with the tool or mode and
-/// its key at the left, the tool's usage or the live hint in mono, the zoom in seven-segment digits and a status lamp.
+/// its key at the left, the tool's usage or the live hint in mono, the zoom in seven-segment digits and a status lamp
+/// that blinks while a live hint shows.
 final class LCDDisplay: NSView {
     /// Top left: what is in use ("FILLED RECTANGLE").
     var title = "" { didSet { if title != oldValue { needsDisplay = true } } }
@@ -9,12 +13,23 @@ final class LCDDisplay: NSView {
     var detail = "" { didSet { if detail != oldValue { needsDisplay = true } } }
     /// The main line: how to use the tool, or what the pointer is doing right now.
     var message = "" { didSet { if message != oldValue { needsDisplay = true } } }
-    /// The lamp: lit, with "LIVE", while `message` is a live hint; "IDLE" otherwise.
-    var isLive = false { didSet { if isLive != oldValue { needsDisplay = true } } }
+    /// The lamp: blinking, with "LIVE", while `message` is a live hint; "IDLE" otherwise.
+    var isLive = false {
+        didSet {
+            guard isLive != oldValue else { return }
+            needsDisplay = true
+            updateBlink()
+        }
+    }
     /// The zoom in percent, in seven-segment digits; nil shows none.
     var zoomPercent: Int? { didSet { if zoomPercent != oldValue { needsDisplay = true } } }
 
     static let ink = Retro.color(Retro.lcdInk)
+
+    /// The blink, as the recording bar's REC lamp: a step every half second while live and in a window.
+    private var blinkTimer: Timer?
+    private var liveSince = Date()
+    private var lampLit = true { didSet { if lampLit != oldValue { needsDisplay = true } } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -31,10 +46,7 @@ final class LCDDisplay: NSView {
         let p = Retro.palette(for: self)
         // The bezel, with a light lip along its bottom.
         let outer = NSRect(x: bounds.minX, y: bounds.minY + (isFlipped ? 0 : 1), width: bounds.width, height: bounds.height - 1)
-        Retro.drawWell(outer, radius: 9, top: Retro.color(p.bezelTop), bottom: Retro.color(p.bezelBottom), shadow: 0.18,
-                       lip: p.wellLip, flipped: isFlipped)
-        let glassRect = outer.insetBy(dx: 4, dy: 4)
-        Retro.drawGlass(glassRect, radius: 5, brightness: p.lcdBrightness, flipped: isFlipped)
+        let glassRect = Retro.drawLCD(in: outer, palette: p, flipped: isFlipped)
 
         // The segments' faint shadow on the glass behind them.
         let ghost = NSShadow()
@@ -58,8 +70,7 @@ final class LCDDisplay: NSView {
         let statusX = text.maxX - statusSize.width
         status.draw(at: NSPoint(x: statusX, y: centered(statusSize.height)))
         let lamp = NSRect(x: statusX - 9, y: text.midY - 2.5, width: 5, height: 5)
-        (isLive ? Self.ink : Self.ink.withAlphaComponent(0.15)).setFill()
-        NSBezierPath(ovalIn: lamp).fill()
+        Retro.drawLamp(in: lamp, color: Self.ink, lit: isLive && lampLit, unlit: Self.ink.withAlphaComponent(0.15), glow: 0)
         var right = lamp.minX - 16
 
         if let zoom = zoomPercent {
@@ -105,6 +116,187 @@ final class LCDDisplay: NSView {
     private static func draw(_ s: NSAttributedString, in rect: NSRect) {
         guard rect.width > 0 else { return }
         s.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateBlink()
+    }
+
+    /// Runs the blink while live and in a window; otherwise stops it, the lamp lit for next time.
+    private func updateBlink() {
+        guard isLive, window != nil else {
+            blinkTimer?.invalidate()
+            blinkTimer = nil
+            lampLit = true
+            return
+        }
+        guard blinkTimer == nil else { return }
+        liveSince = Date()
+        lampLit = true
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lampLit = Retro.blinkLit(Date().timeIntervalSince(self.liveSince))
+            }
+        }
+        // In the common modes, so it blinks on while a drag on the canvas tracks the mouse.
+        RunLoop.main.add(timer, forMode: .common)
+        blinkTimer = timer
+    }
+}
+
+/// The recording bar's LCD, after the timer's: a REC lamp that blinks (steady and "PAUSED" while paused) and what is
+/// recorded ("MP4 60") along the top, the elapsed time in seven-segment digits under them.
+final class ElapsedLCD: NSView {
+    var time = "00:00" { didSet { if time != oldValue { needsDisplay = true } } }
+    var detail = "" { didSet { if detail != oldValue { needsDisplay = true } } }
+    var isPaused = false { didSet { if isPaused != oldValue { needsDisplay = true } } }
+    /// The blink: lit or dimmed (ignored while paused); see `Retro.blinkLit`.
+    var lampLit = true { didSet { if lampLit != oldValue { needsDisplay = true } } }
+
+    /// The elapsed time, "MM:SS" (minutes go past 99 rather than wrap).
+    static func elapsed(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+
+    /// What the LCD says is recorded: "GIF", or "MP4" and the frame rate.
+    static func formatLabel(gif: Bool, fps: Int) -> String { gif ? "GIF" : "MP4 \(fps)" }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel("Elapsed time")
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 142, height: 62) }
+    override func accessibilityValue() -> Any? { isPaused ? "\(time), paused" : time }
+    /// Clicks go through to the chassis, which drags the bar.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let outer = NSRect(x: bounds.minX, y: bounds.minY + (isFlipped ? 0 : 1), width: bounds.width, height: bounds.height - 1)
+        let glass = Retro.drawLCD(in: outer, palette: p, flipped: isFlipped)
+        let ink = Retro.color(Retro.lcdInk)
+        let inner = glass.insetBy(dx: 9, dy: 5)
+        let rowHeight: CGFloat = 10
+        let row = NSRect(x: inner.minX, y: isFlipped ? inner.minY : inner.maxY - rowHeight, width: inner.width, height: rowHeight)
+
+        let type: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 8, weight: .heavy), .foregroundColor: ink, .kern: 1]
+        let lamp = NSRect(x: row.minX, y: row.midY - 3, width: 6, height: 6)
+        if isPaused {
+            Retro.drawLamp(in: lamp, color: ink, lit: false, unlit: ink.withAlphaComponent(0.4))
+        } else {
+            let red = Retro.color(Retro.recRed)
+            Retro.drawLamp(in: lamp, color: red, lit: lampLit, unlit: red.withAlphaComponent(Retro.lampDimmed))
+        }
+        let state = NSAttributedString(string: isPaused ? "PAUSED" : "REC", attributes: type)
+        state.draw(at: NSPoint(x: lamp.maxX + 4, y: row.midY - state.size().height / 2))
+        var soft = type
+        soft[.foregroundColor] = ink.withAlphaComponent(0.75)
+        soft[.font] = NSFont.systemFont(ofSize: 8, weight: .semibold)
+        let format = NSAttributedString(string: detail.uppercased(), attributes: soft)
+        let formatSize = format.size()
+        format.draw(at: NSPoint(x: row.maxX - formatSize.width, y: row.midY - formatSize.height / 2))
+
+        // The digits fill what is left under the top row.
+        let gap: CGFloat = 3
+        let digitsArea = NSRect(x: inner.minX, y: isFlipped ? row.maxY + gap : inner.minY, width: inner.width,
+                                height: inner.height - rowHeight - gap)
+        let digitHeight = max(min(26, digitsArea.height), 8), spacing: CGFloat = 3
+        let width = SevenSegment.textWidth(time, digitHeight: digitHeight, spacing: spacing)
+        SevenSegment.draw(time, in: NSRect(x: digitsArea.midX - width / 2, y: digitsArea.midY - digitHeight / 2, width: width,
+                                           height: digitHeight), color: ink, spacing: spacing, flipped: isFlipped)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// One line of mono text on LCD glass in a small bezel, cut short at the end when it doesn't fit (a status line).
+final class LCDReadout: NSView {
+    var text = "" { didSet { if text != oldValue { needsDisplay = true } } }
+
+    init(height: CGFloat = 30) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: height).isActive = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func accessibilityValue() -> Any? { text }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let outer = NSRect(x: bounds.minX, y: bounds.minY + (isFlipped ? 0 : 1), width: bounds.width, height: bounds.height - 1)
+        let glass = Retro.drawLCD(in: outer, radius: 7, inset: 3, palette: p, flipped: isFlipped)
+        let para = NSMutableParagraphStyle()
+        para.lineBreakMode = .byTruncatingTail
+        var attrs = Retro.chipAttributes(size: 11)
+        attrs[.paragraphStyle] = para
+        let s = NSAttributedString(string: text, attributes: attrs)
+        let h = s.size().height
+        let rect = NSRect(x: glass.minX + 8, y: glass.midY - h / 2, width: max(glass.width - 16, 0), height: h)
+        guard rect.width > 0 else { return }
+        s.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// A small olive LCD chip with mono text that only shows (a pin's zoom): `PillButton`'s `.lcd` look without the
+/// button. `text` is spoken as its value.
+final class LCDChip: NSView {
+    private let label = NSTextField(labelWithString: "")
+    var text: String {
+        get { label.stringValue }
+        set {
+            label.attributedStringValue = NSAttributedString(string: newValue, attributes: [
+                .font: Retro.mono(10, weight: .bold), .foregroundColor: Retro.color(Retro.lcdInk), .kern: 0.5,
+            ])
+            setAccessibilityValue(newValue)
+        }
+    }
+
+    init(minWidth: CGFloat = 44, height: CGFloat = 20) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: height),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: minWidth),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Retro.drawChipGlass(bounds, radius: 3, brightness: Retro.palette(for: self).lcdBrightness, flipped: isFlipped)
     }
 
     override func viewDidChangeEffectiveAppearance() {

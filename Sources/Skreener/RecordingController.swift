@@ -186,10 +186,10 @@ final class RecordingController {
     private func tick() {
         var elapsed = Date().timeIntervalSince(startedAt) - pausedTotal
         if let p = pausedAt { elapsed -= Date().timeIntervalSince(p) }
-        let text = RetroBars.elapsed(Int(max(0, elapsed)))
+        let text = ElapsedLCD.elapsed(Int(max(0, elapsed)))
         lcd?.time = text
         // The REC lamp blinks once a second, lit for the first half of it.
-        lcd?.lampLit = Int(Date().timeIntervalSince(startedAt) * 2) % 2 == 0
+        lcd?.lampLit = Retro.blinkLit(Date().timeIntervalSince(startedAt))
         onTick?(text)
     }
 
@@ -236,7 +236,7 @@ final class RecordingController {
     /// tray. Below the area if there's room, else above it, else inside its bottom edge. Drag the chassis to move it.
     private func showHUD(near area: CGRect, on screen: NSScreen, fullscreen: Bool, options: ScreenRecorder.Options, gif: Bool) {
         let display = ElapsedLCD()
-        display.detail = RetroBars.formatLabel(gif: gif, fps: options.fps)
+        display.detail = ElapsedLCD.formatLabel(gif: gif, fps: options.fps)
         let micOn: Bool
         if #available(macOS 15.0, *) { micOn = options.microphone } else { micOn = false }
         let keysOn = Preferences.recordShowKeystrokes && AccessibilityAccess.granted
@@ -284,7 +284,7 @@ final class RecordingController {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // The chassis follows the system's appearance (charcoal in Dark Mode).
-        let plate = RetroBarPlate(radius: 14, click: .drag)
+        let plate = ChassisPlate(radius: 14, click: .drag)
         plate.frame = NSRect(origin: .zero, size: size)
         plate.onAppearanceChange = { [weak p] in p?.invalidateShadow() }
         row.translatesAutoresizingMaskIntoConstraints = false
