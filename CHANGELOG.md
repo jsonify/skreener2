@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0](https://github.com/jsonify/skreener2/compare/v1.7.0...v1.8.0) (2026-10-31)
+
+
+### Features
+
+* **settings:** SK-1 look for Settings, with knobs ([#353](https://github.com/jsonify/skreener2/issues/353)) ([#355](https://github.com/jsonify/skreener2/issues/355)) ([485a26f](https://github.com/jsonify/skreener2/commit/485a26f13f8c56ec6a692b0f5e7516206c575625))
+* **ui:** SK-1 app and menu-bar icons ([#353](https://github.com/jsonify/skreener2/issues/353)) ([#354](https://github.com/jsonify/skreener2/issues/354)) ([6528856](https://github.com/jsonify/skreener2/commit/65288563f8fd53501eddb63f81b2104ef851d74b))
+
 ## [1.7.0](https://github.com/jsonify/skreener2/compare/v1.6.0...v1.7.0) (2026-10-30)
 
 
