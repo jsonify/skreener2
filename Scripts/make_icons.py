@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Draws Resources/AppIcon.icns and the MenuBarIcon template PNGs in the SK-1 look (#353): a cream device with an olive
-# LCD showing crop corners over a cream key, a speaker grille and an orange key. The colours are Retro.swift's.
+# LCD showing crop corners over a cream knob, a speaker grille and an orange key. The colours are Retro.swift's.
 # Needs Pillow. Usage: Scripts/make_icons.py
+import math
 import os
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -78,6 +79,38 @@ def key(canvas, box, radius, top, bottom, skirt, highlight):
     canvas.alpha_composite(layer(glow, canvas.size, (x0, y0), mask))
 
 
+def knob(canvas, cx, cy, r):
+    """A round cream knob seen from above: tick marks around it, the shadow it casts, a darker skirt, a domed face
+    and a pointer line at ten o'clock."""
+    d = ImageDraw.Draw(canvas)
+    for i in range(7):  # ticks from seven o'clock round to five o'clock
+        a = math.radians(225 - i * 45)
+        x0, y0 = cx + math.cos(a) * (r + 14 * R), cy - math.sin(a) * (r + 14 * R)
+        t = 5 * R
+        d.ellipse((x0 - t, y0 - t, x0 + t, y0 + t), fill=rgb(0x8f8a80) + (255,))
+    box = (cx - r, cy - r, cx + r, cy + r)
+    canvas.alpha_composite(shadow(canvas.size, box, r, 80, 9 * R, 14 * R))
+    d = ImageDraw.Draw(canvas)
+    d.ellipse((cx - r, cy - r + 8 * R, cx + r, cy + r + 8 * R), fill=rgb(0xb3ada1) + (255,))
+    size = 2 * r
+    disc = Image.new('L', (size, size), 0)
+    ImageDraw.Draw(disc).ellipse((0, 0, size - 1, size - 1), fill=255)
+    canvas.alpha_composite(layer(gradient(size, size, [0xfdfcfa, 0xece8e0, 0xd6d1c6]), canvas.size, (cx - r, cy - r), disc))
+    fr = r - 12 * R  # the domed top, a little lighter than the skirt's slope
+    top = Image.new('L', (2 * fr, 2 * fr), 0)
+    ImageDraw.Draw(top).ellipse((0, 0, 2 * fr - 1, 2 * fr - 1), fill=255)
+    canvas.alpha_composite(layer(gradient(2 * fr, 2 * fr, [0xf2efe8, 0xfbfaf7]), canvas.size, (cx - fr, cy - fr), top))
+    d = ImageDraw.Draw(canvas)
+    d.ellipse((cx - fr, cy - fr, cx + fr, cy + fr), outline=(0x9e, 0x98, 0x8b, 90), width=2 * R)
+    a = math.radians(135)
+    w = 5 * R
+    x0, y0 = cx + math.cos(a) * 10 * R, cy - math.sin(a) * 10 * R
+    x1, y1 = cx + math.cos(a) * (fr - 6 * R), cy - math.sin(a) * (fr - 6 * R)
+    d.line((x0, y0, x1, y1), fill=rgb(0x2b2a27) + (255,), width=2 * w)
+    for x, y in ((x0, y0), (x1, y1)):
+        d.ellipse((x - w, y - w, x + w, y + w), fill=rgb(0x2b2a27) + (255,))
+
+
 def app_icon():
     S, T = 1024 * R, 824 * R  # the macOS grid: an 824 pt tile in a 1024 pt canvas
     o = (S - T) // 2
@@ -123,8 +156,8 @@ def app_icon():
         d.rounded_rectangle((min(cx - sx * h, cx + sx * h), min(cy - sy * h, cy + sy * arm),
                              max(cx - sx * h, cx + sx * h), max(cy - sy * h, cy + sy * arm)), radius=h, fill=ink)
 
-    # The bottom row: a cream key, the speaker grille and the orange key.
-    key(icon, at(104, 584, 300, 694), 30 * R, 0xfdfcfa, 0xe8e4dc, 0xc7c2b7, 255)
+    # The bottom row: a cream knob, the speaker grille and the orange key.
+    knob(icon, o + 190 * R, o + 642 * R, 56 * R)
     key(icon, at(524, 584, 720, 694), 30 * R, 0xff8045, 0xf2520f, 0xb93a07, 150)
     d = ImageDraw.Draw(icon)
     for row in range(3):
@@ -139,7 +172,7 @@ def app_icon():
 
 
 def menu_bar_glyph(scale):
-    """The device as a template glyph, 18 pt tall: the body's outline, the LCD block and two keys."""
+    """The device as a template glyph, 18 pt tall: the body's outline, the LCD block, the knob and the key."""
     s = 16  # drawn larger, then reduced, for smooth curves on whole-pixel geometry
     px = scale * s
     w, h = 20 * px, 18 * px
@@ -149,7 +182,7 @@ def menu_bar_glyph(scale):
     d.rounded_rectangle((1.5 * px, 1.5 * px, w - 1.5 * px - 1, h - 1.5 * px - 1), radius=4 * px, outline=255,
                         width=line)
     d.rounded_rectangle((4.5 * px, 4.5 * px, w - 4.5 * px - 1, 10.5 * px - 1), radius=1.25 * px, fill=255)
-    d.rounded_rectangle((4.5 * px, 12 * px, 8.5 * px - 1, 14 * px - 1), radius=1 * px, fill=255)
+    d.ellipse((4.5 * px, 11.5 * px, 7.5 * px - 1, 14.5 * px - 1), fill=255)
     d.rounded_rectangle((w - 8.5 * px, 12 * px, w - 4.5 * px - 1, 14 * px - 1), radius=1 * px, fill=255)
     alpha = m.resize((20 * scale, 18 * scale), Image.LANCZOS)
     out = Image.new('RGBA', alpha.size, (0, 0, 0, 0))
