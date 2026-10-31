@@ -263,7 +263,7 @@ final class SettingsWindowController: NSWindowController {
             bind(choose) { [weak self] _ in self?.chooseFolder() }
             folderLabel.lineBreakMode = .byTruncatingMiddle
             refreshFolder()
-            let folder = NSStackView(views: [LCDFieldBox(folderLabel, width: 220), choose])
+            let folder = NSStackView(views: [LCDTextBox(folderLabel, width: 220), choose])
             folder.spacing = 10
             let resetTips = RetroUI.key("Reset Tips")
             bind(resetTips) { _ in Tips.resetAll() }
@@ -440,7 +440,7 @@ final class SettingsWindowController: NSWindowController {
                            "PNGs get a palette of up to 256 colors when it looks the same, and stay as they are when it doesn't.",
                            Preferences.compressScreenshots) { Preferences.compressScreenshots = $0 },
                     row("File name", "Tokens: %t what the capture shows (a web page's title, else its biggest text), "
-                        + "%a the app, %Y %y %m %d %H %M %S", LCDFieldBox(template, width: 250)),
+                        + "%a the app, %Y %y %m %d %H %M %S", LCDTextBox(template, width: 250)),
                     row("Example", preview),
                 ]),
                 group("Window Capture", [
@@ -523,7 +523,7 @@ final class SettingsWindowController: NSWindowController {
             let save = RetroUI.key("Save", variant: .orange)
             bind(save) { [weak self] _ in self?.saveAPIKey() }
             bind(apiKeyField) { [weak self] _ in self?.saveAPIKey() }
-            let entry = NSStackView(views: [LCDFieldBox(apiKeyField, width: 220), save])
+            let entry = NSStackView(views: [LCDTextBox(apiKeyField, width: 220), save])
             entry.spacing = 8
 
             bind(apiKeyRemove) { [weak self] _ in

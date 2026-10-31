@@ -34,7 +34,7 @@ import AppKit
 ///   with an LED. `RetroIndicator`: a toggle's square and caption that only shows a state. `RetroSwitch`: a square
 ///   key with a lamp that stands in for `NSSwitch` in a settings row.
 /// - `RetroKnob` (`RetroKnob.swift`): a knob with an LCD readout, clicking between choices or turning through a range.
-/// - `LCDFieldBox`: a text field or label on an LCD chip.
+/// - `LCDTextBox`: a text field or label on an LCD chip.
 /// - `RetroSegmented`: a few choices in a track, the chosen one charcoal. `SwatchRow` / `RoundSwatch`: round colour
 ///   swatches. `ColorPill`: one round swatch with a menu.
 /// - `RetroUI`: builders for the windows (`key`, `toggle`, `menuKey`, `stepper`, `tray`, `hint`, `useChassis`,
@@ -1319,7 +1319,7 @@ final class RetroSwitch: NSButton {
 
 /// A text field (or a label) on an LCD chip: the chip's olive glass in a sunken bezel, the text in mono LCD ink. The
 /// glass is always light, so the field is drawn in the light appearance (dark caret and selection) in either mode.
-final class LCDFieldBox: NSView {
+final class LCDTextBox: NSView {
     let field: NSTextField
 
     init(_ field: NSTextField, width: CGFloat? = nil) {

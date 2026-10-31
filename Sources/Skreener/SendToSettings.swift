@@ -67,7 +67,7 @@ import AppKit
         tools.bind(choose) { [weak self] _ in self?.chooseVault() }
         vaultLabel.lineBreakMode = .byTruncatingMiddle
         refreshVault()
-        let folder = NSStackView(views: [LCDFieldBox(vaultLabel, width: 220), choose])
+        let folder = NSStackView(views: [LCDTextBox(vaultLabel, width: 220), choose])
         folder.spacing = 10
         return tools.group("Obsidian", [
             tools.row("Vault folder", "The vault's folder on your Mac. Pictures are copied into its Skreener folder.", folder),
