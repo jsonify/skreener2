@@ -4,7 +4,8 @@ import AppKit
 // readout and a small chip, all olive glass in the LCD's ink.
 
 /// The editor's status display, drawn like the SK-1's LCD: olive glass in a sunken bezel, with the tool or mode and
-/// its key at the left, the tool's usage or the live hint in mono, the zoom in seven-segment digits and a status lamp.
+/// its key at the left, the tool's usage or the live hint in mono, the zoom in seven-segment digits and a status lamp
+/// that blinks while a live hint shows.
 final class LCDDisplay: NSView {
     /// Top left: what is in use ("FILLED RECTANGLE").
     var title = "" { didSet { if title != oldValue { needsDisplay = true } } }
@@ -12,12 +13,23 @@ final class LCDDisplay: NSView {
     var detail = "" { didSet { if detail != oldValue { needsDisplay = true } } }
     /// The main line: how to use the tool, or what the pointer is doing right now.
     var message = "" { didSet { if message != oldValue { needsDisplay = true } } }
-    /// The lamp: lit, with "LIVE", while `message` is a live hint; "IDLE" otherwise.
-    var isLive = false { didSet { if isLive != oldValue { needsDisplay = true } } }
+    /// The lamp: blinking, with "LIVE", while `message` is a live hint; "IDLE" otherwise.
+    var isLive = false {
+        didSet {
+            guard isLive != oldValue else { return }
+            needsDisplay = true
+            updateBlink()
+        }
+    }
     /// The zoom in percent, in seven-segment digits; nil shows none.
     var zoomPercent: Int? { didSet { if zoomPercent != oldValue { needsDisplay = true } } }
 
     static let ink = Retro.color(Retro.lcdInk)
+
+    /// The blink, as the recording bar's REC lamp: a step every half second while live and in a window.
+    private var blinkTimer: Timer?
+    private var liveSince = Date()
+    private var lampLit = true { didSet { if lampLit != oldValue { needsDisplay = true } } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -58,7 +70,7 @@ final class LCDDisplay: NSView {
         let statusX = text.maxX - statusSize.width
         status.draw(at: NSPoint(x: statusX, y: centered(statusSize.height)))
         let lamp = NSRect(x: statusX - 9, y: text.midY - 2.5, width: 5, height: 5)
-        Retro.drawLamp(in: lamp, color: Self.ink, lit: isLive, unlit: Self.ink.withAlphaComponent(0.15), glow: 0)
+        Retro.drawLamp(in: lamp, color: Self.ink, lit: isLive && lampLit, unlit: Self.ink.withAlphaComponent(0.15), glow: 0)
         var right = lamp.minX - 16
 
         if let zoom = zoomPercent {
@@ -109,6 +121,33 @@ final class LCDDisplay: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateBlink()
+    }
+
+    /// Runs the blink while live and in a window; otherwise stops it, the lamp lit for next time.
+    private func updateBlink() {
+        guard isLive, window != nil else {
+            blinkTimer?.invalidate()
+            blinkTimer = nil
+            lampLit = true
+            return
+        }
+        guard blinkTimer == nil else { return }
+        liveSince = Date()
+        lampLit = true
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lampLit = Retro.blinkLit(Date().timeIntervalSince(self.liveSince))
+            }
+        }
+        // In the common modes, so it blinks on while a drag on the canvas tracks the mouse.
+        RunLoop.main.add(timer, forMode: .common)
+        blinkTimer = timer
     }
 }
 

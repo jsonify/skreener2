@@ -15,6 +15,10 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
     private(set) var pixels: (width: Int, height: Int)
     var onValidityChange: ((Bool) -> Void)?
 
+    /// What is wrong with the size picked, or nil when it can be used.
+    var sizeProblem: String? { ImageOps.resizeProblem(width: pixels.width, height: pixels.height) }
+    var isValid: Bool { sizeProblem == nil }
+
     private var inPoints: Bool { unitPopup.selectedTag() == 1 }
 
     init(original: (width: Int, height: Int), density: CGFloat) {
@@ -62,6 +66,8 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            widthAnchor.constraint(equalToConstant: 300),
         ])
         showPixels()
     }
@@ -80,7 +86,7 @@ final class ResizeForm: NSView, NSTextFieldDelegate {
     }
 
     private func validate() {
-        let message = ImageOps.resizeProblem(width: pixels.width, height: pixels.height)
+        let message = sizeProblem
         problem.stringValue = message ?? (inPoints ? "\(pixels.width) × \(pixels.height) px" : "")
         problem.textColor = message == nil ? .secondaryLabelColor : .systemRed
         onValidityChange?(message == nil)

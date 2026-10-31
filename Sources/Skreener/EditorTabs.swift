@@ -133,8 +133,8 @@ final class EditorWindow: NSWindow {
 }
 
 /// The side dock of open screenshots (#140): a thumbnail per editor in the group, the one showing outlined in the
-/// accent color. Click one to show it; the × on hover or a middle click closes it; right-click for more. The button
-/// in its header collapses it (the footer's dock button brings it back).
+/// SK-1 orange (#344). Click one to show it; the × on hover or a middle click closes it; right-click for more. The
+/// key in its header collapses it (the footer's dock button brings it back).
 final class EditorDock: NSView {
     struct Item {
         var title: String
@@ -148,8 +148,8 @@ final class EditorDock: NSView {
     var onCollapse: (() -> Void)?
     var menuForItem: ((Int) -> NSMenu?)?
 
-    private let header = NSTextField(labelWithString: "")
-    private let collapseButton = NSButton()
+    private let header = RetroLabel(caption: "")
+    private let collapseButton = RetroUI.key(symbol: "sidebar.left", tip: "Hide Screenshots (⌃⌘S)", height: 22)
     private let scroll = NSScrollView()
     private let list = NSStackView()
     private let edge = NSBox()
@@ -167,7 +167,8 @@ final class EditorDock: NSView {
             edgeTrailing?.isActive = !onRight
             pinLeading?.isActive = !onRight
             pinTrailing?.isActive = onRight
-            collapseButton.image = Self.symbol(onRight ? "sidebar.right" : "sidebar.left")
+            collapseButton.setContent(title: nil, symbol: onRight ? "sidebar.right" : "sidebar.left")
+            collapseButton.setAccessibilityLabel("Hide Screenshots")
         }
     }
 
@@ -176,13 +177,8 @@ final class EditorDock: NSView {
         // Clear: the editor's chassis shows through (#344).
         let background = NSView()
 
-        header.font = .systemFont(ofSize: 11, weight: .semibold)
-        header.textColor = .secondaryLabelColor
-        header.lineBreakMode = .byTruncatingTail
-        collapseButton.image = Self.symbol("sidebar.left")
-        collapseButton.isBordered = false
-        collapseButton.contentTintColor = .secondaryLabelColor
-        collapseButton.toolTip = "Hide Screenshots (⌃⌘S)"
+        // The SK-1 look (#344): the count as a caption, the collapse button a small cream key.
+        header.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         collapseButton.setAccessibilityLabel("Hide Screenshots")
         collapseButton.target = self
         collapseButton.action = #selector(collapse)
@@ -232,7 +228,6 @@ final class EditorDock: NSView {
             header.trailingAnchor.constraint(lessThanOrEqualTo: collapseButton.leadingAnchor, constant: -6),
             collapseButton.topAnchor.constraint(equalTo: content.topAnchor, constant: 8),
             collapseButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
-            collapseButton.widthAnchor.constraint(equalToConstant: 22), collapseButton.heightAnchor.constraint(equalToConstant: 22),
             scroll.topAnchor.constraint(equalTo: collapseButton.bottomAnchor, constant: 6),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -251,7 +246,7 @@ final class EditorDock: NSView {
     /// Shows `items`, `selected` outlined. The item views are kept when the count stays the same, so an updated
     /// thumbnail doesn't reset the scroll position or the hover.
     func show(_ items: [Item], selected: Int) {
-        header.stringValue = items.count == 1 ? "1 Screenshot" : "\(items.count) Screenshots"
+        header.caption = items.count == 1 ? "1 Screenshot" : "\(items.count) Screenshots"
         if views.count != items.count {
             views.forEach { $0.removeFromSuperview() }
             views = items.indices.map { i in
@@ -273,14 +268,9 @@ final class EditorDock: NSView {
     }
 
     @objc private func collapse() { onCollapse?() }
-
-    private static func symbol(_ name: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
-    }
 }
 
-/// One screenshot in the dock: its thumbnail (outlined in the accent color while it is the one showing) with its title
+/// One screenshot in the dock: its thumbnail (outlined in orange while it is the one showing) with its title
 /// under it, and a close button in the corner while the pointer is over it.
 private final class DockItemView: NSView {
     var onClick: (() -> Void)?
@@ -388,11 +378,12 @@ private final class DockItemView: NSView {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             frameView.layer?.backgroundColor = (hovering && !isSelected ? NSColor.labelColor.withAlphaComponent(0.06) : .clear).cgColor
             frameView.layer?.borderWidth = isSelected ? 2.5 : 0
-            frameView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            frameView.layer?.borderColor = Retro.color(Retro.orange).cgColor
             imageView.layer?.borderWidth = 0.5
             imageView.layer?.borderColor = NSColor.separatorColor.cgColor
         }
-        label.textColor = isSelected ? .labelColor : .secondaryLabelColor
+        let p = Retro.palette(for: self)
+        label.textColor = Retro.color(isSelected ? p.ink : p.inkSoft)
         label.font = .systemFont(ofSize: 11, weight: isSelected ? .semibold : .regular)
     }
 

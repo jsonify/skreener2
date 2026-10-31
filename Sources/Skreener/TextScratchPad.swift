@@ -65,6 +65,8 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     /// The toolbar's colors: red, blue, green.
     private static let palette = [FormattedText.RGB(r: 0.86, g: 0.15, b: 0.15), FormattedText.RGB(r: 0.12, g: 0.4, b: 0.9),
                                   FormattedText.RGB(r: 0.1, g: 0.6, b: 0.25)]
+    /// The toolbar's colour swatches, in `palette`'s order; the selection's (or the typing style's) is ringed.
+    private var colorSwatches: [RoundSwatch] = []
     /// The paragraph menu's kinds, in order.
     private static let kinds: [FormattedText.Paragraph] = [.heading(1), .heading(2), .body]
 
@@ -180,11 +182,12 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         func symbol(_ name: String, _ tip: String, _ action: Selector) -> PillButton {
             RetroUI.key(symbol: name, tip: tip, target: self, action: action)
         }
-        let dots: [NSView] = zip(Self.palette, ["Red", "Blue", "Green"]).enumerated().map { i, color in
+        let dots = zip(Self.palette, ["Red", "Blue", "Green"]).enumerated().map { i, color in
             RoundSwatch(color: Self.swatchColor(color.0), name: "\(color.1) text; again to take it off", size: 20) { [weak self] in
                 self?.applyColor(index: i)
             }
         }
+        colorSwatches = dots
         let trays: [(String, [NSView])] = [
             ("Style", [paragraphMenu]),
             ("Text", [symbol("bold", "Bold (⌘B)", #selector(toggleBold)),
@@ -194,7 +197,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
                        symbol("list.number", "Numbered list", #selector(toggleNumbers)),
                        symbol("decrease.indent", "Outdent (⇧Tab in a list)", #selector(outdentItems)),
                        symbol("increase.indent", "Indent (Tab in a list)", #selector(indentItems))]),
-            ("Color", dots + [symbol("eraser", "Clear formatting: plain text, keeping headings and lists", #selector(clearFormatting))]),
+            ("Color", (dots as [NSView]) + [symbol("eraser", "Clear formatting: plain text, keeping headings and lists", #selector(clearFormatting))]),
             ("Lines", [symbol("text.line.first.and.arrowtriangle.forward", "Split into Lines (⇧⌥I)", #selector(splitIntoLines))]),
         ]
         toolbar.orientation = .horizontal
@@ -215,6 +218,15 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         textView.isRichText = on
         toolbar.isHidden = !on
         if !on { textView.font = .systemFont(ofSize: 13) }
+        updateColorSwatches()
+    }
+
+    /// Rings the swatch of the colour the selection (or, with only the cursor placed, the typing style) is in, as
+    /// `SwatchRow` does; none when it is in no one colour.
+    private func updateColorSwatches() {
+        guard formatted else { return }
+        let current = Self.palette.firstIndex { color in allStyled { $0.color == color } }
+        for (i, swatch) in colorSwatches.enumerated() { swatch.isChosen = i == current }
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -490,6 +502,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         let ranges = styledRanges()
         guard let storage = textView.textStorage, !ranges.isEmpty else {
             textView.typingAttributes = changed(textView.typingAttributes)
+            updateColorSwatches()
             return
         }
         let selection = textView.selectedRange()
@@ -500,6 +513,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         }
         storage.endEditing()
         textView.didChangeText()
+        updateColorSwatches()
     }
 
     @objc private func toggleBold() {
@@ -775,7 +789,10 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
 
     func textDidChange(_ notification: Notification) { updateCount() }
 
-    func textViewDidChangeSelection(_ notification: Notification) { updateParagraphMenu() }
+    func textViewDidChangeSelection(_ notification: Notification) {
+        updateParagraphMenu()
+        updateColorSwatches()
+    }
 
     private func updateCount() {
         let text = plainText

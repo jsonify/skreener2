@@ -2124,16 +2124,16 @@ final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServic
         guard let w = window, w.attachedSheet == nil else { return }
         let original = canvas.pixelSize
         let form = ResizeForm(original: original, density: canvas.pixelDensity)
-        let alert = NSAlert()
-        alert.messageText = "Resize Image"
-        alert.informativeText = "Now \(original.width) × \(original.height) px. Annotations are resized with the image."
-        alert.accessoryView = form
-        let resize = alert.addButton(withTitle: "Resize")
-        alert.addButton(withTitle: "Cancel")
+        let dialog = RetroDialog(title: "Resize Image",
+                                 message: "Now \(original.width) × \(original.height) px. Annotations are resized with the image.",
+                                 body: form, primary: "Resize")
+        let resize = dialog.primaryKey
         form.onValidityChange = { resize.isEnabled = $0 }
-        alert.window.initialFirstResponder = form.widthField
-        alert.beginSheetModal(for: w) { [weak self] response in
-            guard let self, response == .alertFirstButtonReturn else { return }
+        resize.isEnabled = form.isValid
+        dialog.validate = { form.sizeProblem }
+        dialog.initialFirstResponder = form.widthField
+        dialog.beginSheet(on: w) { [weak self] resized in
+            guard let self, resized else { return }
             let size = form.pixels
             if size.width != original.width || size.height != original.height {
                 self.canvas.resize(toWidth: size.width, height: size.height)
