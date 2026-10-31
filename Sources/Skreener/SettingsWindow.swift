@@ -1,8 +1,9 @@
 import AppKit
 
-/// Settings window (⌘, or the menu bar icon or the editor's gear button), CleanShot-style: a sidebar of categories with
-/// colored icons, and each category's options in rounded groups. Fixed 810 pt wide; only the height can be resized.
-final class SettingsWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+/// Settings window (⌘, or the menu bar icon or the editor's gear button), in the SK-1 look (#353): a chassis with an
+/// LCD and a tray of keys down the side, one per category, and each category's options in sunken trays, with the kit's
+/// switches, LCD steppers, segmented controls and knobs. Fixed 810 pt wide; only the height can be resized.
+final class SettingsWindowController: NSWindowController {
     @MainActor static let shared = SettingsWindowController()
     /// Whether the Settings window is on screen (without creating it).
     @MainActor static var isOpen: Bool { created?.window?.isVisible == true }
@@ -19,6 +20,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private static let width: CGFloat = 810
     private static let sidebarWidth: CGFloat = 200
+    /// Space either side of a pane's groups.
+    private static let paneMargin: CGFloat = 22
 
     private enum Pane: Int, CaseIterable {
         case general, afterCapture, sendTo, shortcuts, screenshots, recording, annotate, askClaude, about
@@ -49,19 +52,6 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             case .about: return "info"
             }
         }
-        var color: NSColor {
-            switch self {
-            case .general: return .systemGray
-            case .afterCapture: return .systemGreen
-            case .sendTo: return .systemTeal
-            case .shortcuts: return .systemIndigo
-            case .screenshots: return .systemBlue
-            case .recording: return .systemRed
-            case .annotate: return .systemOrange
-            case .askClaude: return .systemPurple
-            case .about: return .systemGray
-            }
-        }
 
         /// The categories in the sidebar's list; About sits on its own at the bottom of the sidebar (#136).
         static let listed = allCases.filter { $0 != .about }
@@ -69,27 +59,29 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     /// Target objects for the controls' closures (controls hold their targets weakly).
     private var actions: [ControlAction] = []
+    private var viewActions: [ViewAction] = []
     private let folderLabel = NSTextField(labelWithString: "")
-    private let loginSwitch = NSSwitch()
+    private let loginSwitch = RetroSwitch()
     /// Capture Text's scratch pad, also switched from the editor's Copy Text strip.
-    private let scratchPadSwitch = NSSwitch()
+    private let scratchPadSwitch = RetroSwitch()
     /// Kept so it can follow the setting when a link's prompt turns it on (`refreshURLScheme`).
-    private let urlSchemeSwitch = NSSwitch()
+    private let urlSchemeSwitch = RetroSwitch()
     private let shortcutsPane = ShortcutsPane()
     private let sendToPane = SendToPane()
     private let filingPane = FilingPane()
     /// Ask Claude's API key: typed into `apiKeyField`, saved to the Keychain; `apiKeyStatus` shows what is stored.
     private let apiKeyField = NSSecureTextField()
-    private let apiKeyStatus = NSTextField(labelWithString: "")
-    private let apiKeyRemove = NSButton(title: "Remove", target: nil, action: nil)
+    private let apiKeyStatus = RetroUI.hint("", size: 12)
+    private let apiKeyRemove = RetroUI.key("Remove")
     /// Each permission's status in Settings → General (and Paste Destinations), refreshed whenever Settings comes to
     /// the front (#112).
     private var permissionLabels: [(permission: Permission, label: NSTextField)] = []
     /// The remembered paste destinations (#327), rebuilt when one is removed and when Settings comes to the front.
     private let pasteList = NSStackView()
-    private let sidebar = NSTableView()
-    /// One-row list pinned to the bottom of the sidebar, below a divider, holding About (#136).
-    private let footer = NSTableView()
+    /// The sidebar's keys, one per pane; About's sits in its own tray at the bottom (#136).
+    private var navKeys: [Pane: SettingsNavKey] = [:]
+    /// The LCD at the top of the sidebar, naming the pane shown.
+    private let sideLCD = SettingsLCD()
     private let detail = NSScrollView()
     /// Each pane is built once, the first time it is shown.
     private var panes: [Pane: NSView] = [:]
@@ -100,31 +92,52 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                          backing: .buffered, defer: false)
         w.title = "Skreener Settings"
         w.titleVisibility = .hidden
-        w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
         super.init(window: w)
         Self.created = self
 
-        let split = NSSplitViewController()
-        let side = NSSplitViewItem(sidebarWithViewController: viewController(buildSidebar()))
-        side.minimumThickness = Self.sidebarWidth
-        side.maximumThickness = Self.sidebarWidth
-        side.canCollapse = false
-        split.addSplitViewItem(side)
+        // The chassis: the title bar (a caption and a grille), a groove under it, then the sidebar and the panes with
+        // a groove between them.
+        let chassis = RetroUI.useChassis(w)
+        let badge = RetroLabel(caption: "Skreener Settings", tone: .soft)
+        let grille = SpeakerGrille(columns: 6, rows: 2)
+        let topGroove = RetroGroove()
+        let sideGroove = RetroGroove(vertical: true)
+        let side = buildSidebar()
         detail.hasVerticalScroller = true
         detail.drawsBackground = false
-        split.addSplitViewItem(NSSplitViewItem(viewController: viewController(detail)))
-        w.contentViewController = split
+        for v in [badge, grille, topGroove, side, sideGroove, detail] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            chassis.addSubview(v)
+        }
+        let top = RetroUI.contentTop(of: w, in: chassis)
+        NSLayoutConstraint.activate([
+            badge.leadingAnchor.constraint(equalTo: chassis.leadingAnchor, constant: 84),
+            badge.centerYAnchor.constraint(equalTo: chassis.topAnchor, constant: 14),
+            grille.trailingAnchor.constraint(equalTo: chassis.trailingAnchor, constant: -16),
+            grille.centerYAnchor.constraint(equalTo: chassis.topAnchor, constant: 14),
+            topGroove.topAnchor.constraint(equalTo: top),
+            topGroove.leadingAnchor.constraint(equalTo: chassis.leadingAnchor),
+            topGroove.trailingAnchor.constraint(equalTo: chassis.trailingAnchor),
+            side.topAnchor.constraint(equalTo: topGroove.bottomAnchor),
+            side.leadingAnchor.constraint(equalTo: chassis.leadingAnchor),
+            side.bottomAnchor.constraint(equalTo: chassis.bottomAnchor),
+            side.widthAnchor.constraint(equalToConstant: Self.sidebarWidth),
+            sideGroove.topAnchor.constraint(equalTo: topGroove.bottomAnchor),
+            sideGroove.leadingAnchor.constraint(equalTo: side.trailingAnchor),
+            sideGroove.bottomAnchor.constraint(equalTo: chassis.bottomAnchor),
+            detail.topAnchor.constraint(equalTo: topGroove.bottomAnchor),
+            detail.leadingAnchor.constraint(equalTo: sideGroove.trailingAnchor),
+            detail.trailingAnchor.constraint(equalTo: chassis.trailingAnchor),
+            detail.bottomAnchor.constraint(equalTo: chassis.bottomAnchor),
+        ])
 
         // Only the height is adjustable.
-        w.contentMinSize = NSSize(width: Self.width, height: 420)
+        w.contentMinSize = NSSize(width: Self.width, height: 520)
         w.contentMaxSize = NSSize(width: Self.width, height: .greatestFiniteMagnitude)
         w.setContentSize(NSSize(width: Self.width, height: 660))
         w.center()
-        sidebar.reloadData()
-        footer.reloadData()
-        sidebar.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        show(.general)
+        select(.general)
 
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
             Task { @MainActor in DockPresence.update() }
@@ -138,12 +151,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     /// Brings Settings to the front; `askClaude` opens it on the Ask Claude pane, where the API key goes.
     func present(askClaude: Bool = false, sendTo: Bool = false, shortcuts: Bool = false) {
-        if askClaude, let row = Pane.listed.firstIndex(of: .askClaude) {
-            sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        } else if sendTo, let row = Pane.listed.firstIndex(of: .sendTo) {
-            sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        } else if shortcuts, let row = Pane.listed.firstIndex(of: .shortcuts) {
-            sidebar.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        if askClaude {
+            select(.askClaude)
+        } else if sendTo {
+            select(.sendTo)
+        } else if shortcuts {
+            select(.shortcuts)
         }
         refreshFolder()
         refreshLogin()   // may have changed in System Settings
@@ -156,107 +169,56 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func viewController(_ view: NSView) -> NSViewController {
-        let vc = NSViewController()
-        vc.view = view
-        return vc
-    }
-
     // MARK: Sidebar
 
+    /// The LCD naming the pane, the tray of the panes' keys, and About's key in a tray of its own at the bottom.
     private func buildSidebar() -> NSView {
-        let list = sidebarList(sidebar)
-        let bottom = sidebarList(footer)
-        let divider = NSBox()
-        divider.boxType = .separator
         let side = NSView()
-        [list, divider, bottom].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; side.addSubview($0) }
+        let list = navTray(Pane.listed)
+        let about = navTray([.about])
+        for v in [sideLCD, list, about] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            side.addSubview(v)
+            v.leadingAnchor.constraint(equalTo: side.leadingAnchor, constant: 14).isActive = true
+            v.trailingAnchor.constraint(equalTo: side.trailingAnchor, constant: -12).isActive = true
+        }
         NSLayoutConstraint.activate([
-            list.topAnchor.constraint(equalTo: side.topAnchor),
-            list.leadingAnchor.constraint(equalTo: side.leadingAnchor),
-            list.trailingAnchor.constraint(equalTo: side.trailingAnchor),
-            list.bottomAnchor.constraint(equalTo: divider.topAnchor, constant: -6),
-            divider.leadingAnchor.constraint(equalTo: side.leadingAnchor, constant: 14),
-            divider.trailingAnchor.constraint(equalTo: side.trailingAnchor, constant: -14),
-            divider.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -6),
-            bottom.leadingAnchor.constraint(equalTo: side.leadingAnchor),
-            bottom.trailingAnchor.constraint(equalTo: side.trailingAnchor),
-            bottom.bottomAnchor.constraint(equalTo: side.bottomAnchor, constant: -10),
-            // One 32 pt row plus the source list's own row padding.
-            bottom.heightAnchor.constraint(equalToConstant: 42),
+            sideLCD.topAnchor.constraint(equalTo: side.topAnchor, constant: 14),
+            list.topAnchor.constraint(equalTo: sideLCD.bottomAnchor, constant: 12),
+            list.bottomAnchor.constraint(lessThanOrEqualTo: about.topAnchor, constant: -12),
+            about.bottomAnchor.constraint(equalTo: side.bottomAnchor, constant: -14),
         ])
         return side
     }
 
-    /// A source-list table of panes in a scroll view, styled the same for the main list and the About footer.
-    private func sidebarList(_ table: NSTableView) -> NSScrollView {
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("pane"))
-        column.width = Self.sidebarWidth - 20
-        table.addTableColumn(column)
-        table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
-        table.headerView = nil
-        table.style = .sourceList
-        table.rowHeight = 32
-        table.dataSource = self
-        table.delegate = self
-        let scroll = NSScrollView()
-        scroll.documentView = table
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = false
-        return scroll
-    }
-
-    private func panes(in table: NSTableView) -> [Pane] { table === footer ? [.about] : Pane.listed }
-
-    func numberOfRows(in tableView: NSTableView) -> Int { panes(in: tableView).count }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let list = panes(in: tableView)
-        guard list.indices.contains(row) else { return nil }
-        let pane = list[row]
-        let cell = NSTableCellView()
-        let icon = NSImageView(image: Self.icon(pane.symbol, pane.color))
-        let label = NSTextField(labelWithString: pane.title)
-        label.font = .systemFont(ofSize: 13)
-        [icon, label].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; cell.addSubview($0) }
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 22), icon.heightAnchor.constraint(equalToConstant: 22),
-            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
-        ])
-        cell.imageView = icon
-        cell.textField = label
-        return cell
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard let table = notification.object as? NSTableView else { return }
-        let list = panes(in: table)
-        guard list.indices.contains(table.selectedRow) else { return }
-        // Only one row is highlighted across the two lists.
-        (table === footer ? sidebar : footer).deselectAll(nil)
-        show(list[table.selectedRow])
-    }
-
-    /// White symbol on a rounded square of `color`, with a soft top highlight.
-    private static func icon(_ symbol: String, _ color: NSColor) -> NSImage {
-        NSImage(size: NSSize(width: 22, height: 22), flipped: false) { r in
-            let path = NSBezierPath(roundedRect: r, xRadius: 5.5, yRadius: 5.5)
-            color.setFill()
-            path.fill()
-            NSGradient(starting: NSColor.white.withAlphaComponent(0.22), ending: NSColor.white.withAlphaComponent(0))?
-                .draw(in: path, angle: -90)
-            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-                .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
-            if let s = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
-                s.draw(in: NSRect(x: r.midX - s.size.width / 2, y: r.midY - s.size.height / 2,
-                                  width: s.size.width, height: s.size.height))
-            }
-            return true
+    /// A sunken tray holding a key for each of `panes`.
+    private func navTray(_ panes: [Pane]) -> NSView {
+        var keys: [SettingsNavKey] = []
+        for pane in panes {
+            let key = SettingsNavKey(title: pane.title, symbol: pane.symbol) { [weak self] in self?.select(pane) }
+            navKeys[pane] = key
+            keys.append(key)
         }
+        let stack = NSStackView(views: keys)
+        stack.orientation = .vertical
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 7, left: 7, bottom: 8, right: 7)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        for k in keys { k.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -14).isActive = true }
+        let well = RetroWell()
+        well.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: well.topAnchor), stack.bottomAnchor.constraint(equalTo: well.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: well.leadingAnchor), stack.trailingAnchor.constraint(equalTo: well.trailingAnchor),
+        ])
+        return well
+    }
+
+    /// Shows `pane`, pressing its key and naming it on the LCD.
+    private func select(_ pane: Pane) {
+        for (p, key) in navKeys { key.isSelected = p == pane }
+        sideLCD.title = pane.title
+        show(pane)
     }
 
     // MARK: Panes
@@ -273,46 +235,37 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             doc.leadingAnchor.constraint(equalTo: detail.contentView.leadingAnchor),
             doc.topAnchor.constraint(equalTo: detail.contentView.topAnchor),
             doc.widthAnchor.constraint(equalTo: detail.contentView.widthAnchor),
-            content.topAnchor.constraint(equalTo: doc.topAnchor, constant: 8),
-            content.leadingAnchor.constraint(equalTo: doc.leadingAnchor, constant: 28),
-            content.trailingAnchor.constraint(equalTo: doc.trailingAnchor, constant: -28),
+            content.topAnchor.constraint(equalTo: doc.topAnchor, constant: 18),
+            content.leadingAnchor.constraint(equalTo: doc.leadingAnchor, constant: Self.paneMargin),
+            content.trailingAnchor.constraint(equalTo: doc.trailingAnchor, constant: -Self.paneMargin),
             content.bottomAnchor.constraint(equalTo: doc.bottomAnchor, constant: -28),
         ])
         detail.contentView.scroll(to: .zero)
     }
 
-    private func buildPane(_ pane: Pane) -> NSView {
-        let title: NSView = {
-            let l = NSTextField(labelWithString: pane.title)
-            l.font = .systemFont(ofSize: 20, weight: .bold)
-            return l
-        }()
-        return verticalStack([title] + groups(for: pane), spacing: 24)
-    }
+    /// The pane's groups; its name is on the sidebar's LCD.
+    private func buildPane(_ pane: Pane) -> NSView { verticalStack(groups(for: pane), spacing: 22) }
 
     private func groups(for pane: Pane) -> [NSView] {
         switch pane {
         case .general:
             bind(loginSwitch) { [weak self] c in
-                LaunchAtLogin.set((c as? NSSwitch)?.state == .on)
+                LaunchAtLogin.set((c as? NSButton)?.state == .on)
                 self?.refreshLogin()
             }
-            loginSwitch.controlSize = .small
+            loginSwitch.setAccessibilityLabel("Launch at login")
             refreshLogin()
-            bind(urlSchemeSwitch) { c in Preferences.allowURLScheme = (c as? NSSwitch)?.state == .on }
-            urlSchemeSwitch.controlSize = .small
+            bind(urlSchemeSwitch) { c in Preferences.allowURLScheme = (c as? NSButton)?.state == .on }
+            urlSchemeSwitch.setAccessibilityLabel("Allow URL scheme")
             refreshURLScheme()
 
-            let choose = NSButton(title: "Choose…", target: nil, action: nil)
+            let choose = RetroUI.key("Choose…")
             bind(choose) { [weak self] _ in self?.chooseFolder() }
             folderLabel.lineBreakMode = .byTruncatingMiddle
-            folderLabel.textColor = .secondaryLabelColor
-            folderLabel.translatesAutoresizingMaskIntoConstraints = false
-            folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
             refreshFolder()
-            let folder = NSStackView(views: [folderLabel, choose])
+            let folder = NSStackView(views: [LCDFieldBox(folderLabel, width: 220), choose])
             folder.spacing = 10
-            let resetTips = NSButton(title: "Reset Tips", target: nil, action: nil)
+            let resetTips = RetroUI.key("Reset Tips")
             bind(resetTips) { _ in Tips.resetAll() }
 
             return [
@@ -425,7 +378,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                 group("History", [
                     toggle("Keep capture history", "Recent captures, in the History panel (⌃⇧H).",
                            Preferences.keepHistory) { Preferences.keepHistory = $0 },
-                    row("Captures kept", "Lowering it deletes the oldest captures now.", historyLimitPopup()),
+                    row("Captures kept", "Lowering it deletes the oldest captures now.", historyLimitKnob()),
                 ], note: "The panel's Saved Files view shows everything in the export location, with search."),
             ]
             // Filing rules, tags and Spotlight (#277) come after what happens to the screenshot.
@@ -441,49 +394,41 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
         case .screenshots:
             // Example file name under the template field, updated as the template or the format changes.
-            let preview = NSTextField(labelWithString: "")
-            preview.textColor = .secondaryLabelColor
-            preview.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            let preview = RetroUI.hint("", size: 11)
+            preview.font = Retro.mono(11, weight: .medium)
             func showPreview() {
                 preview.stringValue = "\(Output.filename(app: "Safari", title: "Pricing · Stripe")).\(Preferences.imageFormat.fileExtension)"
             }
 
-            let format = NSPopUpButton(frame: .zero, pullsDown: false)
-            for f in [ImageFormat.png, .jpeg] {
-                format.addItem(withTitle: f == .png ? "PNG" : "JPEG"); format.lastItem?.representedObject = f.rawValue
-            }
-            format.selectItem(at: Preferences.imageFormat == .png ? 0 : 1)
-            bind(format) {
-                let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
-                Preferences.imageFormat = raw.flatMap(ImageFormat.init(rawValue:)) ?? .png
+            let format = segmented([("PNG", 0), ("JPEG", 1)], selected: Preferences.imageFormat == .png ? 0 : 1, name: "Format") {
+                Preferences.imageFormat = $0 == 0 ? .png : .jpeg
                 showPreview()
             }
 
             let template = NSTextField(string: Preferences.filenameTemplate)
             template.placeholderString = Preferences.defaultFilenameTemplate
             template.isContinuous = true
-            template.translatesAutoresizingMaskIntoConstraints = false
-            template.widthAnchor.constraint(equalToConstant: 240).isActive = true
+            template.setAccessibilityLabel("File name")
             bind(template) {
                 Preferences.filenameTemplate = $0.stringValue
                 showPreview()
             }
             showPreview()
 
-            let padding = NSPopUpButton(frame: .zero, pullsDown: false)
-            for pts in [0, 16, 32, 64] { padding.addItem(withTitle: pts == 0 ? "None" : "\(pts) pt"); padding.lastItem?.tag = pts }
-            padding.selectItem(withTag: Preferences.windowPadding)
-            bind(padding) { Preferences.windowPadding = ($0 as? NSPopUpButton)?.selectedTag() ?? 0 }
+            // A smooth knob: any padding up to 100 pt.
+            let padding = RetroKnob(name: "Padding", min: 0, max: 100, value: Preferences.windowPadding, defaultValue: 0) {
+                $0 == 0 ? "None" : "\($0) pt"
+            }
+            bind(padding) { Preferences.windowPadding = ($0 as? RetroKnob)?.value ?? 0 }
 
-            let highlight = NSColorWell(style: .minimal)
+            let highlight = SwatchRow()
             highlight.color = Preferences.windowHighlightColor
-            highlight.supportsAlpha = false
-            bind(highlight) { Preferences.windowHighlightColor = ($0 as? NSColorWell)?.color ?? .systemBlue }
+            bind(highlight) { Preferences.windowHighlightColor = $0.color }
 
-            let liveRate = NSPopUpButton(frame: .zero, pullsDown: false)
-            for rate in LivePinGeometry.frameRates { liveRate.addItem(withTitle: "\(rate) fps"); liveRate.lastItem?.tag = rate }
-            liveRate.selectItem(withTag: Preferences.livePinFrameRate)
-            bind(liveRate) { Preferences.livePinFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 5 }
+            let liveRate = RetroKnob(name: "Live Pin frame rate",
+                                     stops: LivePinGeometry.frameRates.map { ("\($0) fps", $0) },
+                                     selected: Preferences.livePinFrameRate, defaultTag: LivePinGeometry.frameRates[0])
+            bind(liveRate) { Preferences.livePinFrameRate = ($0 as? RetroKnob)?.value ?? 5 }
 
             return [
                 group("File", [
@@ -495,7 +440,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            "PNGs get a palette of up to 256 colors when it looks the same, and stay as they are when it doesn't.",
                            Preferences.compressScreenshots) { Preferences.compressScreenshots = $0 },
                     row("File name", "Tokens: %t what the capture shows (a web page's title, else its biggest text), "
-                        + "%a the app, %Y %y %m %d %H %M %S", template),
+                        + "%a the app, %Y %y %m %d %H %M %S", LCDFieldBox(template, width: 250)),
                     row("Example", preview),
                 ]),
                 group("Window Capture", [
@@ -505,7 +450,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                            Preferences.windowTransparentBackground) {
                         Preferences.windowTransparentBackground = $0
                     },
-                    row("Padding", padding),
+                    row("Padding", "Space around the window in the screenshot.", padding),
                     row("Highlight color", "Tints the window under the pointer while you pick one.", highlight),
                 ]),
                 group("Live Pin", [
@@ -515,19 +460,18 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             ]
 
         case .recording:
-            let mic = NSSwitch()
-            mic.controlSize = .small
+            let mic = RetroSwitch()
             mic.state = Preferences.recordMicrophone ? .on : .off
-            bind(mic) { Preferences.recordMicrophone = ($0 as? NSSwitch)?.state == .on }
+            mic.setAccessibilityLabel("Microphone")
+            bind(mic) { Preferences.recordMicrophone = ($0 as? NSButton)?.state == .on }
             var micNote: String?
             if #unavailable(macOS 15.0) {
                 mic.isEnabled = false
                 micNote = "Needs macOS 15 or later."
             }
-            let fps = NSPopUpButton(frame: .zero, pullsDown: false)
-            for rate in [30, 60] { fps.addItem(withTitle: "\(rate) fps"); fps.lastItem?.tag = rate }
-            fps.selectItem(withTag: Preferences.recordFrameRate)
-            bind(fps) { Preferences.recordFrameRate = ($0 as? NSPopUpButton)?.selectedTag() ?? 30 }
+            let fps = segmented([("30 fps", 30), ("60 fps", 60)], selected: Preferences.recordFrameRate, name: "Frame rate") {
+                Preferences.recordFrameRate = $0
+            }
 
             return [
                 group("Audio", [
@@ -575,16 +519,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
         case .askClaude:
             apiKeyField.placeholderString = "sk-ant-…"
-            apiKeyField.translatesAutoresizingMaskIntoConstraints = false
-            apiKeyField.widthAnchor.constraint(equalToConstant: 220).isActive = true
-            let save = NSButton(title: "Save", target: nil, action: nil)
+            apiKeyField.setAccessibilityLabel("API key")
+            let save = RetroUI.key("Save", variant: .orange)
             bind(save) { [weak self] _ in self?.saveAPIKey() }
             bind(apiKeyField) { [weak self] _ in self?.saveAPIKey() }
-            let entry = NSStackView(views: [apiKeyField, save])
+            let entry = NSStackView(views: [LCDFieldBox(apiKeyField, width: 220), save])
             entry.spacing = 8
 
-            apiKeyStatus.textColor = .secondaryLabelColor
-            apiKeyRemove.controlSize = .small
             bind(apiKeyRemove) { [weak self] _ in
                 APIKeyStore.set(nil)
                 self?.refreshAPIKey()
@@ -593,7 +534,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             stored.spacing = 10
             refreshAPIKey()
 
-            let getKey = NSButton(title: "Get a Key…", target: nil, action: nil)
+            let getKey = RetroUI.key("Get a Key…")
             bind(getKey) { _ in NSWorkspace.shared.open(AskClaude.keysPage) }
 
             return [
@@ -615,14 +556,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.widthAnchor.constraint(equalToConstant: 96).isActive = true
             icon.heightAnchor.constraint(equalToConstant: 96).isActive = true
-            let name = NSTextField(labelWithString: "Skreener")
+            let name = RetroLabel(text: "Skreener", tone: .ink, size: 18)
             name.font = .systemFont(ofSize: 18, weight: .semibold)
-            let version = NSTextField(labelWithString: "Version \(Self.version)")
-            version.textColor = .secondaryLabelColor
+            let version = RetroUI.hint("Version \(Self.version)", size: 12)
+            version.font = Retro.mono(11.5, weight: .medium)
             version.isSelectable = true
-            let blurb = NSTextField(labelWithString: "Screenshots, annotations and screen recordings from the menu bar.")
-            blurb.textColor = .secondaryLabelColor
-            let update = NSButton(title: "Check for Updates…", target: nil, action: nil)
+            let blurb = RetroUI.hint("Screenshots, annotations and screen recordings from the menu bar.", size: 12)
+            let update = RetroUI.key("Check for Updates…", variant: .orange)
             bind(update) { _ in Updater.check(userInitiated: true) }
             let stack = NSStackView(views: [icon, name, version, blurb, update])
             stack.orientation = .vertical
@@ -634,37 +574,40 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         }
     }
 
-    private func confirmationPopup() -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private func confirmationPopup() -> PillPopUp {
+        let popup = lcdPopUp()
+        popup.setAccessibilityLabel("Confirmation style")
         for style in ConfirmationStyle.allCases {
             popup.addItem(withTitle: style.title); popup.lastItem?.representedObject = style.rawValue
         }
         popup.selectItem(at: ConfirmationStyle.allCases.firstIndex(of: Preferences.confirmationStyle) ?? 0)
         bind(popup) {
-            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            let raw = ($0 as? PillPopUp)?.selectedItem?.representedObject as? String
             Preferences.confirmationStyle = raw.flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud
         }
         return popup
     }
 
-    private func historyLimitPopup() -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        for n in [25, 100, 500, 0] { popup.addItem(withTitle: n == 0 ? "All" : "\(n)"); popup.lastItem?.tag = n }
-        popup.selectItem(withTag: Preferences.historyLimit)
-        bind(popup) {
-            Preferences.historyLimit = ($0 as? NSPopUpButton)?.selectedTag() ?? 100
+    /// A click-stop knob; it only takes effect once it stops turning, since lowering it deletes captures.
+    private func historyLimitKnob() -> RetroKnob {
+        let knob = RetroKnob(name: "Captures kept", stops: [25, 100, 500, 0].map { ($0 == 0 ? "All" : "\($0)", $0) },
+                             selected: Preferences.historyLimit, defaultTag: 100)
+        knob.sendsWhileTurning = false
+        bind(knob) {
+            Preferences.historyLimit = ($0 as? RetroKnob)?.value ?? 100
             CaptureHistory.prune()
             NotificationCenter.default.post(name: .skreenerHistoryChanged, object: nil)
         }
-        return popup
+        return knob
     }
 
-    private func extensionFillPopup() -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private func extensionFillPopup() -> PillPopUp {
+        let popup = lcdPopUp()
+        popup.setAccessibilityLabel("Past the screenshot's edge")
         popup.addItems(withTitles: ExtensionFill.allCases.map(\.title))
         popup.selectItem(at: ExtensionFill.allCases.firstIndex(of: Preferences.extensionFill) ?? 0)
         bind(popup) {
-            let i = ($0 as? NSPopUpButton)?.indexOfSelectedItem ?? 0
+            let i = ($0 as? PillPopUp)?.indexOfSelectedItem ?? 0
             Preferences.extensionFill = ExtensionFill.allCases[max(i, 0)]
             NotificationCenter.default.post(name: .skreenerPreferencesChanged, object: nil)
         }
@@ -674,14 +617,15 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     /// A checkbox's title, whether it starts checked, and what a click sets.
     private typealias Checkbox = (title: String, on: Bool, set: (Bool) -> Void)
 
-    /// Checkboxes in rows of `columns`, for picking several of a set.
+    /// Toggles (an orange square and a title) in rows of `columns`, for picking several of a set.
     private func checkboxes(_ items: [Checkbox], columns: Int) -> NSView {
-        let boxes = items.map { item -> NSButton in
-            let box = NSButton(checkboxWithTitle: item.title, target: nil, action: nil)
-            box.controlSize = .small
-            box.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            box.state = item.on ? .on : .off
-            bind(box) { item.set(($0 as? NSButton)?.state == .on) }
+        let boxes = items.map { item -> PillButton in
+            let box = RetroUI.toggle(item.title, isOn: item.on, target: nil, action: nil)
+            bind(box) {
+                guard let b = $0 as? PillButton else { return }
+                b.isOn.toggle()
+                item.set(b.isOn)
+            }
             return box
         }
         let rows = stride(from: 0, to: boxes.count, by: columns).map { i -> [NSView] in
@@ -689,55 +633,44 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             return row + Array(repeating: NSGridCell.emptyContentView, count: columns - row.count)
         }
         let grid = NSGridView(views: rows)
-        grid.rowSpacing = 4
-        grid.columnSpacing = 12
+        grid.rowSpacing = 6
+        grid.columnSpacing = 16
         return grid
     }
 
-    private func quickAccessSidePopup() -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.addItems(withTitles: ["Bottom Left", "Bottom Right"])
-        popup.selectItem(at: Preferences.quickAccessOnRight ? 1 : 0)
-        bind(popup) {
-            Preferences.quickAccessOnRight = ($0 as? NSPopUpButton)?.indexOfSelectedItem == 1
+    private func quickAccessSidePopup() -> RetroSegmented {
+        segmented([("Bottom Left", 0), ("Bottom Right", 1)], selected: Preferences.quickAccessOnRight ? 1 : 0,
+                  name: "Quick Access position") {
+            Preferences.quickAccessOnRight = $0 == 1
             QuickAccessController.refreshPosition()
         }
-        return popup
     }
 
-    private func dockSidePopup() -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.addItems(withTitles: ["Left", "Right"])
-        popup.selectItem(at: Preferences.editorDockOnRight ? 1 : 0)
-        bind(popup) {
-            Preferences.editorDockOnRight = ($0 as? NSPopUpButton)?.indexOfSelectedItem == 1
+    private func dockSidePopup() -> RetroSegmented {
+        segmented([("Left", 0), ("Right", 1)], selected: Preferences.editorDockOnRight ? 1 : 0, name: "Screenshots dock") {
+            Preferences.editorDockOnRight = $0 == 1
             EditorTabGroup.refreshAll()
         }
-        return popup
     }
 
-    private func appearancePopup() -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        for choice in AppAppearance.allCases {
-            popup.addItem(withTitle: choice.title); popup.lastItem?.representedObject = choice.rawValue
-        }
-        popup.selectItem(at: AppAppearance.allCases.firstIndex(of: Preferences.appearance) ?? 0)
-        bind(popup) {
-            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
-            Preferences.appearance = raw.flatMap(AppAppearance.init(rawValue:)) ?? .default
+    private func appearancePopup() -> RetroSegmented {
+        let all = AppAppearance.allCases
+        return segmented(all.enumerated().map { ($0.element.title, $0.offset) },
+                         selected: all.firstIndex(of: Preferences.appearance) ?? 0, name: "Appearance") {
+            Preferences.appearance = all.indices.contains($0) ? all[$0] : .default
             Preferences.applyAppearance()
         }
-        return popup
     }
 
-    private func escPopup() -> NSPopUpButton {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private func escPopup() -> PillPopUp {
+        let popup = lcdPopUp()
+        popup.setAccessibilityLabel("Esc with nothing selected")
         for action in EditorEscAction.allCases {
             popup.addItem(withTitle: action.title); popup.lastItem?.representedObject = action.rawValue
         }
         popup.selectItem(at: EditorEscAction.allCases.firstIndex(of: Preferences.editorEscAction) ?? 0)
         bind(popup) {
-            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            let raw = ($0 as? PillPopUp)?.selectedItem?.representedObject as? String
             Preferences.editorEscAction = raw.flatMap(EditorEscAction.init(rawValue:)) ?? .nothing
         }
         return popup
@@ -751,22 +684,17 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
               toggle: { self.toggle($0, $1, $2, $3) }, bind: { self.bind($0, $1) }, window: { self.window })
     }
 
-    /// A titled rounded box of rows, with separators between them and an optional note under it.
+    /// A caption over a sunken tray of rows, with grooves between them and an optional note under it.
     private func group(_ title: String, _ rows: [NSView], note: String? = nil) -> NSView {
-        let header = NSTextField(labelWithString: title)
-        header.font = .systemFont(ofSize: 13, weight: .semibold)
+        let header = RetroLabel(caption: title, tone: .soft)
 
         var items: [NSView] = []
         for (i, r) in rows.enumerated() {
-            if i > 0 {
-                let line = NSBox()
-                line.boxType = .separator
-                items.append(line)
-            }
+            if i > 0 { items.append(RetroGroove()) }
             items.append(r)
         }
         let inner = verticalStack(items, spacing: 0, inset: 14)
-        let box = GroupBox()
+        let box = RetroWell()
         inner.translatesAutoresizingMaskIntoConstraints = false
         box.addSubview(inner)
         NSLayoutConstraint.activate([
@@ -776,10 +704,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
         var views: [NSView] = [header, box]
         if let note {
-            let n = NSTextField(wrappingLabelWithString: note)
-            n.font = .systemFont(ofSize: 11)
-            n.textColor = .secondaryLabelColor
-            n.preferredMaxLayoutWidth = Self.width - Self.sidebarWidth - 2 * 28
+            let n = RetroUI.hint(note, size: 11, wraps: true)
+            n.preferredMaxLayoutWidth = Self.width - Self.sidebarWidth - 2 * Self.paneMargin
             views.append(n)
         }
         return verticalStack(views, spacing: 8)
@@ -801,14 +727,14 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     /// Title (and optional subtitle) on the left, `control` on the right.
     private func row(_ title: String, _ subtitle: String?, _ control: NSView) -> NSView {
         let v = NSView()
-        let text = NSStackView(views: [NSTextField(labelWithString: title)])
+        let label = RetroLabel(text: title, tone: .ink, size: 12.5)
+        label.font = .systemFont(ofSize: 12.5, weight: .medium)
+        let text = NSStackView(views: [label])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
         if let subtitle {
-            let s = NSTextField(wrappingLabelWithString: subtitle)
-            s.font = .systemFont(ofSize: 11)
-            s.textColor = .secondaryLabelColor
+            let s = RetroUI.hint(subtitle, size: 11, wraps: true)
             s.preferredMaxLayoutWidth = 300
             text.addArrangedSubview(s)
         }
@@ -821,17 +747,17 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             text.bottomAnchor.constraint(lessThanOrEqualTo: v.bottomAnchor, constant: -9),
             control.trailingAnchor.constraint(equalTo: v.trailingAnchor),
             control.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-            control.topAnchor.constraint(greaterThanOrEqualTo: v.topAnchor, constant: 6),
+            control.topAnchor.constraint(greaterThanOrEqualTo: v.topAnchor, constant: 8),
             text.trailingAnchor.constraint(lessThanOrEqualTo: control.leadingAnchor, constant: -16),
         ])
         return v
     }
 
-    private func toggle(_ title: String, _ subtitle: String?, _ on: Bool, using s: NSSwitch = NSSwitch(),
+    private func toggle(_ title: String, _ subtitle: String?, _ on: Bool, using s: RetroSwitch = RetroSwitch(),
                         _ set: @escaping (Bool) -> Void) -> NSView {
-        s.controlSize = .small
         s.state = on ? .on : .off
-        bind(s) { set(($0 as? NSSwitch)?.state == .on) }
+        s.setAccessibilityLabel(title)
+        bind(s) { set(($0 as? NSButton)?.state == .on) }
         return row(title, subtitle, s)
     }
 
@@ -840,6 +766,33 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         actions.append(a)
         control.target = a; control.action = #selector(ControlAction.fire(_:))
     }
+
+    /// `bind` for the kit's views that send an action without being controls.
+    private func bind(_ segmented: RetroSegmented, _ run: @escaping (RetroSegmented) -> Void) {
+        let a = ViewAction { [weak segmented] in if let segmented { run(segmented) } }
+        viewActions.append(a)
+        segmented.target = a; segmented.action = #selector(ViewAction.fire(_:))
+    }
+
+    private func bind(_ swatches: SwatchRow, _ run: @escaping (SwatchRow) -> Void) {
+        let a = ViewAction { [weak swatches] in if let swatches { run(swatches) } }
+        viewActions.append(a)
+        swatches.target = a; swatches.action = #selector(ViewAction.fire(_:))
+    }
+
+    /// A row of choices in a sunken track, `(title, tag)`, on the one tagged `selected`.
+    private func segmented(_ items: [(String, Int)], selected: Int, name: String,
+                           _ run: @escaping (Int) -> Void) -> RetroSegmented {
+        let s = RetroSegmented()
+        for (title, tag) in items { s.addItem(title, tag: tag) }
+        s.selectItem(withTag: selected)
+        s.setAccessibilityLabel(name)
+        bind(s) { run($0.selectedTag()) }
+        return s
+    }
+
+    /// An LCD chip between ◀ ▶ for a longer list of choices; filled and bound by the caller like a pop-up.
+    private func lcdPopUp() -> PillPopUp { RetroUI.stepper(target: nil, action: nil) }
 
     private func refreshLogin() { loginSwitch.state = LaunchAtLogin.isOn ? .on : .off }
 
@@ -857,7 +810,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private func showStatus(_ permission: Permission, in label: NSTextField) {
         label.stringValue = permission.status
-        label.textColor = permission.isGranted ? .systemGreen : .systemOrange
+        label.textColor = Retro.color(permission.isGranted ? Retro.teal : Retro.orange)
     }
 
     /// Status and an Open System Settings button for one permission; `purpose` replaces its general one.
@@ -869,8 +822,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         // Panes built after Settings came to the front would otherwise show no status until it comes to the front again.
         showStatus(permission, in: status)
         permissionLabels.append((permission, status))
-        let open = NSButton(title: "Open System Settings", target: nil, action: nil)
-        open.controlSize = .small
+        let open = RetroUI.key("Open System Settings")
         bind(open) { _ in
             // Adds Skreener to the Accessibility list (switched off) the first time, so it can just be turned on.
             if permission == .accessibility { AccessibilityAccess.request() }
@@ -906,8 +858,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func showBannerAgainButton() -> NSButton {
-        let button = NSButton(title: "Show the banner again everywhere", target: nil, action: nil)
-        button.controlSize = .small
+        let button = RetroUI.key("Show the banner again everywhere")
         bind(button) { _ in Preferences.pasteBannerShown = [] }
         return button
     }
@@ -927,10 +878,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
                         NSTextField(labelWithString: ""))]
         }
         for (i, r) in rows.enumerated() {
-            let line = NSBox()
-            line.boxType = .separator
-            // The group puts separators around the list; these go between its rows.
-            let views: [NSView] = i > 0 ? [line, r] : [r]
+            // The group puts grooves around the list; these go between its rows.
+            let views: [NSView] = i > 0 ? [RetroGroove(), r] : [r]
             for v in views {
                 pasteList.addArrangedSubview(v)
                 v.widthAnchor.constraint(equalTo: pasteList.widthAnchor).isActive = true
@@ -940,22 +889,18 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     /// One remembered destination: a Clean text / Markdown pop-up and a button that forgets it.
     private func pasteDestinationRow(key: String, name: String, choice: String?) -> NSView {
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.controlSize = .small
+        let popup = lcdPopUp()
+        popup.setAccessibilityLabel("\(name): paste as")
         for c in PasteDestination.Choice.allCases {
             popup.addItem(withTitle: c.title)
             popup.lastItem?.representedObject = c.rawValue
         }
         popup.selectItem(at: PasteDestination.Choice.allCases.firstIndex { $0.rawValue == choice } ?? 0)
         bind(popup) {
-            let raw = ($0 as? NSPopUpButton)?.selectedItem?.representedObject as? String
+            let raw = ($0 as? PillPopUp)?.selectedItem?.representedObject as? String
             Preferences.rememberPasteChoice(raw.flatMap(PasteDestination.Choice.init(rawValue:)) ?? .clean, for: key, name: name)
         }
-        let remove = NSButton(image: NSImage(systemSymbolName: "trash", accessibilityDescription: "Remove") ?? NSImage(),
-                              target: nil, action: nil)
-        remove.isBordered = false
-        remove.contentTintColor = .secondaryLabelColor
-        remove.toolTip = "Forget this destination"
+        let remove = RetroUI.key(symbol: "trash", tip: "Forget this destination", height: RetroUI.textKeyHeight)
         bind(remove) { [weak self] _ in
             Preferences.forgetPasteChoice(for: key)
             self?.reloadPasteDestinations()
@@ -1008,14 +953,124 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     @objc func fire(_ sender: NSControl) { run(sender) }
 }
 
-/// Rounded, faintly filled background for a group of rows (redrawn when the appearance changes).
-private final class GroupBox: NSView {
+/// A closure as the target of a kit view's action (`RetroSegmented`, `SwatchRow`), which aren't controls.
+@MainActor private final class ViewAction: NSObject {
+    let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func fire(_ sender: Any?) { run() }
+}
+
+/// A key in Settings' sidebar: a cream key with a lamp, the pane's symbol and its name. The pane shown has its key
+/// pressed down with an orange bar along it and its lamp lit orange; under the pointer, a key's lamp glows teal.
+private final class SettingsNavKey: NSButton {
+    var isSelected = false { didSet { needsDisplay = true; setAccessibilityValue(isSelected ? 1 : 0) } }
+    private var hovering = false { didSet { needsDisplay = true } }
+    private let name: String
+    private let symbol: String
+    private let run: () -> Void
+
+    init(title: String, symbol: String, run: @escaping () -> Void) {
+        name = title
+        self.symbol = symbol
+        self.run = run
+        super.init(frame: .zero)
+        isBordered = false
+        self.title = ""
+        target = self
+        action = #selector(fire)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 30).isActive = true
+        setAccessibilityLabel(title)
+        setAccessibilityRole(.radioButton)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    @objc private func fire() { run() }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
-        NSColor.labelColor.withAlphaComponent(0.05).setFill()
-        path.fill()
-        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
-        path.stroke()
+        let p = Retro.palette(for: self)
+        let colors = Retro.keyColors(.cream, p)
+        let face = Retro.drawKey(in: bounds, radius: 6, colors: colors, down: isSelected || isHighlighted, flipped: isFlipped)
+
+        let lamp = NSRect(x: face.minX + 9, y: face.midY - 3, width: 6, height: 6)
+        Retro.drawLamp(in: lamp, color: Retro.color(isSelected ? Retro.orange : Retro.teal), lit: isSelected || hovering,
+                       unlit: Retro.color(p.toggleOff))
+
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold).applying(.init(paletteColors: [colors.ink]))
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            let s = image.size
+            image.draw(in: NSRect(x: face.minX + 29 - s.width / 2, y: face.midY - s.height / 2, width: s.width, height: s.height))
+        }
+
+        let text = NSAttributedString(string: name, attributes: [
+            .font: NSFont.systemFont(ofSize: 12.5, weight: .medium), .foregroundColor: colors.ink,
+        ])
+        let t = text.size()
+        text.draw(at: NSPoint(x: face.minX + 42, y: face.midY - t.height / 2))
+
+        if isSelected {
+            // The orange bar along the bottom of the pressed key's face.
+            let bar = NSRect(x: face.minX + 10, y: isFlipped ? face.maxY - 5 : face.minY + 3, width: face.width - 20, height: 2)
+            NSGraphicsContext.saveGraphicsState()
+            let glow = NSShadow()
+            glow.shadowColor = Retro.color(Retro.orange)
+            glow.shadowBlurRadius = 4
+            glow.set()
+            Retro.color(Retro.orange).setFill()
+            NSBezierPath(roundedRect: bar, xRadius: 1, yRadius: 1).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill() }
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// The LCD at the top of Settings' sidebar: "SK-1 · Settings" in small type over the pane's name.
+private final class SettingsLCD: NSView {
+    var title = "" { didSet { needsDisplay = true; setAccessibilityValue(title) } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 46).isActive = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel("Settings pane")
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let glass = Retro.drawLCD(in: bounds.insetBy(dx: 0, dy: 0.5), radius: 8, inset: 4, palette: Retro.palette(for: self),
+                                  flipped: true)
+        let small = NSAttributedString(string: "SK-1 · SETTINGS", attributes: [
+            .font: Retro.mono(8.5, weight: .semibold), .foregroundColor: Retro.color(Retro.lcdInk, alpha: 0.65), .kern: 0.6,
+        ])
+        let big = NSAttributedString(string: title.uppercased(), attributes: Retro.chipAttributes(size: 11.5))
+        small.draw(at: NSPoint(x: glass.minX + 8, y: glass.minY + 5))
+        big.draw(at: NSPoint(x: glass.minX + 8, y: glass.minY + 17))
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }
 

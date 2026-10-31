@@ -3,7 +3,7 @@ import AppKit
 /// The SK-1 look (#344), after the MT-1 Menu Timer panel: a cream chassis (charcoal in Dark Mode) with sunken trays
 /// of raised keys, an olive LCD with seven-segment digits, and orange for what is on and for the main action.
 ///
-/// The kit, for every surface that takes the look (Settings keeps the standard macOS controls):
+/// The kit, for every surface that takes the look (Settings too, since #353):
 ///
 /// Colours and type (`Retro`)
 /// - `Retro.palette(for:)` / `Retro.Palette` (`Retro.light`, `Retro.dark`): the colours that change with the appearance;
@@ -23,6 +23,7 @@ import AppKit
 /// Views
 /// - `ChassisView`: a window's background (a drag moves the window). `ChassisPlate`: a floating bar's or card's
 ///   rounded chassis, which drags its window, swallows clicks or runs an action. `SpeakerGrille`: a decoration.
+/// - `RetroWell`: a sunken tray to lay views out on. `RetroGroove`: a rule between rows or beside a sidebar.
 /// - `RetroLabel`: a caption or plain secondary text in the palette's ink.
 /// - `PillButton` styles: `.keycap` (with `keyVariant` cream, orange or charcoal, `legend`, `isOn` pressed with an
 ///   orange bar), `.toggle` (an orange square and a label), `.round` (a small round key, e.g. a stepper's arrow) and
@@ -30,7 +31,10 @@ import AppKit
 /// - `PillPopUp(…, style: .lcd, stepper: true)`: an LCD chip between ◀ ▶ that steps through its items; a click on the
 ///   chip still opens the menu. `onStep` for a pull-down's own steps (the editor's zoom).
 /// - `KeycapTray(keys, caption:)`: keys in a sunken tray with a caption under it. `KeySwitch`: an upright switch
-///   with an LED. `RetroIndicator`: a toggle's square and caption that only shows a state.
+///   with an LED. `RetroIndicator`: a toggle's square and caption that only shows a state. `RetroSwitch`: a square
+///   key with a lamp that stands in for `NSSwitch` in a settings row.
+/// - `RetroKnob` (`RetroKnob.swift`): a knob with an LCD readout, clicking between choices or turning through a range.
+/// - `LCDFieldBox`: a text field or label on an LCD chip.
 /// - `RetroSegmented`: a few choices in a track, the chosen one charcoal. `SwatchRow` / `RoundSwatch`: round colour
 ///   swatches. `ColorPill`: one round swatch with a menu.
 /// - `RetroUI`: builders for the windows (`key`, `toggle`, `menuKey`, `stepper`, `tray`, `hint`, `useChassis`,
@@ -1210,4 +1214,157 @@ final class RetroDialog: NSObject {
     }
 
     @objc private func cancelPressed() { finish(.cancel) }
+}
+
+/// A sunken tray (`Retro.drawWell` in the palette's colours) filling the view, for views laid out on it (Settings'
+/// groups and sidebar). Leave 1 pt under it for its light lip.
+final class RetroWell: NSView {
+    var radius: CGFloat = 10 { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Retro.drawWell(bounds.insetBy(dx: 0, dy: 0.5), radius: radius, palette: Retro.palette(for: self), flipped: isFlipped)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// A groove in the chassis: a 1 pt rule in the groove colour with a light line beside it, across (between rows) or
+/// down (beside the sidebar).
+final class RetroGroove: NSView {
+    private let vertical: Bool
+
+    init(vertical: Bool = false) {
+        self.vertical = vertical
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        if vertical {
+            widthAnchor.constraint(equalToConstant: 2).isActive = true
+        } else {
+            heightAnchor.constraint(equalToConstant: 2).isActive = true
+        }
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let line = vertical ? NSRect(x: 0, y: 0, width: 1, height: bounds.height)
+            : NSRect(x: 0, y: isFlipped ? 0 : 1, width: bounds.width, height: 1)
+        let lip = vertical ? line.offsetBy(dx: 1, dy: 0) : line.offsetBy(dx: 0, dy: isFlipped ? 1 : -1)
+        Retro.color(p.groove).setFill()
+        line.fill()
+        NSColor.white.withAlphaComponent(p.grooveLip).setFill()
+        lip.fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// An SK-1 on/off switch for a settings row: a small square cream key with a lamp in it, which stays down and glows
+/// orange while it is on. It stands in for `NSSwitch`: `state` is `.on` or `.off`, and a click flips it and sends the
+/// action.
+final class RetroSwitch: NSButton {
+    init() {
+        super.init(frame: .zero)
+        setButtonType(.pushOnPushOff)
+        isBordered = false
+        title = ""
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 34).isActive = true
+        heightAnchor.constraint(equalToConstant: 24).isActive = true
+        setAccessibilityRole(.checkBox)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var state: NSControl.StateValue { didSet { needsDisplay = true } }
+    override var isEnabled: Bool { didSet { alphaValue = isEnabled ? 1 : 0.4 } }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func accessibilityValue() -> Any? { state == .on ? 1 : 0 }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let on = state == .on
+        let face = Retro.drawKey(in: bounds.insetBy(dx: 1, dy: 0), radius: 5, colors: Retro.keyColors(.cream, p),
+                                 down: on || isHighlighted, flipped: isFlipped)
+        let square = NSRect(x: face.midX - 5, y: face.midY - 5, width: 10, height: 10)
+        if on {
+            NSGraphicsContext.saveGraphicsState()
+            let glow = NSShadow()
+            glow.shadowColor = Retro.color(Retro.orange, alpha: 0.8)
+            glow.shadowBlurRadius = 5
+            glow.set()
+            Retro.color(Retro.orange).setFill()
+            NSBezierPath(roundedRect: square, xRadius: 2, yRadius: 2).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        Retro.drawToggleSquare(square, on: on, palette: p, flipped: isFlipped)
+    }
+
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 0), xRadius: 5, yRadius: 5).fill() }
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// A text field (or a label) on an LCD chip: the chip's olive glass in a sunken bezel, the text in mono LCD ink. The
+/// glass is always light, so the field is drawn in the light appearance (dark caret and selection) in either mode.
+final class LCDFieldBox: NSView {
+    let field: NSTextField
+
+    init(_ field: NSTextField, width: CGFloat? = nil) {
+        self.field = field
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = Retro.mono(11, weight: .medium)
+        field.textColor = Retro.color(Retro.lcdInk)
+        field.appearance = NSAppearance(named: .aqua)
+        field.translatesAutoresizingMaskIntoConstraints = false
+        if let placeholder = field.placeholderString {
+            field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
+                .font: Retro.mono(11, weight: .medium), .foregroundColor: Retro.color(Retro.lcdInk, alpha: 0.45),
+            ])
+        }
+        addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 24),
+        ])
+        if let width { widthAnchor.constraint(equalToConstant: width).isActive = true }
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let glass = bounds.insetBy(dx: 2, dy: 2)
+        Retro.drawWell(bounds.insetBy(dx: 0, dy: 0.5), radius: 6, top: Retro.color(p.bezelTop), bottom: Retro.color(p.bezelBottom),
+                       shadow: 0.18, lip: p.wellLip, flipped: isFlipped)
+        Retro.drawChipGlass(glass, radius: 4, brightness: p.lcdBrightness, flipped: isFlipped)
+    }
+
+    /// A click on the glass beside the text edits the field.
+    override func mouseDown(with event: NSEvent) {
+        if field.isEditable { window?.makeFirstResponder(field) } else { super.mouseDown(with: event) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 }

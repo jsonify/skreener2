@@ -199,8 +199,13 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **The same look elsewhere.** The Capture Text scratch pad (its toolbar is captioned trays of keys, with round color
   swatches, the selected text's color ringed, and an orange Copy key), Step Guide, Capture History, Ask Claude, the Combine Screenshots, Watch This Area
   and Resize Image forms, the shortcut list (its keys drawn as key caps) and the tip popovers use the same cream
-  chassis (charcoal in Dark Mode), keys, segmented choices and orange-square toggles. Settings keeps the standard macOS
-  controls.
+  chassis (charcoal in Dark Mode), keys, segmented choices and orange-square toggles.
+- **Settings.** The Settings window has the same look: an LCD naming the pane over a tray of keys down the side, each
+  group of options in a sunken tray, square keys that light orange for on and off, LCD steppers for longer lists, and
+  knobs. A knob turns when you drag up or down on it, scroll over it, or use the arrow keys once it's selected; a
+  double-click puts it back to its default. Window padding turns smoothly from none to 100 pt; Live Pin's frame rate
+  and the number of captures kept click between their settings (a lower number of captures only takes effect once the
+  knob stops).
 - **Tabs.** Each capture opens as a tab, shown as thumbnails in a dock beside the canvas (the one showing outlined in
   orange).
 - **Tools.** Arrow, rectangle, filled rectangle, ellipse, line, pen, highlighter, text, numbered counter, pixelate,

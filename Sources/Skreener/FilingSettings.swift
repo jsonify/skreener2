@@ -30,7 +30,7 @@ import AppKit
         }
         let rules = Preferences.filingRules
         var rows = rules.enumerated().map { ruleRow($0.element, at: $0.offset, of: rules.count) }
-        let add = NSButton(title: "Add Rule…", target: nil, action: nil)
+        let add = RetroUI.key("Add Rule…")
         tools.bind(add) { [weak self] _ in self?.edit(nil) }
         rows.append(tools.row("Add a rule", "Files saved captures from an app, or with some text in them, into a folder.", add))
         let group = tools.group("Filing Rules", rows,
@@ -43,11 +43,11 @@ import AppKit
     }
 
     private func ruleRow(_ rule: FilingRule, at index: Int, of count: Int) -> NSView {
-        let on = NSSwitch()
-        on.controlSize = .small
+        let on = RetroSwitch()
         on.state = rule.enabled ? .on : .off
         on.toolTip = "Use this rule"
-        tools.bind(on) { [weak self] control in self?.setEnabled(rule, (control as? NSSwitch)?.state == .on) }
+        on.setAccessibilityLabel("Use this rule")
+        tools.bind(on) { [weak self] control in self?.setEnabled(rule, (control as? NSButton)?.state == .on) }
         let buttons = NSStackView(views: [
             on,
             iconButton("chevron.up", "Move Up", enabled: index > 0) { [weak self] in self?.move(index, by: -1) },
@@ -60,11 +60,7 @@ import AppKit
     }
 
     private func iconButton(_ symbol: String, _ tip: String, enabled: Bool = true, _ run: @escaping () -> Void) -> NSButton {
-        let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip) ?? NSImage(),
-                         target: nil, action: nil)
-        b.isBordered = false
-        b.contentTintColor = .secondaryLabelColor
-        b.toolTip = tip
+        let b = RetroUI.key(symbol: symbol, tip: tip, height: RetroUI.textKeyHeight)
         b.isEnabled = enabled
         tools.bind(b) { _ in run() }
         return b

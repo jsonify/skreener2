@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// CleanShot-style shortcut field: a rounded box showing the shortcut ("Record Shortcut" when there is none). Click
+/// Shortcut field, an LCD chip in the SK-1 look (#353) showing the shortcut ("Record Shortcut" when there is none). Click
 /// it (or press Space with it focused) and type the new combination; Esc cancels, Delete clears. The × clears the
 /// shortcut, or cancels while recording.
 final class ShortcutRecorder: NSView {
@@ -26,12 +26,12 @@ final class ShortcutRecorder: NSView {
         heightAnchor.constraint(equalToConstant: Self.size.height).isActive = true
 
         label.alignment = .center
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = Retro.mono(11.5, weight: .semibold)
         label.lineBreakMode = .byTruncatingTail
         clearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear Shortcut")
         clearButton.imagePosition = .imageOnly
         clearButton.isBordered = false
-        clearButton.contentTintColor = .tertiaryLabelColor
+        clearButton.contentTintColor = Retro.color(Retro.lcdInk, alpha: 0.45)
         clearButton.refusesFirstResponder = true
         clearButton.target = self
         clearButton.action = #selector(clearClicked)
@@ -51,25 +51,42 @@ final class ShortcutRecorder: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The chip's glass in a sunken bezel; while recording, ringed in glowing orange.
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
-        (isRecording ? NSColor.controlAccentColor.withAlphaComponent(0.12) : NSColor.controlBackgroundColor).setFill()
-        path.fill()
-        (isRecording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
-        path.lineWidth = isRecording ? 2 : 1
-        path.stroke()
+        let p = Retro.palette(for: self)
+        Retro.drawWell(bounds.insetBy(dx: 0, dy: 0.5), radius: 6, top: Retro.color(p.bezelTop), bottom: Retro.color(p.bezelBottom),
+                       shadow: 0.18, lip: p.wellLip, flipped: isFlipped)
+        let glass = bounds.insetBy(dx: 2, dy: 2)
+        Retro.drawChipGlass(glass, radius: 4, brightness: p.lcdBrightness, flipped: isFlipped)
+        guard isRecording else { return }
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = Retro.color(Retro.orange)
+        glow.shadowBlurRadius = 4
+        glow.set()
+        Retro.color(Retro.orange).setStroke()
+        let ring = NSBezierPath(roundedRect: glass.insetBy(dx: 0.75, dy: 0.75), xRadius: 3.5, yRadius: 3.5)
+        ring.lineWidth = 1.5
+        ring.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     private func refresh() {
+        let ink = Retro.color(Retro.lcdInk), faint = Retro.color(Retro.lcdInk, alpha: 0.55)
         if isRecording {
             label.stringValue = held.isEmpty ? "Type Shortcut…" : KeyCombo(keyCode: 0, flags: held).modifierSymbols
-            label.textColor = .secondaryLabelColor
+            label.textColor = faint
         } else if let combo {
             label.stringValue = combo.displayString
-            label.textColor = .labelColor
+            label.textColor = ink
         } else {
             label.stringValue = "Record Shortcut"
-            label.textColor = .secondaryLabelColor
+            label.textColor = faint
         }
         clearButton.isHidden = !isRecording && combo == nil
         setAccessibilityLabel("Shortcut: \(combo?.displayString ?? "none")")
@@ -194,14 +211,14 @@ private extension KeyCombo {
     // "Use ⇧⌘3 and ⇧⌘4 for Skreener" (#114).
     private static let shiftCommand3 = KeyCombo(keyCode: kVK_ANSI_3, modifiers: shiftKey | cmdKey)
     private static let shiftCommand4 = KeyCombo(keyCode: kVK_ANSI_4, modifiers: shiftKey | cmdKey)
-    private lazy var guideStatus = NSTextField(wrappingLabelWithString: "")
-    private lazy var guideSteps = NSTextField(wrappingLabelWithString: """
+    private lazy var guideStatus = RetroLabel(text: "", tone: .ink, size: 12.5)
+    private lazy var guideSteps = RetroUI.hint("""
         1. Click Open Keyboard Shortcuts (System Settings → Keyboard → Keyboard Shortcuts).
         2. Choose Screenshots and turn off “Save picture of screen as a file” (⇧⌘3) and “Save picture of selected \
         area as a file” (⇧⌘4).
         3. Come back here and click Use ⇧⌘3 and ⇧⌘4.
-        """)
-    private lazy var assignButton = NSButton(title: "Use ⇧⌘3 and ⇧⌘4", target: self, action: #selector(assignMacShortcuts))
+        """, size: 11, wraps: true)
+    private lazy var assignButton = RetroUI.key("Use ⇧⌘3 and ⇧⌘4", target: self, action: #selector(assignMacShortcuts))
 
     /// The pane's groups; `group` and `row` are the Settings window's building blocks.
     func build(group: (String, [NSView], String?) -> NSView, row: (String, String?, NSView) -> NSView) -> [NSView] {
@@ -214,7 +231,7 @@ private extension KeyCombo {
                 ? "Shortcuts work in every app. Click a shortcut and press the new keys: Esc cancels, Delete clears." : nil
             return group(section.title, actions.map { row($0.title, $0.subtitle, control(for: $0)) }, note)
         }
-        let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(restoreDefaults))
+        let restore = RetroUI.key("Restore Defaults", target: self, action: #selector(restoreDefaults))
         restore.translatesAutoresizingMaskIntoConstraints = false
         let footer = NSView()
         footer.addSubview(restore)
@@ -230,11 +247,11 @@ private extension KeyCombo {
 
     /// Where the macOS shortcuts stand, the steps to turn them off (while they are on) and the buttons.
     private func guide() -> NSView {
-        guideStatus.font = .systemFont(ofSize: 13)
-        guideSteps.font = .systemFont(ofSize: 11)
-        guideSteps.textColor = .secondaryLabelColor
+        guideStatus.lineBreakMode = .byWordWrapping
+        guideStatus.maximumNumberOfLines = 0
+        guideStatus.cell?.wraps = true
         [guideStatus, guideSteps].forEach { $0.preferredMaxLayoutWidth = 500 }
-        let open = NSButton(title: "Open Keyboard Shortcuts", target: self, action: #selector(openKeyboardShortcuts))
+        let open = RetroUI.key("Open Keyboard Shortcuts", target: self, action: #selector(openKeyboardShortcuts))
         let buttons = NSStackView(views: [open, assignButton])
         buttons.spacing = 8
         let stack = NSStackView(views: [guideStatus, guideSteps, buttons])
@@ -292,15 +309,10 @@ private extension KeyCombo {
             self?.refresh()
         }
 
-        let reset = NSButton()
-        reset.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "Reset to Default")
-        reset.imagePosition = .imageOnly
-        reset.isBordered = false
-        reset.contentTintColor = .secondaryLabelColor
+        let reset = RetroUI.key(symbol: "arrow.counterclockwise",
+                                tip: "Reset to default (\(action.defaultCombo?.displayString ?? "none"))",
+                                height: RetroUI.textKeyHeight, target: self, action: #selector(resetClicked(_:)))
         reset.tag = HotKeyAction.allCases.firstIndex(of: action) ?? 0
-        reset.target = self
-        reset.action = #selector(resetClicked(_:))
-        reset.toolTip = "Reset to default (\(action.defaultCombo?.displayString ?? "none"))"
 
         let message = NSTextField(wrappingLabelWithString: "")
         message.font = .systemFont(ofSize: 11)
@@ -356,13 +368,13 @@ private extension KeyCombo {
             row.recorder.combo = combo
             row.reset.isHidden = combo == action.defaultCombo
             var text: String?
-            var color = NSColor.systemOrange
+            var color = Retro.color(Retro.orange)
             if let refusal, refusal.action == action {
                 text = refusal.message
-                color = .systemRed
+                color = Retro.color(Retro.recRed)
             } else if let combo, ShortcutCenter.shared.unavailable.contains(action) {
                 text = "Couldn't register \(combo.displayString): another app may be using it."
-                color = .systemRed
+                color = Retro.color(Retro.recRed)
             } else if let combo, !MacScreenshotShortcuts.isFree(combo, in: hotkeys) {
                 text = combo.systemWarning
             }
