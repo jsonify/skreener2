@@ -1,16 +1,9 @@
 import AppKit
 
-/// A capsule button: an SF Symbol and/or a title (a symbol alone makes it a circle). Dims while pressed. `isOn` fills
-/// it with the accent colour, for the current tool or a toggle that is on. The SK-1 styles (`.keycap`, `.toggle`,
-/// `.round`, `.lcd`; see `Retro`) are drawn in the retro palette instead.
+/// An SK-1 button (#344; see `Retro`): an SF Symbol and/or a title on a key, a toggle, a round key or an LCD chip,
+/// drawn in the retro palette. `isOn` presses a key down with its orange bar (the current tool) or lights a toggle.
 class PillButton: NSButton {
     enum Style {
-        /// Accent colour, white content: the main action.
-        case filled
-        /// Translucent white over the dark bar (the scrolling-capture bar).
-        case tinted
-        /// A white button with a soft shadow on the window background (a lighter grey in dark mode), like CleanShot's.
-        case raised
         /// An SK-1 key: a raised face on a 2 pt skirt, cream, orange or charcoal (`keyVariant`), usually on a
         /// `KeycapTray`. `isOn` presses it down with a glowing orange bar (the current tool); `legend` puts its key in
         /// the top left corner. A symbol-only key is square.
@@ -26,13 +19,6 @@ class PillButton: NSButton {
     /// Space between the symbol and the title, the same on every pill button. The symbol and title are laid out
     /// here rather than by the button cell, whose own spacing is wider and varies with the content.
     static let iconGap: CGFloat = 5
-    /// The dark capsule `.tinted` buttons sit on (the scrolling-capture bar; also the editor's toast).
-    static let barColor = NSColor(white: 0.12, alpha: 0.94)
-    static let barBorderColor = NSColor.white.withAlphaComponent(0.15)
-    /// The `.tinted` fill: a translucent white over the dark bar.
-    static let tintColor = NSColor.white.withAlphaComponent(0.16)
-    /// The `.raised` fill.
-    static func raisedColor(dark: Bool) -> NSColor { dark ? NSColor(white: 1, alpha: 0.13) : .white }
     /// A `.keycap`'s corner radius.
     static let keycapRadius: CGFloat = 6
     /// The skirt under a `.keycap` (and half of it under a `.round`).
@@ -84,10 +70,8 @@ class PillButton: NSButton {
         didSet { alphaValue = isEnabled ? 1 : 0.4 }
     }
 
-    private var isRetro: Bool { [.keycap, .toggle, .round, .lcd].contains(style) }
-
-    /// `height` 30 is the scrolling-capture bar's size; the editor uses smaller pills.
-    init(title: String?, symbol: String?, style: Style = .tinted, height: CGFloat = 30, run: @escaping () -> Void = {}) {
+    /// `height` 30 is the floating bars' key; the editor uses smaller ones.
+    init(title: String?, symbol: String?, style: Style = .keycap, height: CGFloat = 30, run: @escaping () -> Void = {}) {
         self.run = run
         self.style = style
         self.height = height
@@ -101,7 +85,6 @@ class PillButton: NSButton {
         case .toggle: label.font = .systemFont(ofSize: 9.5, weight: .bold)
         case .lcd: label.font = Retro.mono(10, weight: .bold)
         case .round: label.font = .systemFont(ofSize: 10, weight: .bold)
-        default: label.font = .systemFont(ofSize: height >= 30 ? 13 : 12, weight: style == .tinted || style == .filled ? .semibold : .medium)
         }
         label.lineBreakMode = .byTruncatingTail
         let chevronConfig = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
@@ -137,7 +120,7 @@ class PillButton: NSButton {
         switch style {
         case .keycap: config = NSImage.SymbolConfiguration(pointSize: height >= 28 ? 13 : 11, weight: .semibold)
         case .round: config = NSImage.SymbolConfiguration(pointSize: max(7, height * 0.38), weight: .bold)
-        default: config = NSImage.SymbolConfiguration(pointSize: height >= 30 ? 12 : 11, weight: height >= 30 ? .bold : .semibold)
+        case .toggle, .lcd: config = NSImage.SymbolConfiguration(pointSize: height >= 30 ? 12 : 11, weight: height >= 30 ? .bold : .semibold)
         }
         let image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: title)?.withSymbolConfiguration(config) }
         setContent(title: title, image: image)
@@ -159,7 +142,6 @@ class PillButton: NSButton {
     /// The title in the style's type and the content colour.
     private func refreshLabel() {
         let text = titleText ?? ""
-        guard isRetro else { label.stringValue = text; return }
         let color = label.textColor ?? .labelColor
         let font = label.font ?? Retro.captionFont
         switch style {
@@ -197,11 +179,6 @@ class PillButton: NSButton {
         case .round: face = height
         case .toggle: face = fit + 15
         case .lcd: face = max(fit + 14, 44)
-        default:
-            // A circle when there is only a symbol; otherwise room either side of the content.
-            let circle = label.isHidden && chevron.isHidden
-            let pad: CGFloat = height >= 30 ? 28 : (label.isHidden ? 16 : 22)
-            face = circle ? height : fit + pad
         }
         let left = captionSpace + accessoryInsets.leading, right = accessoryInsets.trailing
         widthConstraint = widthAnchor.constraint(equalToConstant: face + left + right)
@@ -214,14 +191,7 @@ class PillButton: NSButton {
 
     override func layout() {
         super.layout()
-        if isRetro {
-            layer?.cornerRadius = 0
-            updateShadowPath()
-            return
-        }
-        let radius = bounds.height / 2
-        layer?.cornerRadius = radius
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        updateShadowPath()
     }
 
     /// The layer shadow follows the key: its whole body when up, the face alone (half as far down) when pressed.
@@ -273,26 +243,13 @@ class PillButton: NSButton {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        if isRetro { drawRetro() }
+        drawFace()
         super.draw(dirtyRect)
-        guard showsTriangle else { return }
-        if isRetro { drawKeyTriangle(); return }
-        // A triangle in the lower right corner, just inside the circle.
-        let w = bounds.width, h = bounds.height
-        func y(_ fromBottom: CGFloat) -> CGFloat { isFlipped ? h - fromBottom : fromBottom }
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: w - 4.5, y: y(5)))
-        path.line(to: NSPoint(x: w - 4.5, y: y(10)))
-        path.line(to: NSPoint(x: w - 9.5, y: y(5)))
-        path.close()
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            (isOn ? NSColor.white.withAlphaComponent(0.8) : NSColor.secondaryLabelColor).setFill()
-            path.fill()
-        }
+        if showsTriangle { drawKeyTriangle() }
     }
 
-    /// The SK-1 styles: the caption, then the key, toggle square, round key or LCD chip.
-    private func drawRetro() {
+    /// The caption, then the key, toggle square, round key or LCD chip.
+    private func drawFace() {
         let p = Retro.palette(for: self)
         if let caption, !caption.isEmpty {
             let text = Retro.caption(caption, color: Retro.color(p.ink))
@@ -315,25 +272,11 @@ class PillButton: NSButton {
             Retro.drawKey(in: body, radius: (d - 1) / 2, colors: Retro.keyColors(.cream, p), down: pressed, skirt: 1, flipped: isFlipped)
         case .toggle:
             let square = NSRect(x: face.minX + 1, y: (bounds.height - 9) / 2, width: 9, height: 9)
-            let path = NSBezierPath(roundedRect: square, xRadius: 2, yRadius: 2)
-            Retro.color(isOn ? Retro.orange : p.toggleOff).setFill()
-            path.fill()
-            NSGraphicsContext.saveGraphicsState()
-            path.addClip()
-            NSColor.white.withAlphaComponent(0.35).setFill()
-            NSBezierPath(rect: NSRect(x: square.minX, y: isFlipped ? square.minY : square.maxY - 1, width: square.width, height: 1)).fill()
-            NSGraphicsContext.restoreGraphicsState()
-            NSColor.black.withAlphaComponent(0.25).setStroke()
-            path.lineWidth = 0.5
-            path.stroke()
+            Retro.drawToggleSquare(square, on: isOn, palette: p, flipped: isFlipped)
         case .lcd:
             let h = min(face.height, 20)
             let chip = NSRect(x: face.minX, y: face.midY - h / 2, width: face.width, height: h)
-            Retro.drawGlass(chip, radius: 3, top: Retro.chipTop, middle: 0xc7cdb1, bottom: Retro.chipBottom,
-                            brightness: p.lcdBrightness * (pressed ? 0.94 : 1), grid: false, shadowBlur: 2, shadowOffset: 1,
-                            flipped: isFlipped)
-        default:
-            break
+            Retro.drawChipGlass(chip, radius: 3, brightness: p.lcdBrightness * (pressed ? 0.94 : 1), flipped: isFlipped)
         }
     }
 
@@ -357,37 +300,16 @@ class PillButton: NSButton {
         applyColors()
     }
 
+    /// The ink, and the shadow a key or round key casts (none for a toggle or chip; the rest is drawn).
     private func applyColors() {
         needsDisplay = true   // the variants triangle follows the colors
-        if isRetro { applyRetroColors(); return }
-        let accent = style == .filled || isOn
-        let onDark = accent || style == .tinted
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let content: NSColor = onDark ? .white : .labelColor
-        icon.contentTintColor = content
-        label.textColor = content
-        chevron.contentTintColor = onDark ? NSColor.white.withAlphaComponent(0.75) : .secondaryLabelColor
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            var fill = accent ? .controlAccentColor : style == .tinted ? Self.tintColor : Self.raisedColor(dark: dark)
-            if pressed { fill = fill.blended(withFraction: dark ? 0.15 : 0.12, of: .black) ?? fill }
-            layer?.backgroundColor = fill.cgColor
-            // Raised pills cast a soft shadow.
-            layer?.shadowColor = NSColor.black.cgColor
-            layer?.shadowOpacity = style == .raised ? (dark ? 0.35 : 0.16) : 0
-            layer?.shadowRadius = 1.5
-            layer?.shadowOffset = CGSize(width: 0, height: -0.5)
-        }
-    }
-
-    /// The SK-1 styles' ink, and the shadow a key or round key casts (none for a toggle or chip; the rest is drawn).
-    private func applyRetroColors() {
         let p = Retro.palette(for: self)
         let ink: NSColor
         switch style {
         case .keycap: ink = Retro.keyColors(keyVariant, p).ink
         case .round: ink = Retro.color(p.keyInk)
         case .toggle: ink = Retro.color(isOn ? p.ink : p.inkSoft)
-        default: ink = Retro.color(Retro.lcdInk)
+        case .lcd: ink = Retro.color(Retro.lcdInk)
         }
         icon.contentTintColor = ink
         label.textColor = ink
@@ -435,7 +357,7 @@ final class PillPopUp: PillButton {
     var onStep: ((Int) -> Void)?
 
     /// `stepSymbols` are the arrows' symbols, before and after.
-    init(pullsDown: Bool, height: CGFloat = 26, style: Style = .raised, stepper: Bool = false,
+    init(pullsDown: Bool, height: CGFloat = 26, style: Style = .keycap, stepper: Bool = false,
          stepSymbols: (String, String) = ("arrowtriangle.left.fill", "arrowtriangle.right.fill")) {
         self.pullsDown = pullsDown
         super.init(title: nil, symbol: nil, style: style, height: height)
@@ -641,19 +563,12 @@ final class KeySwitch: NSButton {
         }
 
         let led = NSRect(x: bounds.midX - 2, y: y(25, 4), width: 4, height: 4)
-        let dot = NSBezierPath(ovalIn: led)
         if on {
-            NSGraphicsContext.saveGraphicsState()
-            let glow = NSShadow()
-            glow.shadowColor = Retro.color(Retro.orange)
-            glow.shadowBlurRadius = 4
-            glow.set()
-            Retro.color(Retro.orange).setFill()
-            dot.fill()
-            NSGraphicsContext.restoreGraphicsState()
+            Retro.drawLamp(in: led, color: Retro.color(Retro.orange), lit: true)
             NSColor.white.withAlphaComponent(0.5).setFill()
             NSBezierPath(ovalIn: led.insetBy(dx: 1.2, dy: 1.2)).fill()
         } else {
+            let dot = NSBezierPath(ovalIn: led)
             Retro.color(p.toggleOff).setFill()
             dot.fill()
             NSColor.black.withAlphaComponent(0.2).setStroke()
@@ -730,5 +645,102 @@ final class ColorPill: PillButton {
     @objc private func panelChanged(_ panel: NSColorPanel) {
         color = panel.color
         sendAction(action, to: target)
+    }
+}
+
+/// Builders for the windows that take the SK-1 look (#344): the scratch pad, Step Guide, history panel, Combine,
+/// Ask Claude, Watch This Area, the shortcut list, the tip popovers and the dialogs. They only wrap the kit
+/// (`PillButton`, `KeycapTray`, `RetroLabel`, `ChassisView`); nothing here draws.
+enum RetroUI {
+    /// A symbol-only key: a 28 pt face on its 2 pt skirt.
+    static let iconKeyHeight: CGFloat = 30
+    /// A key with a title.
+    static let textKeyHeight: CGFloat = 24
+
+    /// A cream key (`variant`: orange for the main action, charcoal for a secondary one) with a title and/or a symbol.
+    /// A symbol-only key is spoken as `tip`.
+    static func key(_ title: String? = nil, symbol: String? = nil, tip: String? = nil,
+                    variant: Retro.KeyVariant = .cream, height: CGFloat? = nil,
+                    target: AnyObject? = nil, action: Selector? = nil) -> PillButton {
+        let b = PillButton(title: title, symbol: symbol, style: .keycap, height: height ?? (title == nil ? iconKeyHeight : textKeyHeight))
+        b.keyVariant = variant
+        b.target = target
+        b.action = action
+        if let tip {
+            b.toolTip = tip
+            if title == nil { b.setAccessibilityLabel(tip) }
+        }
+        return b
+    }
+
+    /// An orange-square toggle; the handler flips `isOn` (a toggle doesn't flip itself).
+    static func toggle(_ title: String, tip: String? = nil, isOn: Bool = false, height: CGFloat = 20,
+                       target: AnyObject?, action: Selector?) -> PillButton {
+        let b = PillButton(title: title, symbol: nil, style: .toggle, height: height)
+        b.isOn = isOn
+        b.target = target
+        b.action = action
+        if let tip { b.toolTip = tip }
+        return b
+    }
+
+    /// Keys in a sunken tray with a caption under it.
+    static func tray(_ caption: String?, _ keys: [NSView]) -> KeycapTray { KeycapTray(keys, caption: caption) }
+
+    /// A pop-up as a cream key with a ▾, for a menu of choices that is too long for a segmented control.
+    static func menuKey(tip: String, caption: String? = nil, target: AnyObject?, action: Selector?) -> PillPopUp {
+        let p = PillPopUp(pullsDown: false, height: textKeyHeight, style: .keycap)
+        p.caption = caption
+        p.toolTip = tip
+        p.target = target
+        p.action = action
+        return p
+    }
+
+    /// An LCD chip between ◀ ▶ that steps through its items, with an optional caption to its left.
+    static func stepper(caption: String? = nil, tip: String? = nil, target: AnyObject?, action: Selector?) -> PillPopUp {
+        let p = PillPopUp(pullsDown: false, height: textKeyHeight, style: .lcd, stepper: true)
+        p.caption = caption
+        p.toolTip = tip
+        p.target = target
+        p.action = action
+        return p
+    }
+
+    /// Makes `window`'s content the chassis, with the title bar transparent over it. Returns the chassis, which the
+    /// caller fills. The title stays in the title bar; lay content out from `contentTop(of:in:)`.
+    static func useChassis(_ window: NSWindow) -> ChassisView {
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        let chassis = ChassisView()
+        window.contentView = chassis
+        return chassis
+    }
+
+    /// The top of the area below the title bar (the content's top for a window without one, e.g. a sheet).
+    static func contentTop(of window: NSWindow, in content: NSView) -> NSLayoutYAxisAnchor {
+        (window.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
+    }
+
+    /// Plain secondary text (a hint, a count) in the soft ink.
+    static func hint(_ text: String = "", size: CGFloat = 11, wraps: Bool = false) -> RetroLabel {
+        let l = RetroLabel(text: text, tone: .soft, size: size)
+        if wraps {
+            l.lineBreakMode = .byWordWrapping
+            l.maximumNumberOfLines = 0
+            l.cell?.wraps = true
+        }
+        return l
+    }
+}
+
+extension PillPopUp {
+    /// `NSPopUpButton.addItems(withTitles:)`.
+    func addItems(withTitles titles: [String]) { titles.forEach { addItem(withTitle: $0) } }
+
+    /// `NSPopUpButton.removeAllItems()`.
+    func removeAllItems() {
+        menu?.removeAllItems()
+        selectItem(at: -1)
     }
 }

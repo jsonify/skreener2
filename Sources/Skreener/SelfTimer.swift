@@ -115,12 +115,12 @@ private final class CountdownView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Retro.palette(for: self)
-        RetroBars.drawPlate(bounds, radius: radius, palette: p, flipped: isFlipped)
+        Retro.drawPlate(bounds, radius: radius, palette: p, flipped: isFlipped)
         // From the top: a 14 pt margin, the LCD, then the caption in the bottom 34 pt.
         let captionBand: CGFloat = 34, side: CGFloat = 14
         let lcd = NSRect(x: bounds.minX + side, y: isFlipped ? bounds.minY + side : bounds.minY + captionBand,
                          width: bounds.width - side * 2, height: bounds.height - side - captionBand)
-        let glass = RetroBars.drawLCD(in: lcd, radius: 12, inset: 5, palette: p, flipped: isFlipped)
+        let glass = Retro.drawLCD(in: lcd, radius: 12, inset: 5, palette: p, flipped: isFlipped)
         let text = SevenSegment.cells(value, count: max(String(value).count, 1))
         let digitHeight = min(72, glass.height - 18), spacing: CGFloat = 5
         let width = SevenSegment.textWidth(text, digitHeight: digitHeight, spacing: spacing)

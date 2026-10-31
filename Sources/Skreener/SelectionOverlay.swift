@@ -25,16 +25,9 @@ func drawHintBanner(_ text: String, centeredAt c: NSPoint) {
     Retro.color(p.chassis).setFill()
     NSBezierPath(roundedRect: box, xRadius: radius, yRadius: radius).fill()
     NSGraphicsContext.restoreGraphicsState()
-    RetroBars.drawPlate(box, radius: radius, palette: p, flipped: false)
+    Retro.drawPlate(box, radius: radius, palette: p, flipped: false)
     let dot = NSRect(x: box.minX + padX, y: box.midY - lamp / 2, width: lamp, height: lamp)
-    NSGraphicsContext.saveGraphicsState()
-    let glow = NSShadow()
-    glow.shadowColor = Retro.color(Retro.orange)
-    glow.shadowBlurRadius = 4
-    glow.set()
-    Retro.color(Retro.orange).setFill()
-    NSBezierPath(ovalIn: dot).fill()
-    NSGraphicsContext.restoreGraphicsState()
+    Retro.drawLamp(in: dot, color: Retro.color(Retro.orange), lit: true)
     s.draw(at: NSPoint(x: dot.maxX + lampGap, y: box.minY + padY), withAttributes: attrs)
 }
 
@@ -568,9 +561,9 @@ private final class SelectionView: NSView {
             let dims = "\(Int(h.width)) × \(Int(h.height))"
             // On an LCD chip (#344) under the selection's lower left corner.
             let label = adjusted != nil && drag == nil ? dims + "   ↩ Capture · Esc Cancel" : dims
-            let size = RetroBars.chipSize(label)
+            let size = Retro.chipSize(label)
             let x = min(max(h.minX, bounds.minX + 2), bounds.maxX - size.width - 2)
-            RetroBars.drawChip(label, at: NSPoint(x: x, y: max(h.minY - size.height - 8, 3)))
+            Retro.drawChip(label, at: NSPoint(x: x, y: max(h.minY - size.height - 8, 3)))
         }
     }
 
@@ -584,12 +577,12 @@ private final class SelectionView: NSView {
     /// `text` on an LCD chip (#344) just below the pointer, on its left or right, kept on screen: its dark rim and
     /// shadow make it read over anything.
     private func drawPointerLabel(_ text: String, near p: NSPoint, leftOfPointer: Bool) {
-        let pill = RetroBars.chipSize(text, size: 12)
+        let pill = Retro.chipSize(text, size: 12)
         var origin = NSPoint(x: leftOfPointer ? p.x - 12 - pill.width : p.x + 12, y: p.y - 12 - pill.height)
         if !leftOfPointer, origin.x + pill.width > bounds.maxX - 2 { origin.x = p.x - 12 - pill.width }
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
         if origin.y < bounds.minY + 2 { origin.y = p.y + 12 }
-        RetroBars.drawChip(text, at: origin, size: 12)
+        Retro.drawChip(text, at: origin, size: 12)
     }
 
     /// Greenshot-style guides: a horizontal and a vertical line through the pointer across the whole screen, for
@@ -671,8 +664,8 @@ private final class SelectionView: NSView {
 
         // The coordinates on an LCD chip (#344) under the lens.
         let label = "\(Int(p.x)), \(Int(bounds.height - p.y))"
-        let pill = RetroBars.chipSize(label, padding: NSSize(width: 6, height: 2))
-        RetroBars.drawChip(label, at: NSPoint(x: img.midX - pill.width / 2, y: box.minY + 1), padding: NSSize(width: 6, height: 2))
+        let pill = Retro.chipSize(label, padding: NSSize(width: 6, height: 2))
+        Retro.drawChip(label, at: NSPoint(x: img.midX - pill.width / 2, y: box.minY + 1), padding: NSSize(width: 6, height: 2))
     }
 }
 
@@ -706,11 +699,11 @@ extension SelectionView {
     /// capture.
     fileprivate func drawMoveTip(beside r: NSRect) {
         let label = TipText.plain(TipID.moveSelection.line)
-        let pill = RetroBars.chipSize(label, size: 11.5)
+        let pill = Retro.chipSize(label, size: 11.5)
         var origin = NSPoint(x: r.minX, y: r.maxY + 8)
         if origin.y + pill.height > bounds.maxY - 2 { origin.y = r.minY - 8 - pill.height }
         origin.y = min(max(origin.y, bounds.minY + 2), bounds.maxY - pill.height - 2)
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
-        RetroBars.drawChip(label, at: origin, size: 11.5, alpha: tipAlpha)
+        Retro.drawChip(label, at: origin, size: 11.5, alpha: tipAlpha)
     }
 }

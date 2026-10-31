@@ -59,6 +59,17 @@ final class RetroTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(ratio(Retro.lcdInk, Retro.chipBottom), 4.5, "LCD chip")
     }
 
+    /// A blinking lamp (the REC lamp, the editor's LIVE lamp) is lit for the first half of each second.
+    func testBlinkSteps() {
+        XCTAssertTrue(Retro.blinkLit(0))
+        XCTAssertTrue(Retro.blinkLit(0.49))
+        XCTAssertFalse(Retro.blinkLit(0.5))
+        XCTAssertFalse(Retro.blinkLit(0.99))
+        XCTAssertTrue(Retro.blinkLit(1))
+        XCTAssertFalse(Retro.blinkLit(61.7))
+        XCTAssertTrue(Retro.blinkLit(-2), "a clock that went back shows the lamp lit")
+    }
+
     func testKeyLegends() {
         XCTAssertEqual(Tool.rect.shortcutLetter, "R")
         XCTAssertEqual(Tool.select.shortcutLetter, "V")

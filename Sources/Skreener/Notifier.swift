@@ -165,7 +165,7 @@ final class MessageHUD {
         row.alignment = .centerY
         row.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 16)
 
-        let bg = RetroBarPlate(radius: 14, click: .run({ MessageHUD.dismiss() }))
+        let bg = ChassisPlate(radius: 14, click: .run({ MessageHUD.dismiss() }))
         // The labels' ink follows the chassis' appearance.
         let ink = { [weak bg, weak titleLabel, weak detailLabel] in
             guard let bg else { return }
@@ -263,21 +263,14 @@ private final class HUDIcon: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let p = Retro.palette(for: self)
         let outer = NSRect(x: 0, y: isFlipped ? 0 : 1, width: bounds.width, height: bounds.height - 1)
-        let glass = RetroBars.drawLCD(in: outer, radius: 8, inset: 3, palette: p, flipped: isFlipped)
+        let glass = Retro.drawLCD(in: outer, radius: 8, inset: 3, palette: p, flipped: isFlipped)
         if let image {
             let s = image.size
             image.draw(in: NSRect(x: glass.midX - s.width / 2, y: glass.midY - s.height / 2, width: s.width, height: s.height))
         }
         guard warning else { return }
         let lamp = NSRect(x: glass.maxX - 7, y: isFlipped ? glass.minY + 3 : glass.maxY - 7, width: 4, height: 4)
-        NSGraphicsContext.saveGraphicsState()
-        let glow = NSShadow()
-        glow.shadowColor = Retro.color(Retro.orange)
-        glow.shadowBlurRadius = 3
-        glow.set()
-        Retro.color(Retro.orange).setFill()
-        NSBezierPath(ovalIn: lamp).fill()
-        NSGraphicsContext.restoreGraphicsState()
+        Retro.drawLamp(in: lamp, color: Retro.color(Retro.orange), lit: true, glow: 3)
     }
 
     override func viewDidChangeEffectiveAppearance() {

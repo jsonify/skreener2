@@ -3,22 +3,41 @@ import AppKit
 /// The SK-1 look (#344), after the MT-1 Menu Timer panel: a cream chassis (charcoal in Dark Mode) with sunken trays
 /// of raised keys, an olive LCD with seven-segment digits, and orange for what is on and for the main action.
 ///
-/// The kit, for every bar that takes the look:
-/// - `Retro.palette(for:)` and `Retro.Palette`: the colours, light or dark, for a view's appearance; `Retro.color(_:)`
-///   turns a token into an `NSColor`. The fixed colours (orange, the olive LCD) are `Retro.orange`, `Retro.lcdInk`….
-/// - `Retro.captionFont`, `Retro.mono(_:weight:)`, `Retro.caption(_:color:)`: the type. `RetroLabel`: a label in
-///   the palette's ink that follows the appearance (a caption, or plain secondary text).
-/// - `ChassisView`: a window's background (and a drag handle for the window). `SpeakerGrille`: a decoration.
+/// The kit, for every surface that takes the look (Settings keeps the standard macOS controls):
+///
+/// Colours and type (`Retro`)
+/// - `Retro.palette(for:)` / `Retro.Palette` (`Retro.light`, `Retro.dark`): the colours that change with the appearance;
+///   `Retro.color(_:)` turns a token into an `NSColor`. The fixed ones: `Retro.orange` (what is on, the main action),
+///   the orange and charcoal keys', the LCD's (`glassTop`…, `chipTop`…, `lcdInk`) and the lamps' (`teal`, `recRed`).
+/// - `Retro.captionFont`, `Retro.mono(_:weight:)`, `Retro.caption(_:color:)`: the type. `Retro.chipAttributes`: an
+///   LCD chip's mono text.
+/// - `Retro.blinkLit(_:)`: whether a blinking lamp is lit (1 s, lit for the first half).
+///
+/// Drawing, for a custom view's `draw(_:)` (`Retro`)
+/// - `drawPlate`: a chassis plate with rounded corners (cream or charcoal with its glow, a hairline edge).
+/// - `drawWell`: a sunken tray. `drawKey` (with `keyColors`, `keyFace`) and `drawOnBar`: a raised key and the
+///   selected key's orange bar. `drawToggleSquare`: a toggle's square. `drawLamp`: a small round lamp.
+/// - `drawGlass`: olive LCD glass. `drawLCD`: glass in its sunken bezel. `drawChipGlass`: a small LCD chip's glass.
+///   `drawChip` / `chipSize`: text on an LCD chip drawn straight on the screen (a selection's size).
+///
+/// Views
+/// - `ChassisView`: a window's background (a drag moves the window). `ChassisPlate`: a floating bar's or card's
+///   rounded chassis, which drags its window, swallows clicks or runs an action. `SpeakerGrille`: a decoration.
+/// - `RetroLabel`: a caption or plain secondary text in the palette's ink.
 /// - `PillButton` styles: `.keycap` (with `keyVariant` cream, orange or charcoal, `legend`, `isOn` pressed with an
 ///   orange bar), `.toggle` (an orange square and a label), `.round` (a small round key, e.g. a stepper's arrow) and
 ///   `.lcd` (a small olive readout). Any of them can carry a `caption` to its left.
 /// - `PillPopUp(…, style: .lcd, stepper: true)`: an LCD chip between ◀ ▶ that steps through its items; a click on the
 ///   chip still opens the menu. `onStep` for a pull-down's own steps (the editor's zoom).
-/// - `KeycapTray(keys, caption:)`: keys in a sunken tray with a caption under it.
-/// - `RetroSegmented`: a few choices in a track, the chosen one charcoal. `SwatchRow`: round colour swatches.
-///   `ColorPill`: one round swatch with a menu. `KeySwitch`: an upright switch with an LED.
-/// - `LCDDisplay` (a status display), `SevenSegmentView` (digits on an LCD) and `SevenSegment` (their geometry).
-/// - `Retro.drawWell`, `Retro.drawKey`, `Retro.drawGlass`: the same shapes, for a custom view's `draw(_:)`.
+/// - `KeycapTray(keys, caption:)`: keys in a sunken tray with a caption under it. `KeySwitch`: an upright switch
+///   with an LED. `RetroIndicator`: a toggle's square and caption that only shows a state.
+/// - `RetroSegmented`: a few choices in a track, the chosen one charcoal. `SwatchRow` / `RoundSwatch`: round colour
+///   swatches. `ColorPill`: one round swatch with a menu.
+/// - `RetroUI`: builders for the windows (`key`, `toggle`, `menuKey`, `stepper`, `tray`, `hint`, `useChassis`,
+///   `contentTop`). `RetroDialog`: a small modal dialog or sheet with an orange main key, for a form.
+/// - LCDs (`LCDDisplay.swift`): `LCDDisplay` (the editor's status display), `ElapsedLCD` (the recording bar's),
+///   `LCDReadout` (one line of mono text), `LCDChip` (a small readout), `SevenSegmentView` and `SevenSegment` (the
+///   digits and their geometry).
 enum Retro {
     /// The colours that change between light and dark, as 0xRRGGBB (alphas as fractions).
     struct Palette: Equatable {
@@ -80,7 +99,14 @@ enum Retro {
     static let glassTop: UInt32 = 0xd3d9be, glassMiddle: UInt32 = 0xc3caad, glassBottom: UInt32 = 0xb9c0a2
     static let lcdInk: UInt32 = 0x1e2318
     /// An LCD chip's glass, top to bottom.
-    static let chipTop: UInt32 = 0xcfd5ba, chipBottom: UInt32 = 0xbfc6a9
+    static let chipTop: UInt32 = 0xcfd5ba, chipMiddle: UInt32 = 0xc7cdb1, chipBottom: UInt32 = 0xbfc6a9
+    /// A lamp's teal (a key under the pointer) and the REC lamp's red (the timer's).
+    static let teal: UInt32 = 0x1f9e86, recRed: UInt32 = 0xe0402f
+    /// How far a blinking lamp dims between blinks.
+    static let lampDimmed: CGFloat = 0.2
+
+    /// Whether a lamp that has blinked for `elapsed` seconds is lit: once a second, lit for the first half of it.
+    static func blinkLit(_ elapsed: TimeInterval) -> Bool { Int((max(elapsed, 0) * 2).rounded(.down)) % 2 == 0 }
 
     static func palette(dark: Bool) -> Palette { dark ? Self.dark : light }
     static func isDark(_ appearance: NSAppearance) -> Bool { appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
@@ -283,6 +309,125 @@ enum Retro {
         edge.stroke()
     }
 
+    /// A small LCD chip's glass in `rect`: lighter than the display's, with no pixel grid and a shallower shadow.
+    static func drawChipGlass(_ rect: NSRect, radius: CGFloat, brightness: CGFloat, flipped: Bool) {
+        drawGlass(rect, radius: radius, top: chipTop, middle: chipMiddle, bottom: chipBottom, brightness: brightness, grid: false,
+                  shadowBlur: 2, shadowOffset: 1, flipped: flipped)
+    }
+
+    /// An LCD in `rect`: the sunken bezel (its light lip drawn 1 pt below `rect`) and the olive glass `inset` inside
+    /// it. Returns the glass.
+    @discardableResult
+    static func drawLCD(in rect: NSRect, radius: CGFloat = 9, inset: CGFloat = 4, palette p: Palette, flipped: Bool) -> NSRect {
+        drawWell(rect, radius: radius, top: color(p.bezelTop), bottom: color(p.bezelBottom), shadow: 0.18, lip: p.wellLip,
+                 flipped: flipped)
+        let glass = rect.insetBy(dx: inset, dy: inset)
+        drawGlass(glass, radius: max(radius - inset + 1, 3), brightness: p.lcdBrightness, flipped: flipped)
+        return glass
+    }
+
+    /// A chassis plate in `rect` with rounded corners: cream (charcoal in Dark Mode) with the white glow across its top,
+    /// as `ChassisView`'s, and a hairline edge. A square plate (`radius` 0) fills a window or a menu, which has its own
+    /// edge, so it gets none.
+    static func drawPlate(_ rect: NSRect, radius: CGFloat, palette p: Palette, flipped: Bool) {
+        let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        NSGraphicsContext.saveGraphicsState()
+        shape.addClip()
+        color(p.chassis).setFill()
+        rect.fill()
+        // The glow: an ellipse 1.6 times as wide as the plate, centred on its top edge.
+        let glow = NSGradient(starting: NSColor.white.withAlphaComponent(p.chassisGlow), ending: NSColor.white.withAlphaComponent(0))
+        let t = NSAffineTransform()
+        t.translateX(by: rect.midX, yBy: flipped ? rect.minY : rect.maxY)
+        t.scaleX(by: rect.width * 0.8, yBy: max(min(rect.height, 600), 1) * 0.8)
+        t.concat()
+        glow?.draw(fromCenter: .zero, radius: 0, toCenter: .zero, radius: 1, options: [])
+        NSGraphicsContext.restoreGraphicsState()
+        guard radius > 0 else { return }
+        NSColor.black.withAlphaComponent(p.dark ? 0.55 : 0.25).setStroke()
+        let edge = NSBezierPath(roundedRect: rect.insetBy(dx: 0.25, dy: 0.25), xRadius: radius, yRadius: radius)
+        edge.lineWidth = 0.5
+        edge.stroke()
+    }
+
+    /// A small round lamp in `rect`: lit, `color` with a glow `glow` wide (0 for none, e.g. on the LCD's glass);
+    /// unlit, `unlit` (by default a faint dark dot).
+    static func drawLamp(in rect: NSRect, color: NSColor, lit: Bool, unlit: NSColor? = nil, glow: CGFloat = 4) {
+        let dot = NSBezierPath(ovalIn: rect)
+        guard lit else {
+            (unlit ?? NSColor.black.withAlphaComponent(0.14)).setFill()
+            dot.fill()
+            return
+        }
+        NSGraphicsContext.saveGraphicsState()
+        if glow > 0 {
+            let shadow = NSShadow()
+            shadow.shadowColor = color
+            shadow.shadowBlurRadius = glow
+            shadow.set()
+        }
+        color.setFill()
+        dot.fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// A toggle's square in `square` (9 pt): orange while `on`, the palette's off colour otherwise, with a light top
+    /// edge and a hairline.
+    static func drawToggleSquare(_ square: NSRect, on: Bool, palette p: Palette, flipped: Bool) {
+        let path = NSBezierPath(roundedRect: square, xRadius: 2, yRadius: 2)
+        color(on ? orange : p.toggleOff).setFill()
+        path.fill()
+        NSGraphicsContext.saveGraphicsState()
+        path.addClip()
+        NSColor.white.withAlphaComponent(0.35).setFill()
+        NSBezierPath(rect: NSRect(x: square.minX, y: flipped ? square.minY : square.maxY - 1, width: square.width, height: 1)).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.black.withAlphaComponent(0.25).setStroke()
+        path.lineWidth = 0.5
+        path.stroke()
+    }
+
+    /// The type for an LCD chip's text.
+    static func chipAttributes(size: CGFloat = 11, alpha: CGFloat = 1) -> [NSAttributedString.Key: Any] {
+        [.font: mono(size, weight: .semibold), .foregroundColor: color(lcdInk, alpha: alpha), .kern: 0.3]
+    }
+
+    /// `text` on a small LCD chip at `origin` (its lower left corner, unflipped), for readouts drawn straight on the
+    /// screen: the chip's glass with a dark rim and a soft shadow, the text in mono ink. `alpha` fades the whole chip.
+    /// Returns the chip's rect.
+    @discardableResult
+    static func drawChip(_ text: String, at origin: NSPoint, size: CGFloat = 11, padding: NSSize = NSSize(width: 6, height: 3),
+                         alpha: CGFloat = 1, brightness: CGFloat = 1) -> NSRect {
+        let s = NSAttributedString(string: text, attributes: chipAttributes(size: size))
+        let box = NSRect(origin: origin, size: chipSize(text, size: size, padding: padding))
+        guard alpha > 0, let ctx = NSGraphicsContext.current?.cgContext else { return box }
+        ctx.saveGState()
+        ctx.setAlpha(alpha)
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        // A soft shadow lifts it off whatever is under it; a dark rim keeps it apart from light screens.
+        NSGraphicsContext.saveGraphicsState()
+        let lift = NSShadow()
+        lift.shadowColor = NSColor.black.withAlphaComponent(0.45)
+        lift.shadowBlurRadius = 3
+        lift.shadowOffset = NSSize(width: 0, height: -1)
+        lift.set()
+        NSColor.black.withAlphaComponent(0.6).setFill()
+        NSBezierPath(roundedRect: box.insetBy(dx: -1, dy: -1), xRadius: 5, yRadius: 5).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        drawChipGlass(box, radius: 4, brightness: brightness, flipped: false)
+        let t = s.size()
+        s.draw(at: NSPoint(x: box.midX - t.width / 2, y: box.midY - t.height / 2))
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+        return box
+    }
+
+    /// How big `drawChip` draws `text`.
+    static func chipSize(_ text: String, size: CGFloat = 11, padding: NSSize = NSSize(width: 6, height: 3)) -> NSSize {
+        let t = NSAttributedString(string: text, attributes: chipAttributes(size: size)).size()
+        return NSSize(width: ceil(t.width) + padding.width * 2, height: ceil(t.height) + padding.height * 2)
+    }
+
     /// Whether two colours look the same (within a rounding step): which swatch the current colour is.
     static func sameColor(_ a: NSColor, _ b: NSColor) -> Bool {
         guard let x = a.usingColorSpace(.sRGB), let y = b.usingColorSpace(.sRGB) else { return false }
@@ -378,6 +523,100 @@ final class ChassisView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.performDrag(with: event)
+    }
+}
+
+/// A floating bar's or card's chassis: `Retro.drawPlate` filling the view, in the appearance's palette (a window's
+/// `ChassisView` is square). What a click on bare chassis does is `click`: drag the window (a bar), swallow it (a
+/// panel over a selection, which must not start a new selection underneath) or run something (a toast that a click
+/// dismisses).
+final class ChassisPlate: NSView {
+    enum Click {
+        case drag, swallow
+        case run(() -> Void)
+    }
+
+    var click: Click
+    let radius: CGFloat
+    /// Called after the appearance changes, for colours that aren't drawn here (e.g. a label's).
+    var onAppearanceChange: (() -> Void)?
+
+    init(radius: CGFloat = 14, click: Click = .drag) {
+        self.radius = radius
+        self.click = click
+        super.init(frame: .zero)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isOpaque: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Retro.drawPlate(bounds, radius: radius, palette: Retro.palette(for: self), flipped: isFlipped)
+    }
+
+    /// Whether a click moves the window is `click`'s to decide, even in a window movable by its background.
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+        onAppearanceChange?()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        switch click {
+        case .drag: window?.performDrag(with: event)
+        case .swallow: break
+        case .run(let action): action()
+        }
+    }
+    override func mouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+}
+
+/// A toggle's look without the button: an orange square while `isOn` (the palette's off colour otherwise) and the
+/// title in capitals. It shows a state that can't be changed here, e.g. that a recording takes in the microphone.
+final class RetroIndicator: NSView {
+    var isOn: Bool { didSet { needsDisplay = true; refreshAccessibility() } }
+    private let title: String
+
+    init(_ title: String, isOn: Bool) {
+        self.title = title
+        self.isOn = isOn
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        refreshAccessibility()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    private func label(_ p: Retro.Palette) -> NSAttributedString {
+        NSAttributedString(string: title.uppercased(), attributes: [
+            .font: NSFont.systemFont(ofSize: 9.5, weight: .bold), .foregroundColor: Retro.color(isOn ? p.ink : p.inkSoft), .kern: 0.6,
+        ])
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let s = label(Retro.light).size()
+        return NSSize(width: 9 + 5 + ceil(s.width) + 1, height: max(ceil(s.height), 12))
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func refreshAccessibility() { setAccessibilityLabel("\(title): \(isOn ? "on" : "off")") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let square = NSRect(x: 0, y: (bounds.height - 9) / 2, width: 9, height: 9)
+        Retro.drawToggleSquare(square, on: isOn, palette: p, flipped: isFlipped)
+        let s = label(p)
+        s.draw(at: NSPoint(x: square.maxX + 5, y: (bounds.height - s.size().height) / 2))
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }
 
@@ -852,4 +1091,123 @@ final class SwatchRow: NSView {
     }
 
     @objc private func panelChanged(_ panel: NSColorPanel) { pick(panel.color) }
+}
+
+/// Esc cancels; a borderless-looking window can still become key.
+private final class DialogWindow: NSWindow {
+    var onCancel: (() -> Void)?
+    override func cancelOperation(_ sender: Any?) { onCancel?() }
+    override var canBecomeKey: Bool { true }
+}
+
+/// A small dialog in the SK-1 look, for what used to be an `NSAlert` with an accessory view: a heading, a line of text,
+/// the form, and a Cancel key with an orange main key. Run it modally or as a sheet; the main key is
+/// `primaryKey` (disable it while the form is invalid) and `validate` can refuse it with a message.
+final class RetroDialog: NSObject {
+    let primaryKey: PillButton
+    private let cancelKey: PillButton
+    private let window: DialogWindow
+    private let message = RetroLabel(text: "", tone: .soft, size: 12)
+    /// Returns a problem to show instead of closing, or nil when the form is fine.
+    var validate: (() -> String?)?
+
+    /// `width` is the content's width; `body` is laid out at `width` minus the margins.
+    init(title: String, message text: String, body: NSView, primary: String, secondary: String = "Cancel", width: CGFloat = 380) {
+        primaryKey = RetroUI.key(primary, variant: .orange, height: 28)
+        cancelKey = RetroUI.key(secondary, height: 28)
+        window = DialogWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        super.init()
+        window.title = title
+        window.isReleasedWhenClosed = false
+        window.onCancel = { [weak self] in self?.finish(.cancel) }
+        for b in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(b)?.isHidden = true }
+        let content = RetroUI.useChassis(window)
+
+        let margin: CGFloat = 20
+        let inner = width - margin * 2
+        let heading = RetroLabel(text: title, tone: .ink, size: 14)
+        heading.font = .systemFont(ofSize: 14, weight: .bold)
+        message.stringValue = text
+        message.lineBreakMode = .byWordWrapping
+        message.maximumNumberOfLines = 0
+        message.cell?.wraps = true
+        message.preferredMaxLayoutWidth = inner
+
+        primaryKey.target = self
+        primaryKey.action = #selector(primaryPressed)
+        primaryKey.keyEquivalent = "\r"
+        cancelKey.target = self
+        cancelKey.action = #selector(cancelPressed)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let buttons = NSStackView(views: [spacer, cancelKey, primaryKey])
+        buttons.spacing = 10
+
+        let stack = NSStackView(views: [heading, message, body, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: RetroUI.contentTop(of: window, in: content), constant: 10),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: margin),
+            stack.widthAnchor.constraint(equalToConstant: inner),
+            buttons.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
+        content.layoutSubtreeIfNeeded()
+        let titleBar = window.frame.height - window.contentLayoutRect.height
+        window.setContentSize(NSSize(width: width, height: ceil(stack.fittingSize.height) + 10 + margin + max(titleBar, 0)))
+    }
+
+    /// Text above the form (e.g. what is wrong).
+    func setMessage(_ text: String) { message.stringValue = text }
+
+    /// What has the keyboard focus when the dialog opens (e.g. the form's first field).
+    var initialFirstResponder: NSView? {
+        get { window.initialFirstResponder }
+        set { window.initialFirstResponder = newValue }
+    }
+
+    private func focusFirstResponder() {
+        if let first = window.initialFirstResponder { window.makeFirstResponder(first) }
+    }
+
+    /// Runs as a modal window; true if the main key was pressed.
+    func runModal() -> Bool {
+        window.center()
+        NSApp.activate(ignoringOtherApps: true)
+        focusFirstResponder()
+        let response = NSApp.runModal(for: window)
+        window.orderOut(nil)
+        return response == .OK
+    }
+
+    /// Runs as a sheet on `parent`; `done` gets true if the main key was pressed.
+    func beginSheet(on parent: NSWindow, done: @escaping (Bool) -> Void) {
+        // The sheet's completion keeps the dialog alive: its keys only hold it weakly.
+        parent.beginSheet(window) { [self] response in
+            withExtendedLifetime(self) { done(response == .OK) }
+        }
+        focusFirstResponder()
+    }
+
+    private func finish(_ response: NSApplication.ModalResponse) {
+        if let parent = window.sheetParent {
+            parent.endSheet(window, returnCode: response)
+        } else {
+            NSApp.stopModal(withCode: response)
+        }
+    }
+
+    @objc private func primaryPressed() {
+        if let problem = validate?() {
+            NSSound.beep()
+            message.stringValue = problem
+            return
+        }
+        finish(.OK)
+    }
+
+    @objc private func cancelPressed() { finish(.cancel) }
 }

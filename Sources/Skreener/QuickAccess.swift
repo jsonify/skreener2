@@ -486,7 +486,7 @@ private final class QuickAccessCard: NSView, NSDraggingSource {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Retro.palette(for: self)
-        RetroPlate.draw(bounds, radius: 12, palette: p, flipped: isFlipped)
+        Retro.drawPlate(bounds, radius: 12, palette: p, flipped: isFlipped)
         // The thumbnail's well: the canvas colour shows round a picture that doesn't fill it.
         Retro.drawWell(thumb.frame, radius: 7, top: Retro.color(p.canvas), bottom: Retro.color(p.canvas), shadow: p.wellShadow,
                        lip: p.wellLip, flipped: isFlipped)

@@ -269,7 +269,7 @@ final class RecordAreaPicker: NSObject {
     /// `content` on a chassis plate. Clicks on bare chassis are swallowed: they must not start a selection drag
     /// underneath.
     private static func card(_ content: NSView, radius: CGFloat = 14) -> NSView {
-        let card = RetroBarPlate(radius: radius, click: .swallow)
+        let card = ChassisPlate(radius: radius, click: .swallow)
         card.translatesAutoresizingMaskIntoConstraints = false
         if radius > 0 {
             // It floats over the screen like a window, so it casts a shadow like one.
@@ -785,9 +785,7 @@ private final class LCDFieldBox: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Retro.palette(for: self)
-        Retro.drawGlass(bounds, radius: 4, top: Retro.chipTop, middle: 0xc7cdb1, bottom: Retro.chipBottom,
-                        brightness: p.lcdBrightness, grid: false, shadowBlur: 2, shadowOffset: 1, flipped: isFlipped)
+        Retro.drawChipGlass(bounds, radius: 4, brightness: Retro.palette(for: self).lcdBrightness, flipped: isFlipped)
     }
 
     /// A click on the chip around the field edits it.
