@@ -846,6 +846,9 @@ final class RetroSegmented: NSView {
         s.setAccessibilityLabel(help ?? title)
         segments.append(s)
         row.addArrangedSubview(s)
+        // The full height of the track: a title-less button has next to none of its own, so it would take no clicks
+        // and its key would be a sliver, with only its (unclipped) text showing (#363).
+        s.heightAnchor.constraint(equalTo: row.heightAnchor).isActive = true
         if indexOfSelectedItem < 0 { select(0) }
     }
 
