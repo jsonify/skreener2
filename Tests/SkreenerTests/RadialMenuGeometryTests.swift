@@ -166,4 +166,17 @@ final class RadialMenuGeometryTests: XCTestCase {
         XCTAssertEqual(G.hubText(for: .option(slice: 2, option: 1), shortcut: nil),
                        .init(title: "Window", detail: "", showsDelays: true))
     }
+
+    func testHubLineWidthIsTheChordAtTheLinesFarEdge() {
+        XCTAssertEqual(G.hubLineWidth(radius: 10, top: 5, bottom: -5), 2 * (75 as CGFloat).squareRoot(), accuracy: 1e-9)
+        XCTAssertEqual(G.hubLineWidth(radius: 10, top: 8, bottom: 2), 12, accuracy: 1e-9)   // 2·√(100 − 64)
+        XCTAssertEqual(G.hubLineWidth(radius: 10, top: -2, bottom: -8), 12, accuracy: 1e-9)
+        XCTAssertEqual(G.hubLineWidth(radius: 10, top: 11, bottom: 1), 0)
+    }
+
+    func testHubTitleBreaksAtTheMostEvenSpace() {
+        XCTAssertEqual(G.hubTitleLayouts("Self-Timer"), [["Self-Timer"]])
+        XCTAssertEqual(G.hubTitleLayouts("Step Recorder"), [["Step Recorder"], ["Step", "Recorder"]])
+        XCTAssertEqual(G.hubTitleLayouts("Live Pin Window"), [["Live Pin Window"], ["Live Pin", "Window"]])
+    }
 }

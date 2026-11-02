@@ -211,6 +211,27 @@ enum RadialMenuGeometry {
         zip(delays, delayRects()).first { $0.1.insetBy(dx: -1, dy: -3).contains(point) }?.0
     }
 
+    /// How wide a line of the round hub LCD can be when its top and bottom are `top` and `bottom` from the centre (up
+    /// is positive), `radius` being the glass's radius less a margin: the circle's chord at the line's edge farthest
+    /// from the centre, where the line's corners would leave the circle first. 0 when the line reaches past it.
+    static func hubLineWidth(radius: CGFloat, top: CGFloat, bottom: CGFloat) -> CGFloat {
+        let edge = max(abs(top), abs(bottom))
+        guard edge < radius else { return 0 }
+        return 2 * (radius * radius - edge * edge).squareRoot()
+    }
+
+    /// The ways to set the hub's `title`: on one line, then (for more than one word) on two, broken at the space
+    /// that keeps the two lines most even.
+    static func hubTitleLayouts(_ title: String) -> [[String]] {
+        let words = title.split(separator: " ").map(String.init)
+        guard words.count > 1 else { return [[title]] }
+        let splits = (1..<words.count).map { i in
+            [words[..<i].joined(separator: " "), words[i...].joined(separator: " ")]
+        }
+        let best = splits.min { abs($0[0].count - $0[1].count) < abs($1[0].count - $1[1].count) }!
+        return [[title], best]
+    }
+
     struct HubText: Equatable {
         let title: String
         let detail: String

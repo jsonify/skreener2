@@ -488,10 +488,16 @@ final class RadialMenuView: NSView {
         let action = target.flatMap { G.action(for: $0) }
         let text = G.hubText(for: target, shortcut: action.flatMap { shortcuts[$0] })
         let ink = Retro.color(Retro.lcdInk)
-        let title = Retro.caption(text.title, color: ink, font: .systemFont(ofSize: 10.5, weight: .heavy), kern: 1.1)
-        let ts = title.size()
+        let radius = glass.width / 2 - 5   // the glass's radius, less a margin inside its rim
         if text.showsDelays {
-            title.draw(at: NSPoint(x: glass.midX - ts.width / 2, y: glass.midY + 2))
+            // One line just above the delay chips.
+            let chipsTop = (G.delayRects().map(\.maxY).max() ?? 0) + 5
+            let lines = Self.fitTitle(text.title, ink: ink, radius: radius) { heights in
+                heights.count == 1 ? [(chipsTop + heights[0], chipsTop)] : nil
+            }
+            for line in lines {
+                line.draw(at: NSPoint(x: glass.midX - line.size().width / 2, y: glass.midY + chipsTop))
+            }
             for (seconds, box) in zip(G.delays, G.delayRects()) {
                 let chip = box.offsetBy(dx: center.x, dy: center.y)
                 let on = seconds == timerSeconds
@@ -514,14 +520,54 @@ final class RadialMenuView: NSView {
         }
         let detail = NSAttributedString(string: text.detail,
                                         attributes: [.font: Retro.mono(10), .foregroundColor: ink.withAlphaComponent(0.8)])
-        let ds = detail.size()
-        let gap: CGFloat = 2
-        let height = text.detail.isEmpty ? ts.height : ts.height + gap + ds.height
-        let top = glass.midY + height / 2
-        title.draw(at: NSPoint(x: glass.midX - ts.width / 2, y: top - ts.height))
-        if !text.detail.isEmpty {
-            detail.draw(at: NSPoint(x: glass.midX - ds.width / 2, y: top - ts.height - gap - ds.height))
+        let below = text.detail.isEmpty ? 0 : 2 + detail.size().height   // the gap and the detail under the title
+        // The title's lines and the detail, centred as one block.
+        let lines = Self.fitTitle(text.title, ink: ink, radius: radius) { heights in
+            var top = (heights.reduce(0, +) + below) / 2
+            return heights.map { h in
+                defer { top -= h }
+                return (top, top - h)
+            }
         }
+        var y = glass.midY + (lines.map { $0.size().height }.reduce(0, +) + below) / 2
+        for line in lines {
+            y -= line.size().height
+            line.draw(at: NSPoint(x: glass.midX - line.size().width / 2, y: y))
+        }
+        if !text.detail.isEmpty {
+            let ds = detail.size()
+            detail.draw(at: NSPoint(x: glass.midX - ds.width / 2, y: y - 2 - ds.height))
+        }
+    }
+
+    /// The hub title's sizes to try, biggest first; one line is only shrunk to `minOneLine` before trying two.
+    private static let titleSizes: [CGFloat] = Array(stride(from: 10.5, through: 6.5, by: -0.5))
+    private static let minOneLine: CGFloat = 8.5
+
+    private static func titleLine(_ text: String, size: CGFloat, ink: NSColor) -> NSAttributedString {
+        Retro.caption(text, color: ink, font: .systemFont(ofSize: size, weight: .heavy), kern: 1.1 * size / 10.5)
+    }
+
+    /// The hub's title as lines that each fit inside the round glass (`radius`, from its centre), in the biggest size
+    /// that works: one line first, then two. `place` puts lines of the given heights (top first) as top and
+    /// bottom offsets from the centre, or says nil when that many lines can't go there. Nothing fits at all: two
+    /// lines (or one, for a single word) at the smallest size.
+    private static func fitTitle(_ title: String, ink: NSColor, radius: CGFloat,
+                                 place: ([CGFloat]) -> [(top: CGFloat, bottom: CGFloat)]?) -> [NSAttributedString] {
+        let layouts = G.hubTitleLayouts(title)
+        for layout in layouts {
+            let oneLineFirst = layout.count == 1 && layouts.count > 1
+            for size in titleSizes where !oneLineFirst || size >= minOneLine {
+                let lines = layout.map { titleLine($0, size: size, ink: ink) }
+                guard let spots = place(lines.map { $0.size().height }) else { break }
+                let fits = zip(lines, spots).allSatisfy { line, spot in
+                    line.size().width <= G.hubLineWidth(radius: radius, top: spot.top, bottom: spot.bottom)
+                }
+                if fits { return lines }
+            }
+        }
+        let fallback = layouts.last { place(Array(repeating: 0, count: $0.count)) != nil } ?? [title]
+        return fallback.map { titleLine($0, size: titleSizes.last ?? 6.5, ink: ink) }
     }
 }
 
