@@ -99,6 +99,14 @@ final class EditorWindow: NSWindow {
     /// Skreener and bring the editor over what is being captured.
     override var canBecomeKey: Bool { !CapturePanelHandOff.isHeld && super.canBecomeKey }
     override var canBecomeMain: Bool { !CapturePanelHandOff.isHeld && super.canBecomeMain }
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        FocusDebug.log("editor #\(windowNumber) order \(place.rawValue) relative to \(otherWin), app active \(NSApp.isActive)")
+        super.order(place, relativeTo: otherWin)
+    }
+    override func makeKey() {
+        FocusDebug.log("editor #\(windowNumber) makeKey, held \(CapturePanelHandOff.isHeld)")
+        super.makeKey()
+    }
 
     override func selectNextTab(_ sender: Any?) { group?.select(offset: 1) }
     override func selectPreviousTab(_ sender: Any?) { group?.select(offset: -1) }

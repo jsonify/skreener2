@@ -189,6 +189,7 @@ final class SelectionOverlay {
         if cursorPushed { NSCursor.pop(); cursorPushed = false }
         let old = panels
         panels.removeAll()
+        FocusDebug.log("overlay closing, app active \(MainActor.assumeIsolated { NSApp.isActive })")
         MainActor.assumeIsolated { CapturePanelHandOff.closing {
             for p in old {
                 // Disarm the view first: a late mouseEntered used to re-order a dismissed panel to the
