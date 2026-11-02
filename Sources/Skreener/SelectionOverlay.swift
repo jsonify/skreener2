@@ -125,13 +125,24 @@ final class SelectionOverlay {
             p.makeKeyAndOrderFront(nil)
         }
         SelectionView.cursor(for: mode).push(); cursorPushed = true
-        NSApp.activate(ignoringOtherApps: true)
+        if !Self.activationRaisesWindows(isActive: NSApp.isActive, windows: NSApp.windows.map {
+            OverlayWindowState(isVisible: $0.isVisible && !$0.isMiniaturized, isNormalLevel: $0.level == .normal, isPanel: $0 is NSPanel)
+        }) {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         // The push above can lose to the previously active app's cursor; set it again once activation has settled.
         DispatchQueue.main.async { [weak self] in
             guard let self, completion != nil else { return }
             for p in panels { if let v = p.contentView { p.invalidateCursorRects(for: v) } }
             SelectionView.cursor(for: mode).set()
         }
+    }
+
+    /// Whether activating Skreener would bring one of its windows (an editor, Settings) to the front: it raises the
+    /// main window, so an editor left behind another app would jump over the window or area being captured. The
+    /// overlay's key panel takes the keyboard without activation, and the cursor is set again on every move.
+    static func activationRaisesWindows(isActive: Bool, windows: [OverlayWindowState]) -> Bool {
+        !isActive && windows.contains { $0.isVisible && $0.isNormalLevel && !$0.isPanel }
     }
 
     /// A new selection on one screen replaces one waiting to be adjusted on another.
@@ -706,4 +717,11 @@ extension SelectionView {
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
         Retro.drawChip(label, at: origin, size: 11.5, alpha: tipAlpha)
     }
+}
+
+/// What `SelectionOverlay.activationRaisesWindows` needs to know about one of Skreener's windows.
+struct OverlayWindowState: Equatable {
+    var isVisible: Bool
+    var isNormalLevel: Bool
+    var isPanel: Bool
 }
