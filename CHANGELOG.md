@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/jsonify/skreener2/compare/v1.10.0...v1.11.0) (2026-11-02)
+
+
+### Features
+
+* **capture:** radial menu options past each slice, and the self-timer's delay on its hub ([#359](https://github.com/jsonify/skreener2/issues/359)) ([#362](https://github.com/jsonify/skreener2/issues/362)) ([f087279](https://github.com/jsonify/skreener2/commit/f08727929638e128dcafd1289e692fb33e83b824))
+
 ## [1.10.0](https://github.com/jsonify/skreener2/compare/v1.9.0...v1.10.0) (2026-11-02)
 
 
