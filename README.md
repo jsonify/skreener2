@@ -92,6 +92,12 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **Tap or hold.** Tap the shortcut and the ring stays open: click a slice, press its number (1–6), or use the arrow
   keys and Return. Or hold the shortcut, move toward a slice and let go. While you hold it, the direction is what
   counts, so a quick flick past the ring still picks; let go in the middle and the ring stays open.
+- **More options.** Point at a slice and its other modes fan out on a small plate just past it: Area offers Previous
+  Area, Area & Pin and Live Pin; Window offers Active Window and Live Pin Window; Self-Timer offers Area, Window and
+  Fullscreen; Text offers Code and QR Code; Record offers Step Recorder and Zoom & Draw. Move on out to one and click
+  it, or press Tab (⇧Tab back) to step through them and Return. When holding the shortcut, let go on the ring for the
+  slice, or further out for the option in that direction. With Self-Timer pointed at, the LCD shows the delays
+  (3 s, 5 s, 10 s): click one to change it.
 - **Closing.** Esc, a click outside the ring, or the shortcut again closes it without capturing. The ring is gone
   before the capture starts, so it is never in a screenshot. Near a screen edge it opens moved inward, not cut off.
 

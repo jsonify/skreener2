@@ -6,8 +6,12 @@ private final class RadialPanel: NSPanel {
 
 /// The radial menu (#359): its shortcut opens a ring of capture modes at the pointer. A tap leaves it open to click a
 /// slice (or press 1–6, or the arrows and Return); holding the shortcut, pointing at a slice and letting go runs that
-/// slice. Esc, a click outside or the shortcut again closes it. The math is `RadialMenuGeometry`'s.
+/// slice. A slice with options fans them out past it while it is pointed at: move on out to one (or Tab to it) to pick
+/// it instead. Self-Timer's hub also sets the delay. Esc, a click outside or the shortcut again closes the ring. The
+/// math is `RadialMenuGeometry`'s.
 final class RadialMenu {
+    private typealias G = RadialMenuGeometry
+
     /// Runs the picked capture mode; set by the app delegate.
     var onPick: ((HotKeyAction) -> Void)?
 
@@ -19,7 +23,7 @@ final class RadialMenu {
     /// The pointer moved since the ring opened, so a highlight is where the user aimed, not where the ring landed.
     private var pointerMoved = false
     private var openedAt = NSPoint.zero
-    /// A slice was picked and the ring is on its way out.
+    /// Something was picked and the ring is on its way out.
     private var choosing = false
 
     var isOpen: Bool { panel != nil }
@@ -32,14 +36,15 @@ final class RadialMenu {
         if isOpen { close() } else { open() }
     }
 
-    /// The shortcut was let go: after a hold onto a slice, runs it; after a tap (or let go in the hub), the ring stays
-    /// open for a click.
+    /// The shortcut was let go: after a hold onto a slice or option, runs it; after a tap (or let go in the hub), the
+    /// ring stays open for a click.
     func released() {
         let wasHeld = keyHeld
         keyHeld = false
         guard wasHeld, isOpen, !choosing, let view else { return }
-        if let index = RadialMenuGeometry.pickOnRelease(highlight: view.highlight, pointerMoved: pointerMoved) {
-            choose(index)
+        let under = G.target(at: pointer(), active: view.target?.sliceIndex, held: true)
+        if let target = G.pickOnRelease(under, pointerMoved: pointerMoved) {
+            choose(target)
         } else if pointerMoved {
             updateHighlight()   // the ring's reach applies once the shortcut is up
         }
@@ -59,11 +64,18 @@ final class RadialMenu {
         return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(combo.keyCode))
     }
 
+    /// The pointer, from the ring's centre.
+    private func pointer() -> CGPoint {
+        guard let panel else { return .zero }
+        let mouse = NSEvent.mouseLocation
+        return CGPoint(x: mouse.x - panel.frame.midX, y: mouse.y - panel.frame.midY)
+    }
+
     private func open() {
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main else { return }
-        let size = RadialMenuGeometry.windowSize
-        let frame = RadialMenuGeometry.frame(size: size, centeredAt: mouse, in: screen.visibleFrame)
+        let size = G.windowSize
+        let frame = G.frame(size: size, centeredAt: mouse, in: screen.visibleFrame)
         let p = RadialPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.level = .popUpMenu
         p.isOpaque = false
@@ -75,9 +87,16 @@ final class RadialMenu {
         p.acceptsMouseMovedEvents = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         let v = RadialMenuView(frame: NSRect(origin: .zero, size: size))
-        v.shortcuts = RadialMenuGeometry.slices.map { ShortcutStore.combo(for: $0.action)?.displayString }
+        var shortcuts: [HotKeyAction: String] = [:]
+        for slice in G.slices {
+            for action in [slice.action] + slice.options.map(\.action) {
+                shortcuts[action] = ShortcutStore.combo(for: action)?.displayString
+            }
+        }
+        v.shortcuts = shortcuts
         v.timerSeconds = Preferences.selfTimerSeconds
-        v.onChoose = { [weak self] index in self?.choose(index) }
+        v.onChoose = { [weak self] target in self?.choose(target) }
+        v.onDelay = { seconds in Preferences.selfTimerSeconds = seconds }
         v.onDismiss = { [weak self] in self?.close() }
         p.contentView = v
         p.alphaValue = 0
@@ -119,23 +138,22 @@ final class RadialMenu {
         if pointerMoved { updateHighlight() }
     }
 
-    /// Lights the slice the pointer points at. While the shortcut is held the direction alone counts, so a flick past
-    /// the ring still picks; after that, only a pointer on the ring lights a slice.
+    /// Lights what the pointer points at. While the shortcut is held the direction alone counts, so a flick past the
+    /// ring still picks; after that, only a pointer on the ring or a band lights something. In the hub the highlight
+    /// stays, so the self-timer's delays there can be reached.
     private func updateHighlight() {
-        guard let panel, let view else { return }
-        let mouse = NSEvent.mouseLocation
-        let point = CGPoint(x: mouse.x - panel.frame.midX, y: mouse.y - panel.frame.midY)
-        view.highlight = RadialMenuGeometry.slice(at: point, count: RadialMenuGeometry.slices.count,
-                                                  reach: keyHeld ? nil : RadialMenuGeometry.clickReach)
+        guard let view else { return }
+        let point = pointer()
+        if hypot(point.x, point.y) < G.hubRadius { return }
+        view.target = G.target(at: point, active: view.target?.sliceIndex, held: keyHeld)
     }
 
-    /// Presses the slice's key, takes the ring off the screen, then runs the mode, so the ring is never in a capture.
-    private func choose(_ index: Int) {
-        guard !choosing, let view, RadialMenuGeometry.slices.indices.contains(index) else { return }
+    /// Presses the key, takes the ring off the screen, then runs the mode, so the ring is never in a capture.
+    private func choose(_ target: RadialMenuGeometry.Target) {
+        guard !choosing, let view, let action = G.action(for: target) else { return }
         choosing = true
-        view.highlight = index
-        view.pressed = index
-        let action = RadialMenuGeometry.slices[index].action
+        view.target = target
+        view.pressed = target
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
             guard let self else { return }
             close()
@@ -147,7 +165,8 @@ final class RadialMenu {
 }
 
 /// The ring in the SK-1 look: a round cream chassis, a sunken ring-shaped tray of wedge keys (Record orange) with a
-/// teal lamp and lip on the one pointed at, and an olive LCD hub naming it. Unflipped, like `RadialMenuGeometry`.
+/// teal lamp and lip on the one pointed at, its options fanned out on a plate past it, and an olive LCD hub naming what
+/// is pointed at. Unflipped, like `RadialMenuGeometry`.
 final class RadialMenuView: NSView {
     private typealias G = RadialMenuGeometry
 
@@ -157,20 +176,23 @@ final class RadialMenuView: NSView {
     private static let iconRadius: CGFloat = (G.outerRadius + G.innerRadius) / 2 - 4
     private static let legendRadius = G.outerRadius - 12
 
-    var highlight: Int? {
-        didSet { if highlight != oldValue { needsDisplay = true } }
+    /// What is pointed at (its slice lit, its options fanned out).
+    var target: RadialMenuGeometry.Target? {
+        didSet { if target != oldValue { needsDisplay = true } }
     }
-    var pressed: Int? {
+    var pressed: RadialMenuGeometry.Target? {
         didSet { if pressed != oldValue { needsDisplay = true } }
     }
-    /// Each slice's shortcut, as shown on the hub.
-    var shortcuts: [String?] = [] {
+    /// The shortcut of each mode on the ring, as shown on the hub.
+    var shortcuts: [HotKeyAction: String] = [:] {
         didSet { needsDisplay = true }
     }
     var timerSeconds = 5 {
         didSet { needsDisplay = true }
     }
-    var onChoose: ((Int) -> Void)?
+    var onChoose: ((RadialMenuGeometry.Target) -> Void)?
+    /// A self-timer delay was picked on the hub.
+    var onDelay: ((Int) -> Void)?
     var onDismiss: (() -> Void)?
 
     private let slices = G.slices
@@ -186,26 +208,40 @@ final class RadialMenuView: NSView {
         setAccessibilityLabel("Radial Menu")
         var elements: [NSAccessibilityElement] = []
         for (i, slice) in slices.enumerated() {
-            let e = RadialSliceElement()
-            e.setAccessibilityRole(.button)
-            e.setAccessibilityLabel(slice.title)
-            e.setAccessibilityParent(self)
-            e.setAccessibilityFrameInParentSpace(wedge(i).bounds)
-            e.onPress = { [weak self] in self?.onChoose?(i) }
-            elements.append(e)
+            elements.append(element(slice.title, frame: sliceWedge(i).bounds, target: .slice(i)))
+            for (j, option) in slice.options.enumerated() {
+                elements.append(element("\(slice.title): \(option.title)", frame: optionWedge(i, j).bounds,
+                                        target: .option(slice: i, option: j)))
+            }
         }
         setAccessibilityChildren(elements)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    private func element(_ label: String, frame: NSRect, target: RadialMenuGeometry.Target) -> NSAccessibilityElement {
+        let e = RadialSliceElement()
+        e.setAccessibilityRole(.button)
+        e.setAccessibilityLabel(label)
+        e.setAccessibilityParent(self)
+        e.setAccessibilityFrameInParentSpace(frame)
+        e.onPress = { [weak self] in self?.onChoose?(target) }
+        return e
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         let point = CGPoint(x: p.x - center.x, y: p.y - center.y)
-        guard hypot(point.x, point.y) <= G.clickReach else { onDismiss?(); return }
-        if let i = G.slice(at: point, count: slices.count) { onChoose?(i) }
+        if hypot(point.x, point.y) < G.hubRadius {
+            if let target, slices[target.sliceIndex].hasDelay, let seconds = G.delay(at: point) {
+                timerSeconds = seconds
+                onDelay?(seconds)
+            }
+            return
+        }
+        if let t = G.target(at: point, active: target?.sliceIndex, held: false) { onChoose?(t) } else { onDismiss?() }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -213,12 +249,21 @@ final class RadialMenuView: NSView {
         case 53:   // Esc
             onDismiss?()
         case 36, 76:   // Return, Enter
-            if let highlight { onChoose?(highlight) }
+            if let target { onChoose?(target) }
+        case 48:   // Tab, ⇧Tab: through the lit slice's options
+            guard let target else { return }
+            let count = slices[target.sliceIndex].options.count
+            let forward = !event.modifierFlags.contains(.shift)
+            if let o = G.stepOption(target.optionIndex, forward: forward, count: count) {
+                self.target = .option(slice: target.sliceIndex, option: o)
+            } else {
+                self.target = .slice(target.sliceIndex)
+            }
         default:
             if let key = SelectionGeometry.key(keyCode: event.keyCode) {
-                highlight = G.step(highlight, clockwise: key == .right || key == .down, count: slices.count)
+                target = .slice(G.step(target?.sliceIndex, clockwise: key == .right || key == .down, count: slices.count))
             } else if let i = G.slice(forKey: event.charactersIgnoringModifiers ?? "", count: slices.count) {
-                onChoose?(i)
+                onChoose?(.slice(i))
             } else {
                 super.keyDown(with: event)
             }
@@ -236,112 +281,185 @@ final class RadialMenuView: NSView {
         let p = Retro.palette(for: self)
         let c = center
 
+        // The options' plate comes out from under the chassis, so it goes first.
+        if let target, !slices[target.sliceIndex].options.isEmpty { drawBand(target, palette: p) }
+
         // The chassis, a cream disc casting a soft shadow.
         let r = G.chassisRadius
         let chassis = NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
-        NSGraphicsContext.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(p.dark ? 0.55 : 0.3)
-        shadow.shadowBlurRadius = 14
-        shadow.shadowOffset = NSSize(width: 0, height: -4)
-        shadow.set()
-        Retro.color(p.chassis).setFill()
-        NSBezierPath(ovalIn: chassis).fill()
-        NSGraphicsContext.restoreGraphicsState()
+        withShadow(alpha: p.dark ? 0.55 : 0.3, blur: 14, offset: 4) {
+            Retro.color(p.chassis).setFill()
+            NSBezierPath(ovalIn: chassis).fill()
+        }
         Retro.drawPlate(chassis, radius: r, palette: p, flipped: false)
 
         // The sunken tray round the keys, with its light lip along the bottom.
-        let trayOuter = G.outerRadius + 4, trayInner = G.innerRadius - 4
-        NSColor.white.withAlphaComponent(p.wellLip).setFill()
-        annulus(outer: trayOuter, inner: trayInner, dy: -1).fill()
-        let tray = annulus(outer: trayOuter, inner: trayInner)
-        Retro.fill(tray, top: Retro.color(p.wellTop), bottom: Retro.color(p.wellBottom), flipped: false)
-        Retro.innerShadow(tray, alpha: p.wellShadow, blur: 2)
+        drawTray(sector(inner: G.innerRadius - 4, outer: G.outerRadius + 4, from: 0, to: 2 * .pi), palette: p)
 
-        if let highlight { drawLip(highlight) }
-        for (i, slice) in slices.enumerated() { drawSlice(i, slice, palette: p) }
+        if let target { drawLip(target.sliceIndex) }
+        for (i, slice) in slices.enumerated() {
+            let down = pressed == .slice(i)
+            drawKey(sliceWedge(i, dy: down ? -Self.skirt : 0), sliceWedge(i, dy: -Self.skirt),
+                    variant: slice.action == .recordScreen ? .orange : .cream, down: down, palette: p) { colors, dy in
+                let mid = G.centerAngle(of: i, count: slices.count)
+                drawSymbol(slice.symbol, size: 17, color: colors.ink, at: G.point(angle: mid, radius: Self.iconRadius), dy: dy)
+                drawText("\(i + 1)", font: Retro.mono(8), color: colors.legend,
+                         at: G.point(angle: mid, radius: Self.legendRadius), dy: dy)
+                drawLamp(at: G.point(angle: mid, radius: G.innerRadius + 8), dy: dy,
+                         lit: target?.sliceIndex == i && target?.optionIndex == nil,
+                         color: slice.action == .recordScreen ? 0xffffff : Retro.teal)
+            }
+        }
         drawHub(palette: p)
     }
 
-    /// The ring between `outer` and `inner` round the centre, `dy` lower or higher.
-    private func annulus(outer: CGFloat, inner: CGFloat, dy: CGFloat = 0) -> NSBezierPath {
-        let c = NSPoint(x: center.x, y: center.y + dy)
-        let path = NSBezierPath(ovalIn: NSRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
-        path.append(NSBezierPath(ovalIn: NSRect(x: c.x - inner, y: c.y - inner, width: inner * 2, height: inner * 2)).reversed)
-        path.windingRule = .evenOdd
-        return path
+    /// The options of `target`'s slice on a plate past the chassis: a tray of small keys, the one pointed at lit.
+    private func drawBand(_ target: RadialMenuGeometry.Target, palette p: Retro.Palette) {
+        let s = target.sliceIndex
+        let options = slices[s].options
+        let mid = G.centerAngle(of: s, count: slices.count)
+        let half = G.bandSpan(options: options.count) / 2
+        let plateHalf = half + 8 / G.bandPlateRadius
+        let plate = sector(inner: G.chassisRadius - 8, outer: G.bandPlateRadius, from: mid - plateHalf, to: mid + plateHalf)
+        withShadow(alpha: p.dark ? 0.5 : 0.25, blur: 10, offset: 3) {
+            Retro.color(p.chassis).setFill()
+            plate.fill()
+        }
+        NSColor.black.withAlphaComponent(p.dark ? 0.55 : 0.25).setStroke()
+        plate.lineWidth = 0.5
+        plate.stroke()
+        let trayHalf = half + 4 / G.bandOuter
+        drawTray(sector(inner: G.bandInner - 4, outer: G.bandOuter + 4, from: mid - trayHalf, to: mid + trayHalf), palette: p)
+        for (j, option) in options.enumerated() {
+            let down = pressed == .option(slice: s, option: j)
+            drawKey(optionWedge(s, j, dy: down ? -Self.skirt : 0), optionWedge(s, j, dy: -Self.skirt), variant: .cream,
+                    down: down, palette: p) { colors, dy in
+                let a = G.optionAngle(slice: s, count: slices.count, option: j, options: options.count)
+                drawSymbol(option.symbol, size: 14, color: colors.ink, at: G.point(angle: a, radius: G.bandOuter - 18), dy: dy)
+                drawLamp(at: G.point(angle: a, radius: G.bandInner + 6), dy: dy, lit: target.optionIndex == j, color: Retro.teal)
+            }
+        }
     }
+
+    // MARK: Shapes
 
     /// An angle from `RadialMenuGeometry` (radians, clockwise from the top) as `NSBezierPath` wants it (degrees,
     /// anticlockwise from the right).
     private static func degrees(_ angle: CGFloat) -> CGFloat { 90 - angle * 180 / .pi }
 
-    /// Slice `i`'s key: a wedge between the slices' radii with a gap to its neighbours, `dy` lower or higher.
-    private func wedge(_ i: Int, dy: CGFloat = 0) -> NSBezierPath {
-        let half = .pi / CGFloat(slices.count)
-        let mid = G.centerAngle(of: i, count: slices.count)
-        let outer = G.outerRadius, inner = G.innerRadius
+    /// The part of the ring between `inner` and `outer` from angle `start` clockwise to `end`, `dy` lower or higher;
+    /// a whole ring when it goes all the way round.
+    private func sector(inner: CGFloat, outer: CGFloat, from start: CGFloat, to end: CGFloat, dy: CGFloat = 0) -> NSBezierPath {
         let c = NSPoint(x: center.x, y: center.y + dy)
+        guard end - start < 2 * .pi else {
+            let path = NSBezierPath(ovalIn: NSRect(x: c.x - outer, y: c.y - outer, width: outer * 2, height: outer * 2))
+            path.append(NSBezierPath(ovalIn: NSRect(x: c.x - inner, y: c.y - inner, width: inner * 2, height: inner * 2)).reversed)
+            path.windingRule = .evenOdd
+            return path
+        }
         let path = NSBezierPath()
-        path.appendArc(withCenter: c, radius: outer, startAngle: Self.degrees(mid - half + Self.halfGap / outer),
-                       endAngle: Self.degrees(mid + half - Self.halfGap / outer), clockwise: true)
-        path.appendArc(withCenter: c, radius: inner, startAngle: Self.degrees(mid + half - Self.halfGap / inner),
-                       endAngle: Self.degrees(mid - half + Self.halfGap / inner), clockwise: false)
+        path.appendArc(withCenter: c, radius: outer, startAngle: Self.degrees(start), endAngle: Self.degrees(end), clockwise: true)
+        path.appendArc(withCenter: c, radius: inner, startAngle: Self.degrees(end), endAngle: Self.degrees(start), clockwise: false)
         path.close()
         return path
     }
 
-    /// A raised key, as `Retro.drawKey` draws one but wedge-shaped: a face on a darker skirt, lit along its top
-    /// edge; pressed, the face sits on the skirt.
-    private func drawSlice(_ i: Int, _ slice: G.Slice, palette p: Retro.Palette) {
-        let colors = Retro.keyColors(slice.action == .recordScreen ? .orange : .cream, p)
-        let down = pressed == i
-        let faceDY = down ? -Self.skirt : 0
+    /// A key between `inner` and `outer` from `start` to `end`, with half a gap taken off each side.
+    private func keyShape(inner: CGFloat, outer: CGFloat, from start: CGFloat, to end: CGFloat, dy: CGFloat) -> NSBezierPath {
+        let c = NSPoint(x: center.x, y: center.y + dy)
+        let g = Self.halfGap
+        let path = NSBezierPath()
+        path.appendArc(withCenter: c, radius: outer, startAngle: Self.degrees(start + g / outer),
+                       endAngle: Self.degrees(end - g / outer), clockwise: true)
+        path.appendArc(withCenter: c, radius: inner, startAngle: Self.degrees(end - g / inner),
+                       endAngle: Self.degrees(start + g / inner), clockwise: false)
+        path.close()
+        return path
+    }
+
+    /// Slice `i`'s key, `dy` lower or higher.
+    private func sliceWedge(_ i: Int, dy: CGFloat = 0) -> NSBezierPath {
+        let half = .pi / CGFloat(slices.count)
+        let mid = G.centerAngle(of: i, count: slices.count)
+        return keyShape(inner: G.innerRadius, outer: G.outerRadius, from: mid - half, to: mid + half, dy: dy)
+    }
+
+    /// Option `j` of slice `i`'s key in its band, `dy` lower or higher.
+    private func optionWedge(_ i: Int, _ j: Int, dy: CGFloat = 0) -> NSBezierPath {
+        let a = G.optionAngle(slice: i, count: slices.count, option: j, options: slices[i].options.count)
+        return keyShape(inner: G.bandInner, outer: G.bandOuter, from: a - G.optionWidth / 2, to: a + G.optionWidth / 2, dy: dy)
+    }
+
+    // MARK: Parts
+
+    private func withShadow(alpha: CGFloat, blur: CGFloat, offset: CGFloat, color: NSColor = .black, _ draw: () -> Void) {
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = color.withAlphaComponent(alpha)
+        shadow.shadowBlurRadius = blur
+        shadow.shadowOffset = NSSize(width: 0, height: -offset)
+        shadow.set()
+        draw()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// A sunken tray in `shape`, with its light lip along the bottom.
+    private func drawTray(_ shape: NSBezierPath, palette p: Retro.Palette) {
+        let lip = shape.copy() as? NSBezierPath ?? shape
+        let down = AffineTransform(translationByX: 0, byY: -1)
+        lip.transform(using: down)
+        NSColor.white.withAlphaComponent(p.wellLip).setFill()
+        lip.fill()
+        Retro.fill(shape, top: Retro.color(p.wellTop), bottom: Retro.color(p.wellBottom), flipped: false)
+        Retro.innerShadow(shape, alpha: p.wellShadow, blur: 2)
+    }
+
+    /// A raised key, as `Retro.drawKey` draws one but in `face`'s shape: a face on a darker `skirt`, lit along its top
+    /// edge; pressed, the face sits on the skirt. `legend` draws what is on it, given how far the face sank.
+    private func drawKey(_ face: NSBezierPath, _ skirt: NSBezierPath, variant: Retro.KeyVariant, down: Bool,
+                         palette p: Retro.Palette, legend: (Retro.KeyColors, CGFloat) -> Void) {
+        let colors = Retro.keyColors(variant, p)
         if !down {
-            NSGraphicsContext.saveGraphicsState()
-            let shadow = NSShadow()
-            shadow.shadowColor = colors.shadow.withAlphaComponent(CGFloat(colors.shadowAlpha))
-            shadow.shadowBlurRadius = 2
-            shadow.shadowOffset = NSSize(width: 0, height: -1)
-            shadow.set()
-            colors.skirt.setFill()
-            wedge(i, dy: -Self.skirt).fill()
-            NSGraphicsContext.restoreGraphicsState()
+            withShadow(alpha: CGFloat(colors.shadowAlpha), blur: 2, offset: 1, color: colors.shadow) {
+                colors.skirt.setFill()
+                skirt.fill()
+            }
         }
-        let face = wedge(i, dy: faceDY)
+        let lower = face.copy() as? NSBezierPath ?? face
+        lower.transform(using: AffineTransform(translationByX: 0, byY: -1))
         NSGraphicsContext.saveGraphicsState()
         face.addClip()
         colors.highlight.setFill()
         face.fill()
-        Retro.fill(wedge(i, dy: faceDY - 1), top: down ? colors.downTop : colors.top,
-                   bottom: down ? colors.downBottom : colors.bottom, flipped: false)
+        Retro.fill(lower, top: down ? colors.downTop : colors.top, bottom: down ? colors.downBottom : colors.bottom, flipped: false)
         NSGraphicsContext.restoreGraphicsState()
         NSColor.black.withAlphaComponent(0.12).setStroke()
         face.lineWidth = 0.5
         face.stroke()
-
-        let mid = G.centerAngle(of: i, count: slices.count)
-        let c = NSPoint(x: center.x, y: center.y + faceDY)
-        // The symbol.
-        let at = G.point(angle: mid, radius: Self.iconRadius)
-        let config = NSImage.SymbolConfiguration(pointSize: 17, weight: .medium)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [colors.ink]))
-        if let image = NSImage(systemSymbolName: slice.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
-            let s = image.size
-            image.draw(in: NSRect(x: c.x + at.x - s.width / 2, y: c.y + at.y - s.height / 2, width: s.width, height: s.height))
-        }
-        // Its number key, near the outer edge.
-        let number = NSAttributedString(string: "\(i + 1)", attributes: [.font: Retro.mono(8), .foregroundColor: colors.legend])
-        let ns = number.size()
-        let legend = G.point(angle: mid, radius: Self.legendRadius)
-        number.draw(at: NSPoint(x: c.x + legend.x - ns.width / 2, y: c.y + legend.y - ns.height / 2))
-        // The lamp, near the inner edge: teal (white on the orange key) while pointed at.
-        let lamp = G.point(angle: mid, radius: G.innerRadius + 8)
-        Retro.drawLamp(in: NSRect(x: c.x + lamp.x - 2, y: c.y + lamp.y - 2, width: 4, height: 4),
-                       color: Retro.color(slice.action == .recordScreen ? 0xffffff : Retro.teal), lit: highlight == i)
+        legend(colors, down ? -Self.skirt : 0)
     }
 
-    /// The teal lip on the chassis along the outside of the slice pointed at.
+    private func drawSymbol(_ name: String, size: CGFloat, color: NSColor, at point: CGPoint, dy: CGFloat) {
+        let config = NSImage.SymbolConfiguration(pointSize: size, weight: .medium)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return }
+        let s = image.size
+        image.draw(in: NSRect(x: center.x + point.x - s.width / 2, y: center.y + dy + point.y - s.height / 2,
+                              width: s.width, height: s.height))
+    }
+
+    private func drawText(_ text: String, font: NSFont, color: NSColor, at point: CGPoint, dy: CGFloat) {
+        let s = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+        let size = s.size()
+        s.draw(at: NSPoint(x: center.x + point.x - size.width / 2, y: center.y + dy + point.y - size.height / 2))
+    }
+
+    private func drawLamp(at point: CGPoint, dy: CGFloat, lit: Bool, color: UInt32) {
+        Retro.drawLamp(in: NSRect(x: center.x + point.x - 2, y: center.y + dy + point.y - 2, width: 4, height: 4),
+                       color: Retro.color(color), lit: lit)
+    }
+
+    /// The teal lip on the chassis along the outside of slice `i`.
     private func drawLip(_ i: Int) {
         let half = .pi / CGFloat(slices.count)
         let mid = G.centerAngle(of: i, count: slices.count)
@@ -361,19 +479,42 @@ final class RadialMenuView: NSView {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    /// The olive LCD in the middle: the name of the slice pointed at and its shortcut, or the resting text.
+    /// The olive LCD in the middle: the name of what is pointed at and its shortcut (for the self-timer, its delays to
+    /// pick from), or the resting text.
     private func drawHub(palette p: Retro.Palette) {
         let r = G.hubRadius
         let rect = NSRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
         let glass = Retro.drawLCD(in: rect, radius: r, inset: 4, palette: p, flipped: false)
-        let text = G.hubText(for: highlight.map { slices[$0] },
-                             shortcut: highlight.flatMap { $0 < shortcuts.count ? shortcuts[$0] : nil },
-                             timerSeconds: timerSeconds)
+        let action = target.flatMap { G.action(for: $0) }
+        let text = G.hubText(for: target, shortcut: action.flatMap { shortcuts[$0] })
         let ink = Retro.color(Retro.lcdInk)
         let title = Retro.caption(text.title, color: ink, font: .systemFont(ofSize: 10.5, weight: .heavy), kern: 1.1)
+        let ts = title.size()
+        if text.showsDelays {
+            title.draw(at: NSPoint(x: glass.midX - ts.width / 2, y: glass.midY + 2))
+            for (seconds, box) in zip(G.delays, G.delayRects()) {
+                let chip = box.offsetBy(dx: center.x, dy: center.y)
+                let on = seconds == timerSeconds
+                let path = NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3)
+                if on {
+                    ink.setFill()
+                    path.fill()
+                } else {
+                    ink.withAlphaComponent(0.35).setStroke()
+                    path.lineWidth = 0.75
+                    path.stroke()
+                }
+                let label = NSAttributedString(string: "\(seconds)s", attributes: [
+                    .font: Retro.mono(9), .foregroundColor: on ? Retro.color(Retro.glassMiddle) : ink.withAlphaComponent(0.8),
+                ])
+                let ls = label.size()
+                label.draw(at: NSPoint(x: chip.midX - ls.width / 2, y: chip.midY - ls.height / 2))
+            }
+            return
+        }
         let detail = NSAttributedString(string: text.detail,
                                         attributes: [.font: Retro.mono(10), .foregroundColor: ink.withAlphaComponent(0.8)])
-        let ts = title.size(), ds = detail.size()
+        let ds = detail.size()
         let gap: CGFloat = 2
         let height = text.detail.isEmpty ? ts.height : ts.height + gap + ds.height
         let top = glass.midY + height / 2
@@ -384,7 +525,7 @@ final class RadialMenuView: NSView {
     }
 }
 
-/// One slice for VoiceOver: a button that picks it.
+/// One slice or option for VoiceOver: a button that picks it.
 private final class RadialSliceElement: NSAccessibilityElement {
     var onPress: (() -> Void)?
     override func accessibilityPerformPress() -> Bool {
