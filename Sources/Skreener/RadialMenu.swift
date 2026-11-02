@@ -53,7 +53,7 @@ final class RadialMenu {
     func close() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
-        panel?.orderOut(nil)
+        MainActor.assumeIsolated { CapturePanelHandOff.closing { panel?.orderOut(nil) } }
         panel = nil
         view = nil
         choosing = false

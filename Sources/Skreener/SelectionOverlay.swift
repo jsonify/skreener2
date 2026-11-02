@@ -189,12 +189,14 @@ final class SelectionOverlay {
         if cursorPushed { NSCursor.pop(); cursorPushed = false }
         let old = panels
         panels.removeAll()
-        for p in old {
-            // Disarm the view first: a late mouseEntered used to re-order a dismissed panel to the
-            // front, leaving an orphaned screen-saver-level overlay that nothing could remove.
-            (p.contentView as? SelectionView)?.dismantle()
-            p.close()
-        }
+        MainActor.assumeIsolated { CapturePanelHandOff.closing {
+            for p in old {
+                // Disarm the view first: a late mouseEntered used to re-order a dismissed panel to the
+                // front, leaving an orphaned screen-saver-level overlay that nothing could remove.
+                (p.contentView as? SelectionView)?.dismantle()
+                p.close()
+            }
+        } }
         // We may be inside one of these panels' mouseUp; keep them alive until that returns.
         DispatchQueue.main.async { withExtendedLifetime(old) {} }
         let c = completion; completion = nil
@@ -724,4 +726,22 @@ struct OverlayWindowState: Equatable {
     var isVisible: Bool
     var isNormalLevel: Bool
     var isPanel: Bool
+}
+
+/// A capture's key panels (the selection overlay, the radial menu) take the keyboard without activating Skreener.
+/// When one closes, AppKit hands key to Skreener's next window; for an editor that activates Skreener, which brings
+/// the editor in front of the window or area being captured. While `closing` runs with Skreener in the background,
+/// editors decline key and main, so nothing comes forward.
+@MainActor enum CapturePanelHandOff {
+    private(set) static var holds = 0
+    static var isHeld: Bool { holds > 0 }
+
+    /// Runs `close`, holding editors back when Skreener isn't the active app. The hold ends on the main queue's next
+    /// turn, after AppKit has picked (or not) a new key window, and before work the capture started there runs.
+    static func closing(isActive: Bool = NSApp.isActive, _ close: () -> Void) {
+        guard !isActive else { close(); return }
+        holds += 1
+        close()
+        DispatchQueue.main.async { holds -= 1 }
+    }
 }
