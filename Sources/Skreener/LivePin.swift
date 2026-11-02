@@ -14,20 +14,25 @@ final class LivePinFeed: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked 
 
     /// The size the frames are shown at, at 100%.
     let pointSize: CGSize
-    private let filter: SCContentFilter
+    private var filter: SCContentFilter
     private let config: SCStreamConfiguration
+    /// An area pin's display, while its filter may still be missing Skreener (see `start`).
+    private var unfilteredDisplay: SCDisplay?
     private let queue = DispatchQueue(label: "com.skreener.livepin")
     private var stream: SCStream?
     private var stopped = false
 
     /// The area `rect` (global, bottom-left origin coordinates) of `screen`.
     init(screen: NSScreen, rect: CGRect) async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        // All windows, not just on-screen ones: between the selection closing and the pin opening Skreener may have
+        // no window on screen, and an app that isn't listed can't be left out, so the pin would film itself and
+        // zoom into its own picture, a little blurrier each frame.
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         guard let display = content.displays.first(where: { $0.displayID == id }) else { throw CaptureError.noDisplay }
-        let me = getpid()
-        filter = SCContentFilter(display: display, excludingApplications: content.applications.filter { $0.processID == me },
-                                 exceptingWindows: [])
+        let me = Self.skreener(in: content)
+        filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
+        unfilteredDisplay = me.isEmpty ? display : nil
         pointSize = rect.size
         config = Self.config(points: rect.size, scale: screen.backingScaleFactor)
         config.sourceRect = LivePinGeometry.sourceRect(rect, in: screen.frame)
@@ -64,17 +69,32 @@ final class LivePinFeed: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked 
         return NSImage(cgImage: cg, size: pointSize)
     }
 
-    /// Starts the stream; failures come through `onStop`.
+    /// Skreener itself, to leave out of an area's frames.
+    private static func skreener(in content: SCShareableContent) -> [SCRunningApplication] {
+        let me = getpid()
+        return content.applications.filter { $0.processID == me }
+    }
+
+    /// Starts the stream (call once the pin is on screen); failures come through `onStop`.
     func start() {
-        let stream = SCStream(filter: filter, configuration: config, delegate: self)
-        do {
-            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-        } catch {
-            report(error)
-            return
-        }
-        queue.sync { self.stream = stream }
         Task { [self] in
+            // Skreener wasn't listed when the feed was made: look again now that the pin's window exists.
+            if let display = unfilteredDisplay,
+               let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) {
+                let me = Self.skreener(in: content)
+                filter = me.isEmpty
+                    ? SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
+                    : SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
+                unfilteredDisplay = nil
+            }
+            let stream = SCStream(filter: filter, configuration: config, delegate: self)
+            do {
+                try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+            } catch {
+                report(error)
+                return
+            }
+            queue.sync { self.stream = stream }
             do { try await stream.startCapture() } catch {
                 report(error)
                 return
