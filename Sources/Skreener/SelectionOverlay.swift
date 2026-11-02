@@ -55,9 +55,8 @@ final class SelectionOverlay {
     }
     private var panels: [OverlayPanel] = []
     private var completion: ((Selection?) -> Void)?
-    /// The app in front when the selection began, while Skreener wasn't: it gets the front back when the overlay
-    /// closes, over any Skreener window that came forward meanwhile.
-    private var previousApp: NSRunningApplication?
+    /// The selection began while another app was in front: when it ends, Skreener's windows go back behind that app's.
+    private var startedInBackground = false
     private var windows: [SCWindow] = []
     private(set) var mode: Mode = .area
     private var cursorPushed = false
@@ -75,8 +74,7 @@ final class SelectionOverlay {
                adjustable: Bool = Preferences.adjustAreaBeforeCapture, completion: @escaping (Selection?) -> Void) {
         // One selection at a time: a second hotkey press while picking would stack another set of panels.
         guard self.completion == nil else { return }
-        let front = NSWorkspace.shared.frontmostApplication
-        previousApp = MainActor.assumeIsolated { NSApp.isActive } || front?.processIdentifier == getpid() ? nil : front
+        startedInBackground = MainActor.assumeIsolated { !NSApp.isActive }
         self.mode = mode
         self.windows = windows
         self.hints = hints
@@ -96,15 +94,6 @@ final class SelectionOverlay {
 
     private func show(snapshots: [ObjectIdentifier: CGImage]) {
         guard completion != nil else { return }
-        // Decided before the overlay's panels take key, which can already count as Skreener being active.
-        let states = NSApp.windows.map {
-            OverlayWindowState(isVisible: $0.isVisible && !$0.isMiniaturized, isNormalLevel: $0.level == .normal, isPanel: $0 is NSPanel)
-        }
-        let wasActive = NSApp.isActive
-        let raises = Self.activationRaisesWindows(isActive: wasActive || previousApp == nil, windows: states)
-        FocusDebug.log("overlay showing: active \(wasActive), previous app \(previousApp?.localizedName ?? "none"), windows "
-                       + zip(NSApp.windows, states).map { "\(type(of: $0.0))(\($0.1.isVisible ? "v" : "-")\($0.1.isNormalLevel ? "n" : "-"))" }
-                           .joined(separator: " "))
         for screen in NSScreen.screens {
             let p = OverlayPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                  backing: .buffered, defer: false)
@@ -139,8 +128,9 @@ final class SelectionOverlay {
             p.makeKeyAndOrderFront(nil)
         }
         SelectionView.cursor(for: mode).push(); cursorPushed = true
-        FocusDebug.log("overlay shown, activating \(!raises), app active now \(NSApp.isActive)")
-        if !raises { NSApp.activate(ignoringOtherApps: true) }
+        // Skreener stays active while a capture runs: scrolling capture stops working when another app is given the
+        // front back mid-capture. An editor this raises goes back behind when the overlay closes (`sendBehind`).
+        NSApp.activate(ignoringOtherApps: true)
         // The push above can lose to the previously active app's cursor; set it again once activation has settled.
         DispatchQueue.main.async { [weak self] in
             guard let self, completion != nil else { return }
@@ -149,11 +139,27 @@ final class SelectionOverlay {
         }
     }
 
-    /// Whether activating Skreener would bring one of its windows (an editor, Settings) to the front: it raises the
-    /// main window, so an editor left behind another app would jump over the window or area being captured. The
-    /// overlay's key panel takes the keyboard without activation, and the cursor is set again on every move.
-    static func activationRaisesWindows(isActive: Bool, windows: [OverlayWindowState]) -> Bool {
-        !isActive && windows.contains { $0.isVisible && $0.isNormalLevel && !$0.isPanel }
+    /// Puts Skreener's normal windows (editors, Settings) back behind the frontmost window of another app, keeping
+    /// their own order, without changing which app is active: activating Skreener for the overlay raised them over
+    /// what is being captured.
+    @MainActor private static func sendBehindOthers() {
+        let me = getpid()
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let anchor = info.first {   // front to back
+            ($0[kCGWindowLayer as String] as? NSNumber)?.intValue == 0
+                && ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value != me
+        }.flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
+        guard let anchor else { return }
+        let ours = NSApp.orderedWindows.filter { $0.isVisible && $0.level == .normal && !($0 is NSPanel) }
+        FocusDebug.log("sending \(ours.count) window(s) behind #\(anchor)")
+        for (number, below) in behindOrder(ours.map(\.windowNumber), anchor: anchor) {
+            ours.first { $0.windowNumber == number }?.order(.below, relativeTo: below)
+        }
+    }
+
+    /// Windows `ours` (front to back) each placed below the one before it, the first below `anchor`.
+    static func behindOrder(_ ours: [Int], anchor: Int) -> [(window: Int, below: Int)] {
+        zip(ours, [anchor] + ours).map { (window: $0.0, below: $0.1) }
     }
 
     /// A new selection on one screen replaces one waiting to be adjusted on another.
@@ -201,9 +207,9 @@ final class SelectionOverlay {
         let old = panels
         panels.removeAll()
         FocusDebug.log("overlay closing, app active \(MainActor.assumeIsolated { NSApp.isActive })")
-        let handBack = previousApp
-        previousApp = nil
-        MainActor.assumeIsolated { CapturePanelHandOff.closing(isActive: handBack == nil ? nil : false) {
+        let fromBackground = startedInBackground
+        startedInBackground = false
+        MainActor.assumeIsolated { CapturePanelHandOff.closing(isActive: !fromBackground) {
             for p in old {
                 // Disarm the view first: a late mouseEntered used to re-order a dismissed panel to the
                 // front, leaving an orphaned screen-saver-level overlay that nothing could remove.
@@ -211,13 +217,7 @@ final class SelectionOverlay {
                 p.close()
             }
         } }
-        // Skreener became active during the selection (the window server can activate it for the overlay's key
-        // panels): the app that was in front gets it back, so an editor raised meanwhile goes back behind it.
-        if let handBack, MainActor.assumeIsolated({ NSApp.isActive }) {
-            FocusDebug.log("handing the front back to \(handBack.localizedName ?? "?")")
-            MainActor.assumeIsolated { NSApp.yieldActivation(to: handBack) }
-            handBack.activate()
-        }
+        if fromBackground { MainActor.assumeIsolated { Self.sendBehindOthers() } }
         // We may be inside one of these panels' mouseUp; keep them alive until that returns.
         DispatchQueue.main.async { withExtendedLifetime(old) {} }
         let c = completion; completion = nil
@@ -740,13 +740,6 @@ extension SelectionView {
         origin.x = min(max(origin.x, bounds.minX + 2), bounds.maxX - pill.width - 2)
         Retro.drawChip(label, at: origin, size: 11.5, alpha: tipAlpha)
     }
-}
-
-/// What `SelectionOverlay.activationRaisesWindows` needs to know about one of Skreener's windows.
-struct OverlayWindowState: Equatable {
-    var isVisible: Bool
-    var isNormalLevel: Bool
-    var isPanel: Bool
 }
 
 /// A capture's key panels (the selection overlay, the radial menu) take the keyboard without activating Skreener.
