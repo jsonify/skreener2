@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.11.1](https://github.com/jsonify/skreener2/compare/v1.11.0...v1.11.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **capture:** an editor in the background stays there when a capture starts ([#367](https://github.com/jsonify/skreener2/issues/367)) ([4a7ec9f](https://github.com/jsonify/skreener2/commit/4a7ec9fcc1e03f6753e1c1d16f56d5835de83d4b))
+* **capture:** Live Pin no longer films itself and zooms into a blur ([#365](https://github.com/jsonify/skreener2/issues/365)) ([76b4c37](https://github.com/jsonify/skreener2/commit/76b4c3782057473018268561e3e686a3fefe639a))
+* **capture:** radial menu hub keeps long names inside its LCD ([#366](https://github.com/jsonify/skreener2/issues/366)) ([60d2c73](https://github.com/jsonify/skreener2/commit/60d2c7319236ac557c54df2745f393bc3a573722))
+* **editor:** segmented choices in the options row take clicks ([#363](https://github.com/jsonify/skreener2/issues/363)) ([2bd12a5](https://github.com/jsonify/skreener2/commit/2bd12a593882306cf593142888164d67740f4a26))
+
 ## [1.11.0](https://github.com/jsonify/skreener2/compare/v1.10.0...v1.11.0) (2026-11-02)
 
 
