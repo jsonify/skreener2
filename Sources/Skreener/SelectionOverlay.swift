@@ -96,6 +96,15 @@ final class SelectionOverlay {
 
     private func show(snapshots: [ObjectIdentifier: CGImage]) {
         guard completion != nil else { return }
+        // Decided before the overlay's panels take key, which can already count as Skreener being active.
+        let states = NSApp.windows.map {
+            OverlayWindowState(isVisible: $0.isVisible && !$0.isMiniaturized, isNormalLevel: $0.level == .normal, isPanel: $0 is NSPanel)
+        }
+        let wasActive = NSApp.isActive
+        let raises = Self.activationRaisesWindows(isActive: wasActive || previousApp == nil, windows: states)
+        FocusDebug.log("overlay showing: active \(wasActive), previous app \(previousApp?.localizedName ?? "none"), windows "
+                       + zip(NSApp.windows, states).map { "\(type(of: $0.0))(\($0.1.isVisible ? "v" : "-")\($0.1.isNormalLevel ? "n" : "-"))" }
+                           .joined(separator: " "))
         for screen in NSScreen.screens {
             let p = OverlayPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                  backing: .buffered, defer: false)
@@ -130,10 +139,7 @@ final class SelectionOverlay {
             p.makeKeyAndOrderFront(nil)
         }
         SelectionView.cursor(for: mode).push(); cursorPushed = true
-        let raises = Self.activationRaisesWindows(isActive: NSApp.isActive, windows: NSApp.windows.map {
-            OverlayWindowState(isVisible: $0.isVisible && !$0.isMiniaturized, isNormalLevel: $0.level == .normal, isPanel: $0 is NSPanel)
-        })
-        FocusDebug.log("overlay shown, activating \(!raises), previous app \(previousApp?.localizedName ?? "none")")
+        FocusDebug.log("overlay shown, activating \(!raises), app active now \(NSApp.isActive)")
         if !raises { NSApp.activate(ignoringOtherApps: true) }
         // The push above can lose to the previously active app's cursor; set it again once activation has settled.
         DispatchQueue.main.async { [weak self] in
