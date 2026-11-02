@@ -152,7 +152,7 @@ struct KeyCombo: Hashable {
 
 /// Everything that can have a global shortcut, in Settings → Shortcuts order.
 enum HotKeyAction: String, CaseIterable {
-    case captureArea, allInOne, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureActiveWindow,
+    case captureArea, allInOne, radialMenu, capturePreviousArea, captureAreaAndPin, captureFullscreen, captureWindow, captureActiveWindow,
          captureScrolling, captureText, captureCode, scanQRCode, timedArea, timedWindow, timedFullscreen
     case captureAreaAndLivePin, livePinWindow
     case recordScreen, presenter, spotlight, stepRecorder
@@ -174,7 +174,7 @@ enum HotKeyAction: String, CaseIterable {
 
     var section: Section {
         switch self {
-        case .captureArea, .allInOne, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow,
+        case .captureArea, .allInOne, .radialMenu, .capturePreviousArea, .captureAreaAndPin, .captureFullscreen, .captureWindow,
              .captureActiveWindow, .captureScrolling, .captureText, .captureCode, .scanQRCode, .timedArea, .timedWindow, .timedFullscreen,
              .captureAreaAndLivePin, .livePinWindow: return .screenshots
         case .recordScreen, .presenter, .spotlight, .stepRecorder: return .recording
@@ -187,6 +187,7 @@ enum HotKeyAction: String, CaseIterable {
         switch self {
         case .captureArea: return "Capture Area"
         case .allInOne: return "All-in-One"
+        case .radialMenu: return "Radial Menu"
         case .capturePreviousArea: return "Capture Previous Area"
         case .captureAreaAndPin: return "Capture Area & Pin"
         case .captureFullscreen: return "Capture Fullscreen"
@@ -219,6 +220,7 @@ enum HotKeyAction: String, CaseIterable {
     var subtitle: String? {
         switch self {
         case .allInOne: return "Select an area, then choose what to do with it."
+        case .radialMenu: return "Capture modes in a ring at the pointer: press and click one, or hold, point and let go."
         case .captureActiveWindow: return "The frontmost window, without picking it."
         case .scanQRCode: return "Select an area; the code's content is copied, and a link can be opened."
         case .captureScrolling: return "Press again to finish."
@@ -254,7 +256,7 @@ enum HotKeyAction: String, CaseIterable {
         case .pinClickThrough: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: mods)
         case .presenter: return KeyCombo(keyCode: kVK_ANSI_Z, modifiers: mods)
         case .spotlight: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: mods)
-        case .captureActiveWindow, .captureCode, .scanQRCode, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
+        case .radialMenu, .captureActiveWindow, .captureCode, .scanQRCode, .timedArea, .timedWindow, .timedFullscreen, .toggleDesktopIcons, .openFile,
              .openClipboard, .pinFile, .pinClipboard, .captureAreaAndLivePin, .livePinWindow, .stepRecorder,
              .watchArea: return nil
         }

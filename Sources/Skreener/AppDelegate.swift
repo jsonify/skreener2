@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     @MainActor private lazy var launcher = MenuLauncher()
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
+    /// The ring of capture modes at the pointer (#359).
+    private let radial = RadialMenu()
     private let recordPicker = RecordAreaPicker()
     private let presenter = PresenterOverlay()
     /// Whether the picker on screen was opened by Record Screen or by All-in-One (#29).
@@ -61,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         shortcuts.handlers = [
             .captureArea: { [weak self] in self?.captureArea() },
             .allInOne: { [weak self] in self?.allInOne() },
+            .radialMenu: { [weak self] in self?.radial.pressed() },
             .capturePreviousArea: { [weak self] in self?.capturePreviousArea() },
             .captureAreaAndPin: { [weak self] in self?.captureAreaAndPin() },
             .captureAreaAndLivePin: { [weak self] in self?.captureAreaAndLivePin() },
@@ -88,6 +91,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .pinClipboard: { [weak self] in self?.pinClipboard() },
             .pinClickThrough: { [weak self] in self?.pinClickThrough() },
         ]
+        // The radial menu tells a tap from a hold by when its shortcut is let go.
+        shortcuts.releaseHandlers = [.radialMenu: { [weak self] in self?.radial.released() }]
+        radial.onPick = { action in ShortcutCenter.shared.handlers[action]?() }
         shortcuts.onChange = { [weak self] in self?.updateMenuShortcuts() }
         shortcuts.register()
         updateMenuShortcuts()
