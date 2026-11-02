@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/jsonify/skreener2/compare/v1.8.0...v1.9.0) (2026-11-02)
+
+
+### Features
+
+* **send-to:** Gmail and Google Chat destinations, and email links in Gmail ([#357](https://github.com/jsonify/skreener2/issues/357)) ([f7b39fb](https://github.com/jsonify/skreener2/commit/f7b39fbbd2c1276dc751ce965faa639433fe6106))
+
 ## [1.8.0](https://github.com/jsonify/skreener2/compare/v1.7.0...v1.8.0) (2026-10-31)
 
 
