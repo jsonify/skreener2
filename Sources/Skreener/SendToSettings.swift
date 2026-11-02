@@ -24,7 +24,7 @@ import AppKit
         actionsHost.alignment = .leading
         actionsHost.spacing = 0
         reloadActions()
-        var views: [NSView] = [actionsHost, notesGroup()]
+        var views: [NSView] = [actionsHost, notesGroup(), webGroup()]
         if NotesApp.obsidian.isInstalled { views.append(obsidianGroup()) }
         return views
     }
@@ -60,6 +60,25 @@ import AppKit
                                      Preferences.sendToIncludeText) { Preferences.sendToIncludeText = $0 })
         }
         return tools.group("Notes Apps", rows, "Only installed apps are listed in Send To.")
+    }
+
+    // MARK: Web apps
+
+    private func webGroup() -> NSView {
+        var rows: [NSView] = WebApp.allCases.map { app in
+            let id = WebDestination(app: app).id
+            let blurb = app == .gmail ? "A new message, titled after the capture. The picture goes on the clipboard to paste."
+                                      : "Google Chat opens. The picture goes on the clipboard to paste into a chat."
+            return tools.toggle(app.title, blurb, !Preferences.sendToHidden.contains(id)) { on in
+                var hidden = Preferences.sendToHidden
+                if on { hidden.remove(id) } else { hidden.insert(id) }
+                Preferences.sendToHidden = hidden
+            }
+        }
+        rows.append(tools.toggle("Open email links in Gmail",
+                                 "The Email smart action writes the message in Gmail instead of your Mac's email app.",
+                                 Preferences.emailLinksInGmail) { Preferences.emailLinksInGmail = $0 })
+        return tools.group("Web", rows, "Opens in your default browser, signed in to your Google account.")
     }
 
     private func obsidianGroup() -> NSView {

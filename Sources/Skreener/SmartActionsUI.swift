@@ -13,7 +13,13 @@ import AppKit
             guard let event = action.event else { return }
             addToCalendar(event)
         case .openCode, .maps, .call, .link, .flight:
-            if let url = action.url { NSWorkspace.shared.open(url) }
+            guard let url = action.url.map({ WebLinks.emailLink($0, inGmail: Preferences.emailLinksInGmail) }) else { return }
+            if !NSWorkspace.shared.open(url) {
+                Notifier.problem("Couldn't open the link",
+                                 detail: url.scheme?.lowercased() == "mailto"
+                                     ? "Turn on Open email links in Gmail in Settings → Send To, or set a default email app."
+                                     : "No app on this Mac opens \(url.scheme ?? "these") links.")
+            }
         }
     }
 

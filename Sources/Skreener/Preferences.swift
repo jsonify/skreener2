@@ -576,6 +576,12 @@ enum Preferences {
         get { d.object(forKey: "sendToIncludeText") as? Bool ?? true }
         set { d.set(newValue, forKey: "sendToIncludeText") }
     }
+    /// Email links from smart actions open a new message in Gmail, in the default browser, instead of the Mac's
+    /// default email app.
+    static var emailLinksInGmail: Bool {
+        get { d.bool(forKey: "emailLinksInGmail") }
+        set { d.set(newValue, forKey: "emailLinksInGmail") }
+    }
     /// The folder of the Obsidian vault the pictures are copied into; empty until chosen.
     static var obsidianVaultPath: String {
         get { d.string(forKey: "obsidianVaultPath") ?? "" }
