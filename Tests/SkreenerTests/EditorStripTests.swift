@@ -120,4 +120,58 @@ import XCTest
         XCTAssertTrue(Retro.sameColor(canvas.contextStyle.color, try XCTUnwrap(swatch.color)),
                       "the selected arrow takes the colour picked")
     }
+
+    /// The options row's segmented control captioned `caption` (Fill, Style, Box).
+    private func segmented(_ caption: String, in window: NSWindow) -> RetroSegmented? {
+        guard let row = optionsRow(in: window) else { return nil }
+        return row.arrangedSubviews.compactMap { $0 as? RetroSegmented }.first { $0.accessibilityLabel() == caption && Self.visible($0) }
+    }
+
+    /// How dark the control looks at `point` (its own coordinates): 0 black, 1 white.
+    private static func brightness(of view: NSView, at point: NSPoint) -> CGFloat? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let x = Int(point.x * CGFloat(rep.pixelsWide) / view.bounds.width)
+        let yUp = Int(point.y * CGFloat(rep.pixelsHigh) / view.bounds.height)
+        let y = view.isFlipped ? yUp : rep.pixelsHigh - 1 - yUp
+        return rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)?.brightnessComponent
+    }
+
+    /// Picks every Fill choice for the rectangle just drawn, as a click on screen would (the press tracked by the
+    /// button, then released), and checks the choice shows as the dark key and the rectangle takes it.
+    func testFillChoicesChangeTheRectangleJustDrawn() throws {
+        let (editor, window, canvas) = makeEditor()
+        defer { window.close(); _ = editor }
+        canvas.tool = .rect
+        window.makeKeyAndOrderFront(nil)
+        drawArrow(on: canvas, in: window)
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertTrue(canvas.hasSelection, "the rectangle just drawn is selected")
+        XCTAssertEqual(canvas.contextTool, .rect)
+        let fill = try XCTUnwrap(segmented("Fill", in: window), "a visible Fill control")
+        let frameView = try XCTUnwrap(window.contentView?.superview)
+        let segments = Self.all(in: fill).compactMap { $0 as? NSButton }
+        XCTAssertEqual(segments.count, 3)
+        var problems: [String] = []
+        for (n, segment) in segments.enumerated().reversed() {
+            let middle = segment.convert(NSPoint(x: segment.bounds.midX, y: segment.bounds.midY), to: nil)
+            let hit = frameView.hitTest(frameView.convert(middle, from: nil))
+            guard let hit, hit === segment else {
+                problems.append("segment \(n): a click at \(middle) hits \(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+                continue
+            }
+            NSApp.postEvent(mouse(.leftMouseUp, at: middle, in: window), atStart: false)
+            window.sendEvent(mouse(.leftMouseDown, at: middle, in: window))
+            if fill.indexOfSelectedItem != n { problems.append("segment \(n): the control shows \(fill.indexOfSelectedItem) chosen") }
+            if canvas.contextStyle.fill.rawValue != fill.selectedTag() {
+                problems.append("segment \(n): the rectangle's fill is \(canvas.contextStyle.fill) for tag \(fill.selectedTag())")
+            }
+            fill.layoutSubtreeIfNeeded()
+            let edge = segment.convert(NSPoint(x: 3, y: segment.bounds.midY), to: fill)
+            if let b = Self.brightness(of: fill, at: edge), b > 0.5 {
+                problems.append("segment \(n): the chosen key isn't dark (brightness \(b), segment \(segment.frame))")
+            }
+        }
+        XCTAssertEqual(problems, [])
+    }
 }
