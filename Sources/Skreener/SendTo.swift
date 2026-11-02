@@ -13,7 +13,8 @@ struct SendError: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// Somewhere a capture can be sent from the Send To menu (#275, #276): one of the user's custom actions, or a notes app.
+/// Somewhere a capture can be sent from the Send To menu (#275, #276): one of the user's custom actions, a notes app,
+/// or a web app (Gmail, Google Chat).
 @MainActor protocol SendDestination {
     var id: String { get }
     var title: String { get }
@@ -80,6 +81,7 @@ struct CustomActionDestination: SendDestination {
     /// The destinations to list, custom actions first; a recording only goes to the ones that take one.
     static func destinations(forImage: Bool) -> [SendDestination] {
         let list: [SendDestination] = Preferences.customActions.map(CustomActionDestination.init) + NotesDestinations.all()
+            + WebDestinations.all()
         return list.filter { $0.isAvailable && (forImage || $0.acceptsRecordings) }
     }
 
@@ -88,7 +90,8 @@ struct CustomActionDestination: SendDestination {
         let menu = NSMenu()
         let all = destinations(forImage: source.isImage)
         let actions = all.filter { $0 is CustomActionDestination }
-        let notes = all.filter { !($0 is CustomActionDestination) }
+        let notes = all.filter { $0 is NotesDestination }
+        let web = all.filter { $0 is WebDestination }
 
         func add(_ destination: SendDestination) {
             let item = NSMenuItem(title: destination.title, action: #selector(MenuTarget.fire), keyEquivalent: "")
@@ -108,6 +111,11 @@ struct CustomActionDestination: SendDestination {
             if !actions.isEmpty { menu.addItem(.separator()) }
             menu.addItem(.sectionHeader(title: "Notes"))
             notes.forEach(add)
+        }
+        if !web.isEmpty {
+            if !actions.isEmpty || !notes.isEmpty { menu.addItem(.separator()) }
+            menu.addItem(.sectionHeader(title: "Web"))
+            web.forEach(add)
         }
         if all.isEmpty {
             let empty = NSMenuItem(title: "Nothing to send to yet", action: nil, keyEquivalent: "")
