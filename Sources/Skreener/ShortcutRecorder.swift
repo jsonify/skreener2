@@ -13,6 +13,8 @@ final class ShortcutRecorder: NSView {
     private(set) var isRecording = false
 
     private static let size = NSSize(width: 160, height: 24)
+    /// How wide every recorder is; its warning wraps to this width.
+    static var width: CGFloat { size.width }
     private let label = NSTextField(labelWithString: "")
     private let clearButton = NSButton()
     /// Modifiers held while recording, shown before the key is pressed.
@@ -314,10 +316,13 @@ private extension KeyCombo {
                                 height: RetroUI.textKeyHeight, target: self, action: #selector(resetClicked(_:)))
         reset.tag = HotKeyAction.allCases.firstIndex(of: action) ?? 0
 
+        // The warning wraps under the recorder, never wider than it: a wider one made this row's control wider than
+        // every other row's, which moved its recorder off their line.
         let message = NSTextField(wrappingLabelWithString: "")
         message.font = .systemFont(ofSize: 11)
         message.alignment = .right
-        message.preferredMaxLayoutWidth = 260
+        message.preferredMaxLayoutWidth = ShortcutRecorder.width
+        message.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let line = NSStackView(views: [reset, recorder])
         line.spacing = 6
@@ -325,6 +330,7 @@ private extension KeyCombo {
         stack.orientation = .vertical
         stack.alignment = .trailing
         stack.spacing = 4
+        message.widthAnchor.constraint(lessThanOrEqualTo: recorder.widthAnchor).isActive = true
         rows[action] = Row(recorder: recorder, reset: reset, message: message)
         return stack
     }
