@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/jsonify/skreener2/compare/v1.9.0...v1.10.0) (2026-11-02)
+
+
+### Features
+
+* **capture:** radial menu of capture modes at the pointer ([#359](https://github.com/jsonify/skreener2/issues/359)) ([#360](https://github.com/jsonify/skreener2/issues/360)) ([1335621](https://github.com/jsonify/skreener2/commit/1335621222e9ed2466120feb6e6a6e97f50a28fc))
+
 ## [1.9.0](https://github.com/jsonify/skreener2/compare/v1.8.0...v1.9.0) (2026-11-02)
 
 
