@@ -738,8 +738,8 @@ struct OverlayWindowState: Equatable {
 
     /// Runs `close`, holding editors back when Skreener isn't the active app. The hold ends on the main queue's next
     /// turn, after AppKit has picked (or not) a new key window, and before work the capture started there runs.
-    static func closing(isActive: Bool = NSApp.isActive, _ close: () -> Void) {
-        guard !isActive else { close(); return }
+    static func closing(isActive: Bool? = nil, _ close: () -> Void) {
+        guard !(isActive ?? NSApp.isActive) else { close(); return }
         holds += 1
         close()
         DispatchQueue.main.async { holds -= 1 }
