@@ -5,13 +5,16 @@ import AppKit
 final class HotKeys {
     static let shared = HotKeys()
     private var handlers: [UInt32: () -> Void] = [:]
+    /// What runs when the key is let go, for the hotkeys that care (the radial menu's hold, #359).
+    private var releaseHandlers: [UInt32: () -> Void] = [:]
     private var refs: [UInt32: EventHotKeyRef] = [:]
     private var nextID: UInt32 = 1
     private var installed = false
 
     /// Returns an id for `unregister`, or nil if macOS refused the combination (e.g. another app registered it).
+    /// `release` runs when the key is let go.
     @discardableResult
-    func register(keyCode: Int, modifiers: Int, handler: @escaping () -> Void) -> UInt32? {
+    func register(keyCode: Int, modifiers: Int, handler: @escaping () -> Void, release: (() -> Void)? = nil) -> UInt32? {
         installIfNeeded()
         let id = nextID; nextID += 1
         var ref: EventHotKeyRef?
@@ -19,6 +22,7 @@ final class HotKeys {
         let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), hkID, GetApplicationEventTarget(), 0, &ref)
         guard status == OSStatus(noErr), let ref else { return nil }
         handlers[id] = handler
+        releaseHandlers[id] = release
         refs[id] = ref
         return id
     }
@@ -27,19 +31,24 @@ final class HotKeys {
     func unregister(_ id: UInt32) {
         if let ref = refs.removeValue(forKey: id) { UnregisterEventHotKey(ref) }
         handlers[id] = nil
+        releaseHandlers[id] = nil
     }
 
     private func installIfNeeded() {
         guard !installed else { return }
         installed = true
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var specs = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+                     EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))]
         InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
             var hkID = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
-            DispatchQueue.main.async { HotKeys.shared.handlers[hkID.id]?() }
+            let released = GetEventKind(event) == UInt32(kEventHotKeyReleased)
+            DispatchQueue.main.async {
+                if released { HotKeys.shared.releaseHandlers[hkID.id]?() } else { HotKeys.shared.handlers[hkID.id]?() }
+            }
             return noErr
-        }, 1, &spec, nil, nil)
+        }, specs.count, &specs, nil, nil)
     }
 }
 
@@ -50,6 +59,8 @@ final class HotKeys {
 
     /// What each action does (set up by the app delegate).
     var handlers: [HotKeyAction: () -> Void] = [:]
+    /// What runs when an action's shortcut is let go, for the few that care (the radial menu, #359).
+    var releaseHandlers: [HotKeyAction: () -> Void] = [:]
     /// Called after a shortcut changed, e.g. to update the menu's key equivalents.
     var onChange: (() -> Void)?
     /// Actions whose shortcut macOS refused to register (another app may be using it).
@@ -71,7 +82,8 @@ final class HotKeys {
         guard !suspended else { return }
         for (action, combo) in ShortcutStore.bindings() {
             guard let handler = handlers[action] else { continue }
-            if let id = HotKeys.shared.register(keyCode: combo.keyCode, modifiers: combo.modifiers, handler: handler) {
+            if let id = HotKeys.shared.register(keyCode: combo.keyCode, modifiers: combo.modifiers, handler: handler,
+                                                release: releaseHandlers[action]) {
                 ids[action] = id
             } else {
                 unavailable.insert(action)

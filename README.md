@@ -83,6 +83,18 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 - **All Capture Modes** lists every capture mode, including Self-Timer, with its shortcut. The keyboard can reach
   everything in it.
 
+### Radial menu
+
+- **A ring of capture modes at the pointer.** Give **Radial Menu** a shortcut in Settings → Shortcuts (it has none at
+  first). Press it and an SK-1 ring opens round the pointer, with **Area**, **Window**, **Self-Timer** (an area, after
+  the delay set in the menu), **Scrolling**, **Text** and **Record** (the orange key) clockwise from the top. The olive
+  LCD in the middle names the slice you point at, with its shortcut or the timer's delay.
+- **Tap or hold.** Tap the shortcut and the ring stays open: click a slice, press its number (1–6), or use the arrow
+  keys and Return. Or hold the shortcut, move toward a slice and let go. While you hold it, the direction is what
+  counts, so a quick flick past the ring still picks; let go in the middle and the ring stays open.
+- **Closing.** Esc, a click outside the ring, or the shortcut again closes it without capturing. The ring is gone
+  before the capture starts, so it is never in a screenshot. Near a screen edge it opens moved inward, not cut off.
+
 ### Screenshots
 
 - **Area, window and full screen**, plus **Previous Area** to repeat the last selection, and **Capture Active
