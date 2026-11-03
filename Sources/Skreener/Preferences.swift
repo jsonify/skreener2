@@ -450,6 +450,12 @@ enum Preferences {
         get { LivePinGeometry.frameRate(d.integer(forKey: "livePinFrameRate")) }
         set { d.set(newValue, forKey: "livePinFrameRate") }
     }
+    /// Screen recordings: keep clean video plus an event track (cursor, clicks, keystrokes, spotlight) in a recording
+    /// project, and draw the effects in when making the MP4, so they can be changed later (#380). Not for GIFs.
+    static var recordForEditing: Bool {
+        get { d.bool(forKey: "recordForEditing") }
+        set { d.set(newValue, forKey: "recordForEditing") }
+    }
     /// Screen recordings: frames per second (30 or 60).
     static var recordFrameRate: Int {
         get { d.integer(forKey: "recordFrameRate") == 60 ? 60 : 30 }

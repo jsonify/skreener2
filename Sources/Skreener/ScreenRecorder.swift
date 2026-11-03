@@ -18,11 +18,19 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     /// H.264 can't encode frames much bigger than 4K, so larger areas are scaled down to fit.
-    private static let maxPixels = 4096 * 2304
+    static let maxPixels = 4096 * 2304
+
+    /// The video's size in pixels for `rect` (or the whole of `screen`).
+    static func videoSize(screen: NSScreen, rect: CGRect?) -> CGSize {
+        RecordingGeometry.videoSize(area: (rect ?? screen.frame).size, backingScale: screen.backingScaleFactor, maxPixels: maxPixels)
+    }
 
     let url: URL
     /// Called once on the main queue when the file is finished (or recording failed).
     var onFinish: ((Result<URL, Error>) -> Void)?
+    /// Called on the recorder's queue for each video frame written, with its time in the video (seconds from the
+    /// first frame, time paused left out). Set it before `start`.
+    var onFrame: (@Sendable (Double) -> Void)?
 
     private let queue = DispatchQueue(label: "com.skreener.recorder")
     private var stream: SCStream?
@@ -39,6 +47,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var paused = false
     private var pauseStart = CMTime.invalid
     private var pausedTotal = CMTime.zero
+    private var sessionStart = CMTime.zero
+    // The same pause bookkeeping in seconds, for `videoTime(hostTime:)` from any thread.
+    private let clockLock = NSLock()
+    private var clock = RecordingClock()
 
     init(url: URL) { self.url = url }
 
@@ -50,12 +62,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         guard let display = content.displays.first(where: { $0.displayID == id }) else { throw RecordingError.noDisplay }
         let filter = Self.filter(content, display: display, including: including)
 
-        let area = rect ?? screen.frame
-        var scale = screen.backingScaleFactor
-        let px = area.width * scale * area.height * scale
-        if px > CGFloat(Self.maxPixels) { scale *= sqrt(CGFloat(Self.maxPixels) / px) }
-        // The encoder wants even dimensions.
-        let width = max(2, Int(area.width * scale) & ~1), height = max(2, Int(area.height * scale) & ~1)
+        let size = Self.videoSize(screen: screen, rect: rect)
+        let width = Int(size.width), height = Int(size.height)
 
         let cfg = SCStreamConfiguration()
         cfg.width = width
@@ -174,7 +182,19 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
                 pausedTotal = CMTimeAdd(pausedTotal, CMTimeSubtract(now, pauseStart))
                 pauseStart = .invalid
             }
+            clockLock.lock()
+            if on { clock.pause(at: now.seconds) } else { clock.resume(at: now.seconds) }
+            clockLock.unlock()
         }
+    }
+
+    /// Where a host-clock time (`CMClockGetTime(CMClockGetHostTimeClock())`) falls in the video: seconds from the
+    /// first frame, time paused left out. Nil before the first frame and while paused, unless `holdWhilePaused`
+    /// (then the moment the pause began). Safe from any thread.
+    func videoTime(hostTime: CMTime, holdWhilePaused: Bool = false) -> Double? {
+        clockLock.lock()
+        defer { clockLock.unlock() }
+        return clock.videoTime(host: hostTime.seconds, holdWhilePaused: holdWhilePaused)
     }
 
     func stop() {
@@ -207,12 +227,19 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         // Only complete frames carry an image; idle frames (nothing changed) just extend the previous one.
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let raw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
-              let writer, let input = videoInput, let sb = retimed(sb) else { return }
+              let writer, let input = videoInput, let shifted = retimed(sb) else { return }
+        let pts = CMSampleBufferGetPresentationTimeStamp(shifted)
         if !sessionStarted {
-            writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sb))
+            writer.startSession(atSourceTime: pts)
             sessionStarted = true
+            sessionStart = pts
+            clockLock.lock()
+            clock.firstFrame(at: CMSampleBufferGetPresentationTimeStamp(sb).seconds)
+            clockLock.unlock()
         }
-        if input.isReadyForMoreMediaData { input.append(sb) }
+        if input.isReadyForMoreMediaData, input.append(shifted) {
+            onFrame?(CMTimeSubtract(pts, sessionStart).seconds)
+        }
     }
 
     private func appendAudio(_ sb: CMSampleBuffer, to input: AVAssetWriterInput?) {

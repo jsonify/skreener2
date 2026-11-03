@@ -75,8 +75,8 @@ enum AudioMixer {
         _ = try FileManager.default.replaceItemAt(url, withItemAt: out)
     }
 
-    /// Copies one reader output into one writer input on its own queue.
-    private final class Pump: @unchecked Sendable {
+    /// Copies one reader output into one writer input on its own queue (also used by `RecordingRenderer`).
+    final class Pump: @unchecked Sendable {
         let output: AVAssetReaderOutput
         let input: AVAssetWriterInput
         private let queue = DispatchQueue(label: "com.skreener.audiomixer")

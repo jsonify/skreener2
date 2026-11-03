@@ -202,6 +202,11 @@ Menu Bar → Expanded).
   microphone, system audio, clicks and keystrokes, and Record GIF / Record Video keys with their shortcuts printed
   on them. The mode bar at the bottom of the screen has the capture modes as keys in trays and the size on LCD
   readouts.
+- **Record for editing** (in the recording options and Settings > Screen Recording, off by default): Skreener keeps
+  the screen video without the cursor, click rings, keystrokes or spotlight, plus a record of where they go, in a
+  recording project (Application Support/Skreener/Recordings). After you stop, it draws them back in, so the MP4 in
+  the save folder and Quick Access looks the same as before. This is the groundwork for the recording editor. GIFs
+  are recorded as usual.
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
 - **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
   Command-Z undoes), scroll or press Command-Plus / Command-Minus to zoom in around the pointer, and move the pointer

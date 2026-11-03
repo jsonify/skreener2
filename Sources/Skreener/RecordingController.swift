@@ -19,12 +19,28 @@ final class RecordingController {
     private var pausedTotal: TimeInterval = 0
     /// Where the GIF goes when this recording is a GIF (the video is then a temporary file).
     private var gifURL: URL?
-    /// The effects overlay's window, which is in the video.
+    /// The effects overlay's window, which is in the video (but not when recording for editing).
     private var effectsWindows: [CGWindowID] = []
     /// Other Skreener windows that belong in the video: the presenter overlay while it is open (#266).
     var alsoRecorded: [CGWindowID] = [] {
-        didSet { if alsoRecorded != oldValue { recorder?.include(effectsWindows + alsoRecorded) } }
+        didSet { if alsoRecorded != oldValue { recorder?.include(recordedWindows) } }
     }
+    /// The Skreener windows in the video: with Record for editing the effects are drawn in afterwards instead.
+    private var recordedWindows: [CGWindowID] { (editing == nil ? effectsWindows : []) + alsoRecorded }
+
+    /// A Record for editing recording (#380): its project folder, what is known about it, the event log, and where
+    /// the finished MP4 goes.
+    private struct EditingSession {
+        var folder: URL
+        var project: RecordingProject
+        var log: RecordingEventLog
+        var output: URL
+    }
+    /// The project folder and finished MP4 of a Record for editing recording, from `start` on.
+    private var projectFolder: URL?
+    private var projectOutput: URL?
+    /// Set once capturing starts.
+    private var editing: EditingSession?
 
     var isRecording: Bool { recorder != nil }
     /// Called with true on start and false when the recording ends (saved, failed, cancelled or never started).
@@ -44,7 +60,18 @@ final class RecordingController {
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         let name = "Skreener Recording \(f.string(from: Date()))"
         gifURL = gif ? Preferences.saveDirectory.appendingPathComponent(name + ".gif") : nil
-        let video = (gif ? FileManager.default.temporaryDirectory : Preferences.saveDirectory).appendingPathComponent(name + ".mp4")
+        var video = (gif ? FileManager.default.temporaryDirectory : Preferences.saveDirectory).appendingPathComponent(name + ".mp4")
+        // Record for editing: the clean video goes into a recording project; the finished MP4 is made from it.
+        if Preferences.recordForEditing && !gif {
+            do {
+                let folder = try RecordingProject.makeFolder()
+                projectFolder = folder
+                projectOutput = video
+                video = folder.appendingPathComponent(RecordingProject.videoFile)
+            } catch {
+                NSLog("Couldn't make the recording project, recording as usual: \(error)")
+            }
+        }
         let r = ScreenRecorder(url: video)
         r.onFinish = { [weak self] result in self?.finished(result) }
         recorder = r
@@ -53,7 +80,7 @@ final class RecordingController {
         onStateChange?(true)
         guard Preferences.recordCountdown else { capture(r, screen: screen, rect: rect, gif: gif); return }
         countdown.start(seconds: 3, completion: { [weak self] in self?.capture(r, screen: screen, rect: rect, gif: gif) },
-                        cancelled: { [weak self] in self?.tearDown() })
+                        cancelled: { [weak self] in self?.discardProject(); self?.tearDown() })
     }
 
     private func capture(_ r: ScreenRecorder, screen: NSScreen, rect: CGRect?, gif: Bool) {
@@ -62,8 +89,11 @@ final class RecordingController {
                       spotlight: Preferences.recordSpotlight)
         var options = ScreenRecorder.Options()
         if gif { options.systemAudio = false; options.microphone = false }
+        if let folder = projectFolder, let output = projectOutput {
+            startEditing(r, folder: folder, output: output, screen: screen, rect: rect, options: &options)
+        }
         effectsWindows = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
-        let keep = effectsWindows + alsoRecorded
+        let keep = recordedWindows
         if Preferences.recordShowControls {
             showHUD(near: rect ?? screen.frame, on: screen, fullscreen: rect == nil, options: options, gif: gif)
         }
@@ -77,9 +107,47 @@ final class RecordingController {
             } catch {
                 NSLog("Recording failed to start: \(error)")
                 Notifier.captureFailed(error, what: "Recording")
+                self?.discardProject()
                 self?.tearDown()
             }
         }
+    }
+
+    /// Record for editing: a clean capture (no cursor; the effects overlay stays on screen but out of the video) and
+    /// the event log that lets the effects be drawn in afterwards.
+    private func startEditing(_ r: ScreenRecorder, folder: URL, output: URL, screen: NSScreen, rect: CGRect?,
+                              options: inout ScreenRecorder.Options) {
+        options.showsCursor = false
+        let area = rect ?? screen.frame
+        let size = ScreenRecorder.videoSize(screen: screen, rect: rect)
+        let keys = Preferences.recordShowKeystrokes && AccessibilityAccess.granted
+        let project = RecordingProject(created: Date(), area: area, screenScale: Double(screen.backingScaleFactor),
+                                       videoWidth: Int(size.width), videoHeight: Int(size.height), fps: options.fps,
+                                       style: Self.currentStyle(keystrokes: keys))
+        let log = RecordingEventLog(area: area, videoSize: size, folder: folder, spotlightAtStart: effects.spotlightOn)
+        r.onFrame = { [log] t in log.sampleCursor(at: t) }
+        log.start(recorder: r, fps: options.fps, keys: keys)
+        editing = EditingSession(folder: folder, project: project, log: log, output: output)
+    }
+
+    /// The effect settings from the recording options, for the project.
+    private static func currentStyle(keystrokes: Bool) -> EffectsStyle {
+        var style = EffectsStyle(cursor: Preferences.recordShowsCursor, clicks: Preferences.recordHighlightClicks,
+                                 clickSize: Double(Preferences.clickHighlightSize), keystrokes: keystrokes,
+                                 keystrokeSize: Double(Preferences.keystrokeSize), keystrokesAtTop: Preferences.keystrokesAtTop,
+                                 spotlightRadius: Double(Spotlight.clampedRadius(Preferences.spotlightRadius)),
+                                 spotlightDim: Double(Spotlight.clampedDim(Preferences.spotlightDim)) / 100)
+        if let c = ClickStyle.color.usingColorSpace(.sRGB) {
+            style.clickColor = RGBA(red: Double(c.redComponent), green: Double(c.greenComponent),
+                                    blue: Double(c.blueComponent), alpha: Double(c.alphaComponent))
+        }
+        return style
+    }
+
+    /// Deletes the project folder of a Record for editing recording that didn't happen.
+    private func discardProject() {
+        if let projectFolder { try? FileManager.default.removeItem(at: projectFolder) }
+        projectFolder = nil
     }
 
     func stop() {
@@ -109,18 +177,20 @@ final class RecordingController {
 
     private func finished(_ result: Result<URL, Error>) {
         let gif = gifURL
+        let session = editing
+        let events = session?.log.finish()
+        let folder = projectFolder
         tearDown()
         switch result {
         case .success(let url):
+            if let session, let events {
+                finishEditing(session, events: events)
+                return
+            }
             guard let gif else {
                 guard Preferences.compressRecordings else { delivered(url); return }
-                // After the audio tracks were mixed (that happens before the recorder reports); the preview waits for it.
-                MessageHUD.show("Compressing recording…", symbol: "arrow.down.right.and.arrow.up.left", placement: .top)
                 Task { @MainActor [weak self] in
-                    let savings = await Compressor.compress([url])
-                    if let savings {
-                        MessageHUD.show("Recording compressed", detail: savings.summary, symbol: "checkmark.circle.fill", placement: .top)
-                    }
+                    await Self.compress(url)
                     self?.delivered(url)
                 }
                 return
@@ -138,11 +208,73 @@ final class RecordingController {
         case .failure(let error):
             NSLog("Recording failed: \(error)")
             Notifier.captureFailed(error, what: "Recording")
+            if let folder { try? FileManager.default.removeItem(at: folder) }
+        }
+    }
+
+    /// Compresses a finished MP4 when that is turned on, with a message. After the audio tracks were mixed (that
+    /// happens before the recorder reports); the preview waits for it.
+    @MainActor private static func compress(_ url: URL) async {
+        guard Preferences.compressRecordings else { return }
+        MessageHUD.show("Compressing recording…", symbol: "arrow.down.right.and.arrow.up.left", placement: .top)
+        if let savings = await Compressor.compress([url]) {
+            MessageHUD.show("Recording compressed", detail: savings.summary, symbol: "checkmark.circle.fill", placement: .top)
+        }
+    }
+
+    /// Record for editing, after stopping: saves the project, then makes the finished MP4 (the clean video with the
+    /// effects drawn back in) where the recording would have been saved, and goes on as with any recording. If drawing
+    /// fails, the clean video is saved instead and the project is kept.
+    private func finishEditing(_ session: EditingSession, events: RecordingEvents) {
+        let folder = session.folder, project = session.project, output = session.output
+        do {
+            try events.encoded().write(to: folder.appendingPathComponent(RecordingProject.eventsFile))
+            try project.encoded().write(to: folder.appendingPathComponent(RecordingProject.projectFile))
+        } catch {
+            NSLog("Couldn't save the recording project: \(error)")
+        }
+        let draws = EffectsOverlay(project: project, events: events, folder: nil).drawsAnything
+        if draws { MessageHUD.show("Finishing recording…", symbol: "film", placement: .top) }
+        Task { @MainActor [weak self] in
+            let video = folder.appendingPathComponent(RecordingProject.videoFile)
+            var problem: String?
+            do {
+                if draws {
+                    try await RecordingRenderer.render(project: project, events: events, folder: folder, to: output)
+                } else {
+                    try FileManager.default.copyItem(at: video, to: output)
+                }
+            } catch {
+                NSLog("Drawing the recording's effects failed: \(error)")
+                do {
+                    try FileManager.default.copyItem(at: video, to: output)
+                } catch {
+                    NSLog("Saving the recording failed: \(error)")
+                    Notifier.problem("Couldn't save the recording",
+                                     detail: "It is kept in Skreener's recording projects: \(folder.path)")
+                    return
+                }
+                problem = error.localizedDescription
+            }
+            await Self.compress(output)
+            guard let self else { return }
+            let filed = self.delivered(output)
+            var saved = project
+            saved.exported = filed.path
+            do { try saved.encoded().write(to: folder.appendingPathComponent(RecordingProject.projectFile)) } catch {
+                NSLog("Couldn't update the recording project: \(error)")
+            }
+            if let problem {
+                Notifier.problem("Couldn't draw the effects into the recording",
+                                 detail: "Saved it without the cursor, clicks and keystrokes. \(problem)")
+            }
         }
     }
 
     /// `video` is the temporary MP4 a GIF was made from: the preview keeps it for Trim, else it is deleted here.
-    private func delivered(_ saved: URL, video: URL? = nil) {
+    /// Returns where the file ended up (a filing rule may move it).
+    @discardableResult
+    private func delivered(_ saved: URL, video: URL? = nil) -> URL {
         if let app { SavedLibrary.shared.note(saved, app: app) }
         let url = AutoFiling.afterSave(saved, app: app)
         Sound.play("Glass")
@@ -157,12 +289,14 @@ final class RecordingController {
             Notifier.confirm(url.pathExtension.lowercased() == "gif" ? "GIF saved" : "Recording saved",
                              detail: url.lastPathComponent, file: url)
         }
+        return url
     }
 
     /// Turns the cursor spotlight on or off mid-recording (the hotkey). Ignored when nothing is recording.
     func toggleSpotlight() {
         guard isRecording, effects.panel != nil else { return }
         effects.setSpotlight(!effects.spotlightOn)
+        editing?.log.spotlight(effects.spotlightOn)
     }
 
     private func hideWindows() {
@@ -178,6 +312,10 @@ final class RecordingController {
         recorder = nil
         gifURL = nil
         effectsWindows = []
+        _ = editing?.log.finish()
+        editing = nil
+        projectFolder = nil
+        projectOutput = nil
         onStateChange?(false)
     }
 
