@@ -44,34 +44,13 @@ final class ProbeTests: XCTestCase {
         }
     }
 
-    func testProbeTruncationGlyphs() {
-        for u in [1, 2.5] as [CGFloat] {
-            let url = "a-rather-long-address.example.com/with/a/path/that/cannot/fit/in/the/field"
-            let field = CGRect(x: 100.25 * u, y: 7 * u, width: 320 * u, height: 26 * u)
-            let style = NSMutableParagraphStyle()
-            style.alignment = .center
-            style.lineBreakMode = .byTruncatingTail
-            let font = NSFont.systemFont(ofSize: 12.5 * u)
-            let text = NSAttributedString(string: url, attributes: [.font: font, .paragraphStyle: style])
-            let w = max(field.width - 16 * u, 0)
-            let storage = NSTextStorage(attributedString: text)
-            let lm = NSLayoutManager()
-            let tc = NSTextContainer(size: NSSize(width: w, height: 1000))
-            tc.lineFragmentPadding = 0
-            tc.maximumNumberOfLines = 1
-            lm.addTextContainer(tc); storage.addLayoutManager(lm)
-            lm.ensureLayout(for: tc)
-            let trunc = lm.truncatedGlyphRange(inLineFragmentForGlyphAt: 0)
-            let used = lm.usedRect(for: tc)
-            var out = "PROBE tk1 u=\(u) w=\(w) truncated \(trunc) used \(used)"
-            let ctFont = CTFontCreateUIFontForLanguage(.system, 12.5 * u, nil)!
-            let attrs: [CFString: Any] = [kCTFontAttributeName: ctFont]
-            func width(_ s: String) -> Double {
-                CTLineGetTypographicBounds(CTLineCreateWithAttributedString(CFAttributedStringCreate(nil, s as CFString, attrs as CFDictionary)), nil, nil, nil)
-            }
-            out += " | prefixes:"
-            for n in 30...60 { out += String(format: " %d=%.2f/%.2f", n, width(String(url.prefix(n))), width(String(url.prefix(n)) + "\u{2026}")) }
-            print(out)
-        }
+    func testProbeKappa() {
+        let r = CGRect(x: 0, y: 0, width: 4000, height: 3000)
+        let a = Self.points(NSBezierPath(roundedRect: r, xRadius: 1000, yRadius: 1000).cgPath)
+        // M(1000,3000) C(c1)(c2)(0,2000): c1.x = 1000 - k*1000.
+        print(String(format: "PROBE kappa round %.12f %.12f", (1000 - a[1].x) / 1000, (a[2].y - 2000) / 1000))
+        let o = Self.points(NSBezierPath(ovalIn: CGRect(x: -1000, y: -1000, width: 2000, height: 2000)).cgPath)
+        let k = hypot(o[1].x - o[0].x, o[1].y - o[0].y) / 1000
+        print(String(format: "PROBE kappa oval %.12f start (%.9f, %.9f) all %@", k, o[0].x, o[0].y, o.map { String(format: "(%.6f,%.6f)", $0.x, $0.y) }.joined()))
     }
 }

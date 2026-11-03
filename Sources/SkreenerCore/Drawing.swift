@@ -25,8 +25,9 @@ extension RGBColor {
 enum Draw {
     static func srgb(_ v: Int) -> CGColor { RGBColor.hex(v).cgColor }
 
-    /// The control-point distance of a quarter circle drawn as one cubic Bézier, as a share of its radius.
-    private static let kappa: CGFloat = 4 / 3 * (2.squareRoot() - 1)
+    /// The control-point distance of a quarter circle drawn as one cubic Bézier, as a share of its radius: AppKit's
+    /// value, measured from NSBezierPath (a hair above the textbook 4/3 (√2 − 1)). [verify]
+    private static let kappa: CGFloat = 0.5522895
 
     /// A rounded rect built as NSBezierPath built it (the same start, direction and control points), so edges and
     /// strokes come out identical. Each radius is clamped to half its side, as AppKit's were.
