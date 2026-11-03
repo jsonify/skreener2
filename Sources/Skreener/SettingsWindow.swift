@@ -383,6 +383,14 @@ final class SettingsWindowController: NSWindowController {
                            "Wraps the code in ``` fences. Off: copied as plain code.",
                            Preferences.codeAsMarkdown) { Preferences.codeAsMarkdown = $0 },
                 ]),
+                group("Capture Table", [
+                    row("Copy tables as", "CSV and TSV also paste as cells in Numbers, Excel and Google Sheets. "
+                        + "Markdown uses the first row as the header.", tableFormatPopup()),
+                    toggle("Check the table before copying",
+                           "Opens the table in a grid to fix cells and pick the format; Copy to Clipboard (⌘Return) copies it. "
+                           + "Off: copied straight away.",
+                           Preferences.tableScratchPad) { Preferences.tableScratchPad = $0 },
+                ]),
                 group("Confirmation", [
                     row("Confirmation style", "When a capture opens no editor, Quick Access preview or pin (for example "
                         + "with only Copy or Save on, or Capture Text).", confirmationPopup()),
@@ -602,6 +610,20 @@ final class SettingsWindowController: NSWindowController {
         bind(popup) {
             let raw = ($0 as? PillPopUp)?.selectedItem?.representedObject as? String
             Preferences.confirmationStyle = raw.flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud
+        }
+        return popup
+    }
+
+    private func tableFormatPopup() -> PillPopUp {
+        let popup = lcdPopUp()
+        popup.setAccessibilityLabel("Copy tables as")
+        for format in TableText.Format.allCases {
+            popup.addItem(withTitle: format.title); popup.lastItem?.representedObject = format.rawValue
+        }
+        popup.selectItem(at: TableText.Format.allCases.firstIndex(of: Preferences.tableFormat) ?? 0)
+        bind(popup) {
+            let raw = ($0 as? PillPopUp)?.selectedItem?.representedObject as? String
+            Preferences.tableFormat = raw.flatMap(TableText.Format.init(rawValue:)) ?? .csv
         }
         return popup
     }

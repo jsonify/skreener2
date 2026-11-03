@@ -3,7 +3,7 @@ import AppKit
 /// What the user chose in the record-area picker.
 enum RecordPick {
     case video(NSScreen, CGRect), gif(NSScreen, CGRect)        // global, bottom-left origin coordinates
-    case screenshot(NSScreen, CGRect), text(NSScreen, CGRect), timer(NSScreen, CGRect)
+    case screenshot(NSScreen, CGRect), text(NSScreen, CGRect), table(NSScreen, CGRect), timer(NSScreen, CGRect)
     case scrolling(NSScreen, CGRect), livePin(NSScreen, CGRect)
     case fullscreenShot, window
     /// Space in the picker: pick a window to record instead.
@@ -430,7 +430,7 @@ final class RecordAreaPicker: NSObject {
         let modes: [(String, String, RecordPick?)] = [
             ("viewfinder", "Area", nil), ("display", "Fullscreen", .fullscreenShot), ("macwindow", "Window", .window),
             ("arrow.down", "Scrolling", nil), ("timer", "Timer", nil), ("textformat", "OCR", nil),
-            ("pip", "Live Pin", nil), ("video", "Recording", nil),
+            ("tablecells", "Table", nil), ("pip", "Live Pin", nil), ("video", "Recording", nil),
         ]
         var buttons: [TileButton] = []
         for (sym, title, pick) in modes {
@@ -445,6 +445,9 @@ final class RecordAreaPicker: NSObject {
             case "OCR":
                 b.toolTip = "Copy the text in the selected area"
                 bind(b) { [weak self] _ in guard let self else { return }; finish(.text(screen, globalSelection)) }
+            case "Table":
+                b.toolTip = "Copy the table in the selected area as CSV, TSV or Markdown"
+                bind(b) { [weak self] _ in guard let self else { return }; finish(.table(screen, globalSelection)) }
             case "Scrolling":
                 b.toolTip = "Scrolling capture of the selected area"
                 bind(b) { [weak self] _ in guard let self else { return }; finish(.scrolling(screen, globalSelection)) }
@@ -463,8 +466,8 @@ final class RecordAreaPicker: NSObject {
         }
         // Three trays, split where CleanShot puts its dividers: the screenshots, text and pins, recording.
         let row = NSStackView(views: [KeycapTray(Array(buttons[0..<5]), caption: "Capture"),
-                                      KeycapTray(Array(buttons[5..<7]), caption: "Text & Pin"),
-                                      KeycapTray(Array(buttons[7...]), caption: "Record")])
+                                      KeycapTray(Array(buttons[5..<8]), caption: "Text & Pin"),
+                                      KeycapTray(Array(buttons[8...]), caption: "Record")])
         row.spacing = 10
         row.alignment = .top
         row.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 8, right: 12)

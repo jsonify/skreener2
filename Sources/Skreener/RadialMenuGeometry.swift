@@ -45,6 +45,7 @@ enum RadialMenuGeometry {
         Slice(action: .captureScrolling, title: "Scrolling", symbol: "arrow.up.and.down.text.horizontal"),
         Slice(action: .captureText, title: "Text", symbol: "text.viewfinder", options: [
             Option(action: .captureCode, title: "Code", symbol: "chevron.left.forwardslash.chevron.right"),
+            Option(action: .captureTable, title: "Table", symbol: "tablecells"),
             Option(action: .scanQRCode, title: "QR Code", symbol: "qrcode"),
         ]),
         Slice(action: .recordScreen, title: "Record", symbol: "record.circle", options: [

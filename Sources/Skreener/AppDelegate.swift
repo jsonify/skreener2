@@ -71,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             .captureScrolling: { [weak self] in self?.captureScrolling() },
             .captureText: { [weak self] in self?.captureText() },
             .captureCode: { [weak self] in self?.captureCode() },
+            .captureTable: { [weak self] in self?.captureTable() },
             .scanQRCode: { [weak self] in self?.scanQRCode() },
             .timedArea: { [weak self] in self?.timedArea() },
             .timedWindow: { [weak self] in self?.timedWindow() },
@@ -649,6 +650,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             run(screen: screen) { try await CaptureService.captureScreen(screen, globalRect: rect) }
         case .text(let screen, let rect)?:
             run(screen: screen, { try await CaptureService.captureScreen(screen, globalRect: rect) }) { self.copyText($0, screen: screen) }
+        case .table(let screen, let rect)?:
+            run(screen: screen, { try await CaptureService.captureScreen(screen, globalRect: rect) }) { self.copyTable($0, screen: screen) }
         case .timer(let screen, let rect)?:
             lastArea = (screen, rect)
             selfTimer.start(seconds: Preferences.selfTimerSeconds, completion: { [weak self] in
@@ -878,6 +881,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             Sound.play("Pop")
             let lines = code.split(separator: "\n").count
             Notifier.confirm(lines == 1 ? "Copied 1 line of code" : "Copied \(lines) lines of code")
+        }
+    }
+
+    /// Capture Table: OCR an area and copy its table as CSV, TSV or Markdown, after checking it in the table pad (#248).
+    @objc func captureTable() {
+        prepareCapture { [weak self] in
+            self?.overlay.begin(mode: .area, windows: []) { [weak self] sel in
+                guard let self, case .area(let screen, let rect, let frozen)? = sel else { self?.endCapture(); return }
+                run(screen: screen, areaCapture(screen, rect, frozen)) { self.copyTable($0, screen: screen) }
+            }
+        }
+    }
+
+    private func copyTable(_ image: NSImage, screen: NSScreen?) {
+        Task { @MainActor in
+            let grid = await TextRecognizer.table(in: image)
+            guard !grid.isEmpty else {
+                Notifier.problem("No table found", detail: "Skreener couldn't find any text in the area.")
+                return
+            }
+            if Preferences.tableScratchPad {
+                TableScratchPad.show(grid, on: screen)
+                return
+            }
+            let format = Preferences.tableFormat
+            TextRecognizer.copyTable(grid, as: format)
+            Sound.play("Pop")
+            Notifier.confirm("Copied a table as \(format.title)", detail: grid.count == 1 ? "1 row" : "\(grid.count) rows")
         }
     }
 
