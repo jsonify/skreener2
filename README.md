@@ -470,5 +470,5 @@ at the top of that file.
 
 ## Roadmap
 
-See [TODO.md](TODO.md) for what is done, in progress and planned, and [CHANGELOG.md](CHANGELOG.md) for released
-changes.
+Planned work lives in [GitHub Issues](https://github.com/jsonify/skreener2/issues), and [CHANGELOG.md](CHANGELOG.md)
+lists released changes.

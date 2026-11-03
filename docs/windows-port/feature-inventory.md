@@ -6,9 +6,9 @@ Windows API facts are from general knowledge and were NOT verified in this Linux
 marked **[verify]** needs a spike before it is relied on.
 
 Caveats about the source itself:
-- `TODO.md` marks 97 of 103 items `[~]` ("written, not yet compiled/tested on macOS"), only 6 `[x]`. The macOS code is the
+- `TODO.md` (since removed; the roadmap is now GitHub Issues) marked 97 of 103 items `[~]` ("written, not yet compiled/tested on macOS"), only 6 `[x]`. The macOS code is the
   spec but much of it has never been confirmed on a Mac, so "does what the code says" is not proof of "works".
-- Not implemented anywhere (TODO `[ ]`): Do-Not-Disturb while recording (#23), Studio Mode (#24), webcam overlay (#25),
+- Not implemented anywhere (TODO `[ ]` when this was written): Do-Not-Disturb while recording (#23), Studio Mode (#24), webcam overlay (#25),
   live stitched preview (#28), upload to S3/custom endpoint (#33), CleanShot-style default hotkeys (#35). Out of scope here.
 - Complexity key (re-implementing on Windows, one competent dev, assuming the UI toolkit/2D engine is chosen):
   **S** <= 2 days, **M** ~ 1 week, **L** 1-3 weeks, **XL** > 3 weeks or research-grade risk.

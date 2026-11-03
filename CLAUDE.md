@@ -1,6 +1,7 @@
 # Skreener
 
-macOS menu-bar screenshot app (Swift/AppKit, SwiftPM). See README.md for features and TODO.md for the roadmap.
+macOS menu-bar screenshot app (Swift/AppKit, SwiftPM). See README.md for features; the roadmap
+lives in GitHub Issues (there is no TODO list).
 
 - Build: `Scripts/build_app.sh` (macOS only). CI builds with `SKREENER_STRICT=1`, which passes
   `-warnings-as-errors`, on the newest Xcode on the runner.
