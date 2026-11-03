@@ -107,7 +107,7 @@ final class RecordingZoomTests: XCTestCase {
         // Halfway through easing in (and out) the zoom is halfway.
         XCTAssertEqual(cam.level(at: 2 + AutoZoom.ease / 2), 1.5, accuracy: 1e-9)
         XCTAssertEqual(cam.level(at: 6 - AutoZoom.ease / 2), 1.5, accuracy: 1e-9)
-        assertRect(cam.crop(at: 2.3), CGRect(x: 500 - 1000 / 3, y: 250 - 500 / 3, width: 2000 / 3, height: 1000 / 3))
+        assertRect(cam.crop(at: 2.3), CGRect(x: 500 - 1000.0 / 3, y: 250 - 500.0 / 3, width: 2000.0 / 3, height: 1000.0 / 3))
         // Eased: slow at the ends, never past the level.
         XCTAssertLessThan(cam.level(at: 2.1) - 1, (cam.level(at: 2.3) - 1) / 3)
         var last = 1.0
