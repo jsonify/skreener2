@@ -40,7 +40,8 @@ final class RecordingRendererTests: XCTestCase {
         let asset = AVURLAsset(url: out)
         let duration = try await asset.load(.duration).seconds
         XCTAssertEqual(duration, 1, accuracy: 0.15)
-        let track = try XCTUnwrap(try await asset.loadTracks(withMediaType: .video).first)
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        let track = try XCTUnwrap(tracks.first)
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
