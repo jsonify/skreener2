@@ -38,6 +38,9 @@ jobs:
           swift --version
       - name: Unit tests (warnings are errors)
         run: swift test -Xswiftc -warnings-as-errors
+      # SkreenerCore is shared with the iOS Share Extension (#396), so it must keep building for iOS.
+      - name: Compile SkreenerCore for iOS (warnings are errors)
+        run: xcodebuild build -scheme SkreenerCore -destination 'generic/platform=iOS' OTHER_SWIFT_FLAGS='-warnings-as-errors'
       - name: Build Universal app (warnings are errors)
         run: ./Scripts/build_app.sh
         env:
