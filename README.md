@@ -174,6 +174,10 @@ Menu Bar → Expanded).
 - **Capture Code** (the radial menu's Text options, its shortcut or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
   copies the text with its indentation kept and common OCR mistakes fixed (curly quotes, `l`/`O` inside numbers).
   Settings can copy it as a Markdown code block.
+- **Capture Table** (the radial menu's Text options, Table in All-in-One, its shortcut or `skreener://ocr/table`)
+  copies a table from a web page, PDF or video frame as CSV, TSV or Markdown, with the columns kept. It opens in a
+  grid first, where cells can be fixed and the format picked; Settings sets the format and can copy straight away.
+  CSV and TSV also paste as cells into Numbers, Excel and Google Sheets.
 - In the editor, **Copy Text** copies the text from the whole screenshot or from a dragged area. **Redact** finds
   text, emails, phone numbers or links and pixelates them. The **Redact Text** tool finds the words you type
   (several at once, with Match Case, Whole Word, Regex and Fuzzy options), highlights every match so you can click

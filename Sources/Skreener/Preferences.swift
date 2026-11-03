@@ -326,6 +326,16 @@ enum Preferences {
         pasteDestinationNames[key] = nil
         pasteBannerShown.remove(key)
     }
+    /// What Capture Table copies a table as (#248); the table pad's format menu changes it too.
+    static var tableFormat: TableText.Format {
+        get { d.string(forKey: "tableFormat").flatMap(TableText.Format.init(rawValue:)) ?? .csv }
+        set { d.set(newValue.rawValue, forKey: "tableFormat") }
+    }
+    /// Capture Table opens the table in a scratch pad to check and fix before copying (#248). Off: copied straight away.
+    static var tableScratchPad: Bool {
+        get { d.object(forKey: "tableScratchPad") as? Bool ?? true }
+        set { d.set(newValue, forKey: "tableScratchPad") }
+    }
     /// Capture Code copies a Markdown fenced code block instead of plain code (#249).
     static var codeAsMarkdown: Bool {
         get { d.object(forKey: "codeAsMarkdown") as? Bool ?? false }
