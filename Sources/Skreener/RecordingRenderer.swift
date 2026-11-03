@@ -27,6 +27,8 @@ enum RecordingRenderer {
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         let size = try await track.load(.naturalSize)
         let range = try await track.load(.timeRange)
+        // To the end of the recording: a video whose screen stopped changing holds its last frame to there (#380).
+        let end = CMTimeMaximum(range.end, try await asset.load(.duration))
         let width = Int(size.width), height = Int(size.height)
         let rate = max(1, fps)
 
@@ -88,7 +90,7 @@ enum RecordingRenderer {
         }
         let start = CMSampleBufferGetPresentationTimeStamp(first)
         writer.startSession(atSourceTime: start)
-        let painter = FramePainter(output: frames, adaptor: adaptor, first: first, start: start, end: range.end,
+        let painter = FramePainter(output: frames, adaptor: adaptor, first: first, start: start, end: end,
                                    fps: Int32(rate), draw: draw)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             let group = DispatchGroup()

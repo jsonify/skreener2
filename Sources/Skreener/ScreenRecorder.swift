@@ -48,6 +48,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var pauseStart = CMTime.invalid
     private var pausedTotal = CMTime.zero
     private var sessionStart = CMTime.zero
+    /// The last video frame written (retimed), and how long a frame lasts at the recording's frame rate.
+    private var lastFramePTS = CMTime.invalid
+    private var frameDuration = CMTime(value: 1, timescale: 30)
     // The same pause bookkeeping in seconds, for `videoTime(hostTime:)` from any thread.
     private let clockLock = NSLock()
     private var clock = RecordingClock()
@@ -72,7 +75,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             cfg.sourceRect = CGRect(x: rect.minX - screen.frame.minX, y: screen.frame.maxY - rect.maxY,
                                     width: rect.width, height: rect.height)
         }
-        cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.fps))
+        cfg.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, options.fps)))
         cfg.showsCursor = options.showsCursor
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
         cfg.queueDepth = 6
@@ -125,6 +128,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             self.micInput = mic
             self.stream = stream
             self.display = display
+            self.frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(1, options.fps)))
             if self.included == nil { self.included = including }
         }
         do { try await stream.startCapture() } catch {
@@ -198,11 +202,26 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     func stop() {
+        // The moment Stop was pressed: the video runs until then, even if the screen stopped changing earlier.
+        let stopped = CMClockGetTime(CMClockGetHostTimeClock())
         Task { [self] in
             let stream = queue.sync { self.stream }
             try? await stream?.stopCapture()
-            queue.async { self.finish(nil) }
+            queue.async { self.finish(nil, stoppedAt: stopped) }
         }
+    }
+
+    /// Where the video ends when recording stops at host time `stop`: that moment on the retimed timeline (time
+    /// paused left out, so `stop - pausedTotal`; stopped while paused, the moment the pause began), but never before
+    /// the last frame written has lasted `frameDuration`. ScreenCaptureKit only delivers frames when the screen
+    /// changes, so without this the video would end at the last change, cutting off a still end (and the cursor
+    /// movement and clicks drawn over it).
+    static func sessionEnd(stop: CMTime, pauseStart: CMTime, pausedTotal: CMTime, lastFrame: CMTime,
+                           frameDuration: CMTime) -> CMTime {
+        let moment = pauseStart.isValid && CMTimeCompare(pauseStart, stop) <= 0 ? pauseStart : stop
+        let end = CMTimeSubtract(moment, pausedTotal)
+        guard lastFrame.isValid else { return end }
+        return CMTimeMaximum(end, CMTimeAdd(lastFrame, frameDuration))
     }
 
     // MARK: SCStreamOutput / SCStreamDelegate (on `queue`, or ScreenCaptureKit's own queue for errors)
@@ -218,7 +237,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        queue.async { self.finish(error) }
+        let stopped = CMClockGetTime(CMClockGetHostTimeClock())
+        queue.async { self.finish(error, stoppedAt: stopped) }
     }
 
     // MARK: Writing (on `queue`)
@@ -238,6 +258,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             clockLock.unlock()
         }
         if input.isReadyForMoreMediaData, input.append(shifted) {
+            lastFramePTS = pts
             onFrame?(CMTimeSubtract(pts, sessionStart).seconds)
         }
     }
@@ -268,7 +289,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         return out
     }
 
-    private func finish(_ error: Error?) {
+    private func finish(_ error: Error?, stoppedAt stop: CMTime) {
         guard !finished else { return }
         finished = true
         guard let writer, sessionStarted else {
@@ -278,6 +299,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             return
         }
         [videoInput, audioInput, micInput].forEach { $0?.markAsFinished() }
+        // The last frame is held until Stop, and audio past that is cut, so the tracks end together.
+        writer.endSession(atSourceTime: Self.sessionEnd(stop: stop, pauseStart: paused ? pauseStart : .invalid,
+                                                        pausedTotal: pausedTotal, lastFrame: lastFramePTS,
+                                                        frameDuration: frameDuration))
         writer.finishWriting { [self] in
             queue.async { [self] in
                 guard let writer = self.writer else { return }
