@@ -503,6 +503,10 @@ final class SettingsWindowController: NSWindowController {
                 group("Video", [
                     row("Frame rate", fps),
                     toggle("Show cursor", nil, Preferences.recordShowsCursor) { Preferences.recordShowsCursor = $0 },
+                    toggle("Record for editing",
+                           "Keeps the screen video without the cursor, clicks, keystrokes and spotlight, plus a record of "
+                               + "them, so they can be changed later. The saved MP4 looks the same. Not for GIFs.",
+                           Preferences.recordForEditing) { Preferences.recordForEditing = $0 },
                     toggle("Compress recordings after stopping",
                            "Re-encodes as HEVC when that makes the file smaller. Takes a while for long recordings; GIFs are not changed.",
                            Preferences.compressRecordings) { Preferences.compressRecordings = $0 },

@@ -129,22 +129,28 @@ final class RecordingEffects {
     }
 
     private func key(_ e: NSEvent) {
+        guard let k = Self.keystroke(e) else { return }
+        view?.show(k.text, append: k.append)
+    }
+
+    /// What the keystroke display shows for a key press: the text, and whether it is added to the text showing
+    /// (plain typing) rather than replacing it. Nil for keys it doesn't show. Also used for the event track (#380).
+    static func keystroke(_ e: NSEvent) -> (text: String, append: Bool)? {
         let mods = e.modifierFlags.intersection([.control, .option, .shift, .command])
         let isShortcut = !mods.intersection([.control, .option, .command]).isEmpty
-        if Preferences.keystrokesOnlyShortcuts && !isShortcut { return }
+        if Preferences.keystrokesOnlyShortcuts && !isShortcut { return nil }
         let name = Self.keyName(e)
-        guard !name.isEmpty else { return }
+        guard !name.isEmpty else { return nil }
         if isShortcut || mods == .shift && name.count > 1 {
             var s = ""
             if mods.contains(.control) { s += "⌃" }
             if mods.contains(.option) { s += "⌥" }
             if mods.contains(.shift) { s += "⇧" }
             if mods.contains(.command) { s += "⌘" }
-            view?.show(s + name.uppercased(), append: false)
-        } else {
-            // Plain typing runs together in one pill until a pause.
-            view?.show(mods.contains(.shift) ? name.uppercased() : name, append: name.count == 1)
+            return (s + name.uppercased(), false)
         }
+        // Plain typing runs together in one pill until a pause.
+        return (mods.contains(.shift) ? name.uppercased() : name, name.count == 1)
     }
 
     private static func keyName(_ e: NSEvent) -> String {
@@ -201,8 +207,8 @@ private final class EffectsView: NSView {
         spotlightFlat.forEach(spotlightRoot.addSublayer)
         layer?.addSublayer(spotlightRoot)
         pillBox.wantsLayer = true
-        pillBox.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
-        pillBox.layer?.cornerRadius = 10
+        pillBox.layer?.backgroundColor = NSColor.black.withAlphaComponent(EffectsLook.pillAlpha).cgColor
+        pillBox.layer?.cornerRadius = EffectsLook.pillCornerRadius
         pillBox.isHidden = true
         pill.textColor = .white
         pill.alignment = .center
@@ -242,38 +248,38 @@ private final class EffectsView: NSView {
         ring.frame = CGRect(x: p.x - d / 2, y: p.y - d / 2, width: d, height: d)
         ring.path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: d, height: d), transform: nil)
         let color = ClickStyle.color
-        ring.fillColor = color.withAlphaComponent(0.3).cgColor
+        ring.fillColor = color.withAlphaComponent(EffectsLook.ringFillAlpha).cgColor
         ring.strokeColor = color.cgColor
-        ring.lineWidth = 3
+        ring.lineWidth = EffectsLook.ringLineWidth
         root.addSublayer(ring)
+        // The renderer draws the same animation from `RecordingEvents.rings(at:)` (ease-out = `EffectsLook.easeOut`).
         let scale = CABasicAnimation(keyPath: "transform.scale")
-        scale.fromValue = 0.4; scale.toValue = 1
+        scale.fromValue = EffectsLook.ringStartScale; scale.toValue = 1
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1; fade.toValue = 0
         let group = CAAnimationGroup()
         group.animations = [scale, fade]
-        group.duration = 0.5
+        group.duration = EffectsLook.ringDuration
         group.timingFunction = CAMediaTimingFunction(name: .easeOut)
         ring.opacity = 0
         ring.add(group, forKey: "click")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { ring.removeFromSuperlayer() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + EffectsLook.ringDuration + 0.1) { ring.removeFromSuperlayer() }
     }
 
     /// Shows `text` in the pill (or adds it to what is showing), then hides it after a pause.
     func show(_ text: String, append: Bool) {
         let current = pillBox.isHidden ? "" : pill.stringValue
         var s = append ? current + text : text
-        if s.count > 40 { s = String(s.suffix(40)) }
+        if s.count > EffectsLook.pillMaxCharacters { s = String(s.suffix(EffectsLook.pillMaxCharacters)) }
         pill.stringValue = s
         pill.font = .systemFont(ofSize: CGFloat(Preferences.keystrokeSize), weight: .semibold)
         pill.sizeToFit()
-        let pad = CGFloat(Preferences.keystrokeSize) * 0.6
-        let size = NSSize(width: pill.frame.width + pad * 2, height: pill.frame.height + pad)
-        let y = Preferences.keystrokesAtTop ? bounds.maxY - size.height - 24 : 24
-        pillBox.frame = NSRect(x: (bounds.width - size.width) / 2, y: y, width: size.width, height: size.height)
+        let pad = EffectsLook.pillPadding(fontSize: CGFloat(Preferences.keystrokeSize))
+        pillBox.frame = EffectsLook.pillFrame(textSize: pill.frame.size, padding: pad, edgeInset: EffectsLook.pillEdgeInset,
+                                              in: bounds, atTop: Preferences.keystrokesAtTop)
         pill.frame.origin = NSPoint(x: pad, y: pad / 2)
         pillBox.isHidden = false
         hideTimer?.invalidate()
-        hideTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { [weak self] _ in self?.pillBox.isHidden = true }
+        hideTimer = Timer.scheduledTimer(withTimeInterval: EffectsLook.pillHold, repeats: false) { [weak self] _ in self?.pillBox.isHidden = true }
     }
 }

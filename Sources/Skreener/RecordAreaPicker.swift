@@ -576,6 +576,7 @@ final class RecordAreaPicker: NSObject {
         fps.action = #selector(Action.fire(_:))
         let fpsRow = NSStackView(views: [fps, NSView()])
         views.append(fpsRow)
+        row("Record for editing", { Preferences.recordForEditing }) { Preferences.recordForEditing = $0 }
 
         let stack = NSStackView(views: views)
         stack.orientation = .vertical
