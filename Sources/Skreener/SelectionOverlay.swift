@@ -669,10 +669,18 @@ private final class SelectionView: NSView {
     private static let loupeCells = 15, loupeZoom: CGFloat = 9, loupeGap: CGFloat = 26
     private static var loupeSide: CGFloat { CGFloat(loupeCells) * loupeZoom }
 
-    /// Pixel magnifier with the cursor's position (points, top-left origin) underneath.
+    /// Room under the lens for the coordinates chip, clear of the bezel.
+    private static let loupeLabelH: CGFloat = 30
+    /// The width of the loupe's charcoal bezel, outside the lens.
+    private static let loupeBezel: CGFloat = 7
+
+    /// Pixel magnifier with the cursor's position (points, top-left origin) underneath: a round SK-1 loupe, the
+    /// pixels behind an LCD glass (olive at the rim, clear in the middle, with a faint pixel grid and a sheen) in a
+    /// charcoal bezel, the pointer's pixel ringed in orange.
     private func drawLoupe(at p: NSPoint) {
         guard let snap = snapshot, bounds.width > 0, bounds.height > 0 else { return }
-        let cells = Self.loupeCells, zoom = Self.loupeZoom, side = Self.loupeSide, labelH: CGFloat = 22, gap = Self.loupeGap
+        let cells = Self.loupeCells, zoom = Self.loupeZoom, side = Self.loupeSide, labelH = Self.loupeLabelH
+        let gap = Self.loupeGap, bezel = Self.loupeBezel
         let sx = CGFloat(snap.width) / bounds.width, sy = CGFloat(snap.height) / bounds.height
         let ix = Int(floor(p.x * sx)), iy = Int(floor((bounds.height - p.y) * sy))
         // NSImage uses a bottom-left origin, so flip the row index.
@@ -680,23 +688,64 @@ private final class SelectionView: NSView {
                          width: CGFloat(cells), height: CGFloat(cells))
 
         var box = NSRect(x: p.x + gap, y: p.y - gap - side - labelH, width: side, height: side + labelH)
-        if box.maxX > bounds.maxX - 4 { box.origin.x = p.x - gap - side }
+        if box.maxX > bounds.maxX - 4 - bezel { box.origin.x = p.x - gap - side }
         if box.minY < 4 { box.origin.y = p.y + gap }
         let img = NSRect(x: box.minX, y: box.minY + labelH, width: side, height: side)
+        let lens = NSBezierPath(ovalIn: img)
+        let rim = NSBezierPath(ovalIn: img.insetBy(dx: -bezel, dy: -bezel))
 
+        // The bezel: charcoal, lit from the top, casting a shadow like a window.
         NSGraphicsContext.saveGraphicsState()
-        let shape = NSBezierPath(roundedRect: img, xRadius: 10, yRadius: 10)
-        shape.addClip()
+        let drop = NSShadow()
+        drop.shadowColor = NSColor.black.withAlphaComponent(0.45)
+        drop.shadowBlurRadius = 10
+        drop.shadowOffset = NSSize(width: 0, height: -3)
+        drop.set()
+        Retro.color(Retro.light.charcoalBottom).setFill()
+        rim.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSGradient(colors: [Retro.color(Retro.light.charcoalSkirt), Retro.color(Retro.light.charcoalTop),
+                            Retro.color(0x5a5852)], atLocations: [0, 0.55, 1], colorSpace: .sRGB)?.draw(in: rim, angle: 90)
+        NSColor.black.withAlphaComponent(0.6).setStroke()
+        rim.lineWidth = 1; rim.stroke()
+
+        // The pixels, behind the glass.
+        NSGraphicsContext.saveGraphicsState()
+        lens.addClip()
         NSColor.black.setFill(); img.fill()
         NSGraphicsContext.current?.imageInterpolation = .none
         snapshotImage?.draw(in: img, from: src, operation: .copy, fraction: 1)
+        // A faint grid between the magnified pixels, like an LCD's.
+        let grid = NSBezierPath()
+        var x = img.minX + zoom
+        while x < img.maxX - 0.5 { grid.appendRect(NSRect(x: x - 0.5, y: img.minY, width: 1, height: side)); x += zoom }
+        var y = img.minY + zoom
+        while y < img.maxY - 0.5 { grid.appendRect(NSRect(x: img.minX, y: y - 0.5, width: side, height: 1)); y += zoom }
+        NSColor.black.withAlphaComponent(0.07).setFill()
+        grid.fill()
+        // The LCD glass: a radial gradient, clear in the middle so the pixels keep their colours, olive toward the rim.
+        NSGradient(colors: [Retro.color(Retro.glassTop, alpha: 0), Retro.color(Retro.glassMiddle, alpha: 0.12),
+                            Retro.color(Retro.glassBottom, alpha: 0.5)],
+                   atLocations: [0, 0.6, 1], colorSpace: .sRGB)?.draw(in: lens, relativeCenterPosition: .zero)
+        // A sheen across the top left of the glass.
+        NSGradient(colors: [NSColor.white.withAlphaComponent(0.28), NSColor.white.withAlphaComponent(0.06),
+                            NSColor.white.withAlphaComponent(0)], atLocations: [0, 0.35, 0.5],
+                   colorSpace: .sRGB)?.draw(in: lens, angle: -45)
+        // The pointer's pixel: orange over a dark ring, readable on any colour.
         let cell = NSRect(x: img.midX - zoom / 2, y: img.midY - zoom / 2, width: zoom, height: zoom)
-        NSColor.black.setStroke(); NSBezierPath(rect: cell.insetBy(dx: -1, dy: -1)).stroke()
-        NSColor.white.setStroke(); NSBezierPath(rect: cell).stroke()
+        NSColor.black.withAlphaComponent(0.7).setStroke()
+        let outer = NSBezierPath(rect: cell.insetBy(dx: -1, dy: -1)); outer.lineWidth = 1; outer.stroke()
+        Retro.color(Retro.orange).setStroke()
+        let ring = NSBezierPath(rect: cell); ring.lineWidth = 1.5; ring.stroke()
+        // The glass sits in the bezel: a dark inner edge.
+        NSColor.black.withAlphaComponent(0.45).setStroke()
+        lens.lineWidth = 3; lens.stroke()
         NSGraphicsContext.restoreGraphicsState()
-        NSColor.white.setStroke(); shape.lineWidth = 2; shape.stroke()
+        // The bezel's light lip around the glass.
+        NSColor.white.withAlphaComponent(0.18).setStroke()
+        let lip = NSBezierPath(ovalIn: img.insetBy(dx: -0.5, dy: -0.5)); lip.lineWidth = 1; lip.stroke()
 
-        // The coordinates on an LCD chip (#344) under the lens.
+        // The coordinates on an LCD chip (#344) under the lens, clear of the bezel.
         let label = "\(Int(p.x)), \(Int(bounds.height - p.y))"
         let pill = Retro.chipSize(label, padding: NSSize(width: 6, height: 2))
         Retro.drawChip(label, at: NSPoint(x: img.midX - pill.width / 2, y: box.minY + 1), padding: NSSize(width: 6, height: 2))
