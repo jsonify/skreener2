@@ -168,14 +168,22 @@ final class RecordingZoomTests: XCTestCase {
     }
 
     func testTheCameraIsTheSameForAnyOrderOfTimes() {
-        let e = pointer((0..<300).map { i in (Double(i) / 30, 300 + 200 * sin(Double(i) / 20), 250 + 150 * cos(Double(i) / 15)) })
+        var samples: [(Double, Double, Double)] = []
+        for i in 0..<300 {
+            let k = Double(i)
+            let x: Double = 300 + 200 * sin(k / 20)
+            let y: Double = 250 + 150 * cos(k / 15)
+            samples.append((k / 30, x, y))
+        }
+        let e = pointer(samples)
         let s = [ZoomSection(start: 1, end: 5, x: 0, y: 0), fixed(6, 9, at: 200, 100, level: 3)]
-        let times = stride(from: 0.0, through: 10, by: 0.07).map { $0 }
+        let times: [Double] = Array(stride(from: 0.0, through: 10, by: 0.07))
         let cam = ZoomCamera(sections: s, events: e, videoSize: video)
         let forward = times.map { cam.crop(at: $0) }
         let shuffled = times.shuffled()
         let again = ZoomCamera(sections: s, events: e, videoSize: video)
-        let fromShuffled = Dictionary(uniqueKeysWithValues: shuffled.map { ($0, again.crop(at: $0)) })
+        var fromShuffled: [Double: CGRect] = [:]
+        for t in shuffled { fromShuffled[t] = again.crop(at: t) }
         for (t, c) in zip(times, forward) {
             XCTAssertEqual(fromShuffled[t], c)
             XCTAssertEqual(cam.crop(at: t), c)
