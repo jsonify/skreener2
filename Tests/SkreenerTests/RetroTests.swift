@@ -1,5 +1,6 @@
 import XCTest
 @testable import Skreener
+@testable import SkreenerCore
 
 final class RetroTests: XCTestCase {
     func testSevenSegmentDigits() {

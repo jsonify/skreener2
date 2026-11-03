@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import Skreener
+@testable import SkreenerCore
 
 /// The editor document capture history keeps beside each capture (#30).
 final class EditorDocumentTests: XCTestCase {
@@ -165,5 +166,23 @@ final class EditorDocumentTests: XCTestCase {
         CaptureHistory.remove(png)
         XCTAssertFalse(FileManager.default.fileExists(atPath: png.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: CaptureHistory.documentFolder(for: png).path))
+    }
+
+    /// (Moved from DeviceFrameTests, which now lives in SkreenerCoreTests.)
+    func testEditorDocumentSavesAndRestoresTheFrame() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SkreenerTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Frame test.skreener", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
+        let base = TestImages.image(width: 40, height: 30) { r in NSColor.white.setFill(); r.fill() }
+        var f = DeviceFrame()
+        f.kind = .iPad
+        f.dark = true
+        try EditorDocument(deviceFrame: f).write(to: folder, base: base)
+        XCTAssertEqual(try XCTUnwrap(EditorDocument.read(from: folder)).document.deviceFrame, f)
+
+        // Documents saved without a frame (older ones, or None) read back as None.
+        try EditorDocument().write(to: folder, base: nil)
+        XCTAssertTrue(try XCTUnwrap(EditorDocument.read(from: folder)).document.deviceFrame.isNone)
     }
 }

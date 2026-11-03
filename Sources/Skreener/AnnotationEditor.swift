@@ -1,5 +1,6 @@
 import AppKit
 import CoreImage
+import SkreenerCore
 
 enum Tool: Int, CaseIterable {
     /// `.image` is not a toolbar tool: it marks pictures added with Add Image or pasted with ⌘V. Nor is `.ruler`: a
@@ -2351,50 +2352,15 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     override func draw(_ dirtyRect: NSRect) {
         let ctx = NSGraphicsContext.current?.cgContext
         ctx?.saveGState()
-        let device = activeFrame
-        let layout = device.map { $0.layout(around: contentRect) }
-        if let bg = activeBackground {
-            if bg.outerRadius > 0 {
-                NSBezierPath(roundedRect: bounds, xRadius: bg.outerRadius, yRadius: bg.outerRadius).addClip()
-            }
-            bg.drawFill(in: bounds)
-        }
-        if let device, let layout {
-            if let bg = activeBackground {
-                let card = NSBezierPath(roundedRect: layout.outer.insetBy(dx: -bg.inset, dy: -bg.inset),
-                                        xRadius: layout.outerRadius + bg.inset, yRadius: layout.outerRadius + bg.inset)
-                if bg.shadow > 0 {
-                    ctx?.saveGState()
-                    ctx?.setShadow(offset: CGSize(width: 0, height: -8), blur: 28,
-                                   color: NSColor.black.withAlphaComponent(0.8 * bg.shadow).cgColor)
-                    device.bodyColor.setFill(); card.fill()
-                    ctx?.restoreGState()
-                }
-                if bg.inset > 0 { device.bodyColor.setFill(); card.fill() }
-            }
-            device.drawChrome(layout)
-            device.outerPath(layout).addClip()
-            device.screenPath(layout).addClip()
-        } else if let bg = activeBackground {
-            let cardRect = contentRect.insetBy(dx: -bg.inset, dy: -bg.inset)
-            let card = NSBezierPath(roundedRect: cardRect, xRadius: bg.cornerRadius, yRadius: bg.cornerRadius)
-            if bg.shadow > 0 {
-                ctx?.saveGState()
-                ctx?.setShadow(offset: CGSize(width: 0, height: -8), blur: 28,
-                               color: NSColor.black.withAlphaComponent(0.8 * bg.shadow).cgColor)
-                backdrop.setFill(); card.fill()
-                ctx?.restoreGState()
-            }
-            if bg.inset > 0 {
-                // The inset is a frame in the screenshot's edge color; the screenshot's corners follow the card's.
-                backdrop.setFill(); card.fill()
-                let inner = max(bg.cornerRadius - bg.inset, 0)
-                NSBezierPath(roundedRect: contentRect, xRadius: inner, yRadius: inner).addClip()
-            } else {
-                card.addClip()
-            }
+        // The background, frame or card, and the clip for the screenshot (SkreenerCore, shared with iOS).
+        let bg = activeBackground
+        let layout: DeviceFrame.Layout?
+        if let ctx {
+            layout = Framing.drawUnderlay(in: ctx, bounds: bounds, content: contentRect, frame: activeFrame, background: bg,
+                                          picture: bg?.picture, fallback: NSColor.windowBackgroundColor.cgColor,
+                                          backdrop: bg == nil ? CGColor(gray: 0, alpha: 0) : backdrop.cgColor)
         } else {
-            NSBezierPath(rect: contentRect).addClip()
+            layout = activeFrame?.layout(around: contentRect)
         }
         // Past the image (grown by annotations, or letterboxed in a device's screen) the screen shows the backdrop.
         let screenRect = layout?.screen ?? contentRect

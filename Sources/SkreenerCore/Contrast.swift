@@ -1,8 +1,8 @@
 import Foundation
 
 /// Contrast between two colors (#109), the way accessibility guidelines measure it.
-enum Contrast {
-    enum Method: String, CaseIterable {
+public enum Contrast {
+    public enum Method: String, CaseIterable {
         /// WCAG 2: a ratio from 1:1 to 21:1.
         case wcag
         /// APCA (the candidate for WCAG 3): a lightness contrast Lc from about -108 to 106; negative for light text
@@ -11,13 +11,13 @@ enum Contrast {
     }
 
     /// The WCAG 2 contrast ratio, 1 to 21 (the order of the colors does not matter).
-    static func wcag(_ a: RGBColor, _ b: RGBColor) -> Double {
+    public static func wcag(_ a: RGBColor, _ b: RGBColor) -> Double {
         let la = a.luminance, lb = b.luminance
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
     /// What a WCAG 2 ratio passes: AAA (7), AA (4.5) or AA for large text and UI (3).
-    static func wcagRating(_ ratio: Double) -> String {
+    public static func wcagRating(_ ratio: Double) -> String {
         // Rounded down to two decimals, so 4.499 doesn't show as 4.50 and pass.
         let r = (ratio * 100).rounded(.down) / 100
         if r >= 7 { return "AAA" }
@@ -28,7 +28,7 @@ enum Contrast {
 
     /// APCA's Lc for `text` on `background` (SAPC-APCA 0.0.98G-4g constants). Black on white is about 106, white on
     /// black about -108.
-    static func apca(text: RGBColor, background: RGBColor) -> Double {
+    public static func apca(text: RGBColor, background: RGBColor) -> Double {
         func y(_ c: RGBColor) -> Double {
             0.2126729 * pow(c.r, 2.4) + 0.7151522 * pow(c.g, 2.4) + 0.0721750 * pow(c.b, 2.4)
         }
@@ -45,7 +45,7 @@ enum Contrast {
     }
 
     /// What an APCA Lc is enough for (by its size, whichever polarity), after APCA's bronze-level guidance.
-    static func apcaRating(_ lc: Double) -> String {
+    public static func apcaRating(_ lc: Double) -> String {
         let v = abs(lc)
         if v >= 90 { return "Any text" }
         if v >= 75 { return "Body text" }
@@ -57,7 +57,7 @@ enum Contrast {
     }
 
     /// One line for the editor: `4.48:1 · AA Large` or `Lc 71 · Content text`.
-    static func summary(text: RGBColor, background: RGBColor, method: Method) -> String {
+    public static func summary(text: RGBColor, background: RGBColor, method: Method) -> String {
         switch method {
         case .wcag:
             let ratio = wcag(text, background)

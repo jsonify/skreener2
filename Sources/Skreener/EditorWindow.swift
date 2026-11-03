@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import SkreenerCore
 
 /// Centers the document view when it is smaller than the viewport (works with scroll-view magnification).
 private final class CenteredClipView: NSClipView {
@@ -2013,7 +2014,7 @@ final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServic
         blurPopup.isHidden = !picture
         let b = bg ?? Preferences.lastBackground
         directionPopup.selectItem(withTag: b.direction.rawValue)
-        if b.colors.count == 2 { gradientFrom.color = b.colors[0]; gradientTo.color = b.colors[1] }
+        if b.colors.count == 2 { gradientFrom.color = b.colors[0].nsColor; gradientTo.color = b.colors[1].nsColor }
         blurPopup.selectItem(withTag: Int(b.imageBlur))
         aspectPopup.selectItem(withTag: Background.aspects.firstIndex { $0.aspect == b.aspect } ?? -1)
         paddingPopup.selectItem(withTag: Int(b.padding))
@@ -2082,7 +2083,7 @@ final class EditorWindowController: NSWindowController, NSMenuDelegate, NSServic
     }
 
     @objc private func gradientColorChanged() {
-        let colors = [gradientFrom.color, gradientTo.color]
+        let colors = [RGBColor(gradientFrom.color), RGBColor(gradientTo.color)]
         changeBackground { b in
             b.fill = Background.customFill
             b.colors = colors

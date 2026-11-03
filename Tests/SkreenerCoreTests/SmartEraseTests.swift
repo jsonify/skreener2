@@ -1,17 +1,16 @@
+import CoreGraphics
 import XCTest
-@testable import Skreener
+@testable import SkreenerCore
 
 /// Smart Erase's fill: the background color around a box.
 final class SmartEraseTests: XCTestCase {
     /// 100 × 100 px: white, with a black square from (30, 30) to (70, 70) (top-left origin) and a red dot in it.
     private func image() -> CGImage {
-        let img = TestImages.image(width: 100, height: 100) { r in
-            NSColor.white.setFill(); r.fill()
-            NSColor.black.setFill(); NSRect(x: 30, y: 30, width: 40, height: 40).fill()
-            NSColor.red.setFill(); NSRect(x: 45, y: 45, width: 4, height: 4).fill()
+        TestImages.image(width: 100, height: 100) { ctx, r in
+            ctx.setFillColor(TestImages.white); ctx.fill(r)
+            ctx.setFillColor(TestImages.black); ctx.fill(CGRect(x: 30, y: 30, width: 40, height: 40))
+            ctx.setFillColor(TestImages.red); ctx.fill(CGRect(x: 45, y: 45, width: 4, height: 4))
         }
-        var r = CGRect(origin: .zero, size: img.size)
-        return img.cgImage(forProposedRect: &r, context: nil, hints: nil)!
     }
 
     private func components(_ c: CGColor?) -> [CGFloat] {

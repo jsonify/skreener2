@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import Skreener
+@testable import SkreenerCore
 
 final class ObjectSnapTests: XCTestCase {
     /// A white 400 × 300 px image with a blue "button" from (100, 80) to (220, 120), top-left origin, and some darker

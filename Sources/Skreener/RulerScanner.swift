@@ -1,3 +1,5 @@
+import SkreenerCore
+
 /// The editor's pixel ruler (#107): from a pixel, how far the same color runs left and right (or up and down), so
 /// holding the ruler over a button measures the button and over a gap measures the gap.
 enum RulerScanner {

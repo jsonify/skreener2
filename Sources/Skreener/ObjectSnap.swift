@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import SkreenerCore
 
 /// Snapping boxes to what's in the screenshot (#123): a box drawn roughly around a button, a field or a card gets that
 /// element's exact edges; Repeat on Similar Objects finds the other places in the screenshot that look like the inside

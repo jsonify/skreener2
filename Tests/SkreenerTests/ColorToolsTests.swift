@@ -1,6 +1,7 @@
 import CoreGraphics
 import XCTest
 @testable import Skreener
+@testable import SkreenerCore
 
 /// The editor's measuring tools: pixel colors and their formats (#108), contrast (#109) and the ruler (#107).
 final class ColorToolsTests: XCTestCase {

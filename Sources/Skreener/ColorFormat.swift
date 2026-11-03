@@ -1,4 +1,5 @@
 import Foundation
+import SkreenerCore
 
 /// How the editor's color picker writes a color (#108): the format is a setting, used for copying, the live pixel
 /// readout and Tab while typing a label.

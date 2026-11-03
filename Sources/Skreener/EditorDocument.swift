@@ -1,4 +1,5 @@
 import AppKit
+import SkreenerCore
 
 /// The editor's state apart from the screenshot itself: the annotations, the crop, the background and the
 /// device frame. Capture history keeps one next to each capture, so reopening it carries on editing instead of starting
