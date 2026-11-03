@@ -23,6 +23,7 @@ No code from CleanShot X was decompiled or copied.
 | macOS | 14 Sonoma or later |
 | Recording with the microphone | macOS 15 Sequoia or later |
 | Building from source | Xcode 16 or later (Swift 5.9+, macOS 15 SDK) |
+| Mac | Apple Silicon or Intel (releases are Universal) |
 
 ## Installation
 
@@ -401,6 +402,9 @@ stable local signing certificate once:
 Scripts/make_dev_cert.sh      # creates "Skreener Dev"; build_app.sh then signs with it automatically
 Scripts/build_app.sh --run    # quits the running copy, rebuilds and relaunches
 ```
+
+`build_app.sh` builds for your Mac's chip only. Set `SKREENER_UNIVERSAL=1` to build a Universal app that also runs on
+the other kind of Mac (Intel or Apple Silicon); `release.sh` and CI always do.
 
 ## Development
 

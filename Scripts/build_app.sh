@@ -6,21 +6,38 @@ cd "$(dirname "$0")/.."
 # appintentsmetadataprocessor and SwiftPM doesn't, so this script runs that tool itself (below). It reads what the
 # compiler knows about the App Intents types (constant values for the protocols listed here, like Xcode's list) and
 # the linker's dependency info, and skips an app that doesn't link AppIntents.framework there.
-INTENTS="$PWD/.build/appintents"
-mkdir -p "$INTENTS"
+# SKREENER_UNIVERSAL=1 (set by release.sh and CI) builds a Universal app that runs on Intel and Apple Silicon Macs;
+# otherwise it is built for this Mac's chip only, which is quicker. Each chip gets its own build (one `swift build` with
+# two --arch flags switches to another build system, which clashes with the native one asked for below), and lipo
+# joins the two binaries.
+if [ "${SKREENER_UNIVERSAL:-}" = "1" ]; then ARCHS=(arm64 x86_64); else ARCHS=("$(uname -m)"); fi
+mkdir -p .build/appintents
 echo '["AppIntent","EntityQuery","AppEntity","TransientEntity","AppEnum","AppShortcutProviding","AppShortcutsProvider",
 "AnyResolverProviding","AppIntentsPackage","DynamicOptionsProvider","_IntentValueRepresentable","IntentValueQuery"]' \
-  > "$INTENTS/protocols.json"
-FLAGS=(-Xswiftc -emit-const-values-path -Xswiftc "$INTENTS/Skreener.swiftconstvalues"
-  -Xswiftc -Xfrontend -Xswiftc -const-gather-protocols-file -Xswiftc -Xfrontend -Xswiftc "$INTENTS/protocols.json"
-  -Xlinker -dependency_info -Xlinker "$INTENTS/link_dependency_info.dat")
-# SKREENER_STRICT=1 (set in CI) turns compiler warnings into errors so none slip through.
-if [ "${SKREENER_STRICT:-}" = "1" ]; then FLAGS+=(-Xswiftc -warnings-as-errors); fi
+  > .build/appintents/protocols.json
 # Newer Swift builds with Swift Build by default, which passes the linker its own -dependency_info: with ours as well
 # the linker writes only one of the two files and the build fails. SwiftPM's native build system passes none, so ask
 # for it where the option exists (the paths below are the native build's too).
-if swift build --help-hidden 2>/dev/null | grep -q -- '--build-system'; then FLAGS=(--build-system native "${FLAGS[@]}"); fi
-swift build -c release "${FLAGS[@]}"
+COMMON=()
+if swift build --help-hidden 2>/dev/null | grep -q -- '--build-system'; then COMMON=(--build-system native); fi
+BINARIES=()
+for ARCH in "${ARCHS[@]}"; do
+  # The compiler and linker files the Shortcuts metadata step reads are per chip, so each build has its own folder.
+  INTENTS="$PWD/.build/appintents/$ARCH"
+  mkdir -p "$INTENTS"
+  # (The ${COMMON[@]+…} form: macOS bash 3.2 with set -u calls an empty array unbound.)
+  FLAGS=(${COMMON[@]+"${COMMON[@]}"} -c release --arch "$ARCH"
+    -Xswiftc -emit-const-values-path -Xswiftc "$INTENTS/Skreener.swiftconstvalues"
+    -Xswiftc -Xfrontend -Xswiftc -const-gather-protocols-file -Xswiftc -Xfrontend -Xswiftc "$PWD/.build/appintents/protocols.json"
+    -Xlinker -dependency_info -Xlinker "$INTENTS/link_dependency_info.dat")
+  # SKREENER_STRICT=1 (set in CI) turns compiler warnings into errors so none slip through.
+  if [ "${SKREENER_STRICT:-}" = "1" ]; then FLAGS+=(-Xswiftc -warnings-as-errors); fi
+  swift build "${FLAGS[@]}"
+  BINARIES+=("$(swift build "${FLAGS[@]}" --show-bin-path)/Skreener")
+done
+# The Shortcuts metadata is the same for every chip, so it is generated once, from the first chip's build.
+META_ARCH="${ARCHS[0]}"
+INTENTS="$PWD/.build/appintents/$META_ARCH"
 APP=build/Skreener.app
 # Version info comes from git, so it changes on its own with every commit and release (#135); nothing to edit by hand.
 # Marketing version (About, Finder): SKREENER_VERSION (release.sh sets it from --version or the tag), else the newest
@@ -38,7 +55,11 @@ if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then COM
 # A running copy keeps the old code (and its hotkeys), so quit it before replacing the bundle.
 pkill -x Skreener 2>/dev/null && sleep 0.5 || true
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp .build/release/Skreener "$APP/Contents/MacOS/Skreener"
+if [ "${#BINARIES[@]}" -gt 1 ]; then
+  lipo -create "${BINARIES[@]}" -output "$APP/Contents/MacOS/Skreener"
+else
+  cp "${BINARIES[0]}" "$APP/Contents/MacOS/Skreener"
+fi
 # App icon and menu bar template image (regenerate with Scripts/make_icons.py).
 cp Resources/AppIcon.icns Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png "$APP/Contents/Resources/"
 # What's New (Help menu) reads the running version's section from the changelog.
@@ -73,11 +94,12 @@ if xcrun --find appintentsmetadataprocessor >/dev/null 2>&1; then
   find "$PWD/Sources/Skreener" -name '*.swift' > "$INTENTS/sources.txt"
   echo "$INTENTS/Skreener.swiftconstvalues" > "$INTENTS/constvalues.txt"
   : > "$INTENTS/metadata.txt"
+  # The tool reads the binary, so it gets the single-chip one its other inputs come from.
   TOOLCHAIN="$(dirname "$(dirname "$(dirname "$(xcrun --find swiftc)")")")"
   xcrun appintentsmetadataprocessor --toolchain-dir "$TOOLCHAIN" --module-name Skreener \
     --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
-    --platform-family macOS --deployment-target 14.0 --target-triple "$(uname -m)-apple-macos14.0" \
-    --bundle-identifier com.skreener.app --output "$APP/Contents/Resources" --binary-file "$APP/Contents/MacOS/Skreener" \
+    --platform-family macOS --deployment-target 14.0 --target-triple "$META_ARCH-apple-macos14.0" \
+    --bundle-identifier com.skreener.app --output "$APP/Contents/Resources" --binary-file "${BINARIES[0]}" \
     --dependency-file "$INTENTS/dependency_info.dat" --stringsdata-file "$INTENTS/ExtractedAppShortcutsMetadata.stringsdata" \
     --source-file-list "$INTENTS/sources.txt" --swift-const-vals-list "$INTENTS/constvalues.txt" \
     --metadata-file-list "$INTENTS/metadata.txt" --static-metadata-file-list "$INTENTS/metadata.txt" \
@@ -106,6 +128,6 @@ else
 fi
 codesign --force --sign "$IDENTITY" "$APP"
 [ "$IDENTITY" = "-" ] && SIGNED="ad-hoc" || SIGNED="\"$IDENTITY\""
-echo "Built $APP $VERSION ($BUILD, $COMMIT) (signed with $SIGNED)"
+echo "Built $APP $VERSION ($BUILD, $COMMIT) for $(lipo -archs "$APP/Contents/MacOS/Skreener") (signed with $SIGNED)"
 # Pass --run to launch it right away.
 if [ "${1:-}" = "--run" ]; then open "$APP"; fi
