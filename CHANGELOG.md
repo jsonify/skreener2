@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0](https://github.com/jsonify/skreener2/compare/v1.11.2...v1.12.0) (2026-11-03)
+
+
+### Features
+
+* **ui:** SK-1 menu bar menu with Compact and Expanded modes ([#371](https://github.com/jsonify/skreener2/issues/371)) ([#374](https://github.com/jsonify/skreener2/issues/374)) ([3b9bb3d](https://github.com/jsonify/skreener2/commit/3b9bb3d5c02f7ba3dcb1d63f3bc6cc56225902d0))
+
+
+### Bug Fixes
+
+* **editor:** canvas grows again when an object is dragged past the screenshot ([#372](https://github.com/jsonify/skreener2/issues/372)) ([#373](https://github.com/jsonify/skreener2/issues/373)) ([0d47041](https://github.com/jsonify/skreener2/commit/0d47041b6ccdd103b5794a86b7c2f544cceb8727))
+
 ## [1.11.2](https://github.com/jsonify/skreener2/compare/v1.11.1...v1.11.2) (2026-11-03)
 
 
