@@ -5,7 +5,9 @@ import UniformTypeIdentifiers
 /// The recording editor (#24), opened from a Record for editing recording's Quick Access preview (Edit, or a double
 /// click): a preview with play/pause and a scrubber, and an inspector for Studio Mode's background (fill, padding,
 /// corners, shadow, aspect ratio) and the effects from the event track. The preview is drawn by the same
-/// `StudioCompositor` as the export, at a reduced size. Export makes the finished MP4 again and saves it over the
+/// `StudioCompositor` as the export, at a reduced size. Under the scrubber, the zoom track shows the auto-zoom sections
+/// (made from the clicks the first time the recording is opened), which can be moved, resized, added and deleted, with
+/// undo; the inspector sets the selected one's level and mode. Export makes the finished MP4 again and saves it over the
 /// recording (the project keeps the clean video, so nothing is lost), then goes on as after recording: Compress when
 /// that is on, the library, and a new Quick Access preview. The settings are saved in the project (`studio.json`);
 /// closing without exporting asks before throwing changes away.
@@ -48,6 +50,7 @@ import UniformTypeIdentifiers
     private var saved: StudioSettings
     private let window: EditorPanel
     private let preview = StudioPreview()
+    private let zoomTrack = ZoomTrackView()
 
     // Playback: the player plays (with sound) and its video output gives the frames; while paused or scrubbing the
     // frame at the playhead comes from the image generator.
@@ -96,6 +99,19 @@ import UniformTypeIdentifiers
     private let keySizePopup = RetroUI.stepper(tip: "Keystroke size", target: nil, action: nil)
     private let keyPositionPopup = RetroUI.stepper(tip: "Where the keystrokes show", target: nil, action: nil)
     private let spotlightSwitch = RetroSwitch()
+
+    // Zoom
+    private let autoZoomSwitch = RetroSwitch()
+    private let addZoomButton = RetroUI.key("+ Zoom")
+    private let regenerateButton = RetroUI.key("Regenerate")
+    private let levelPopup = RetroUI.stepper(tip: "How far the selected zoom goes in", target: nil, action: nil)
+    private let modePopup = RetroUI.stepper(tip: "Whether the selected zoom follows the pointer or stays on one spot",
+                                            target: nil, action: nil)
+    private let zoomHint = RetroUI.hint(wraps: true)
+    /// The selected zoom section (an index into `settings.zoomSections`).
+    private var selectedZoom: Int?
+    /// While a section is dragged: the sections before the drag, and what the drag is called for Undo.
+    private var zoomDrag: (before: [ZoomSection], name: String)?
 
     // Export bar
     private let exportButton = RetroUI.key("Export", variant: .orange)
@@ -147,6 +163,7 @@ import UniformTypeIdentifiers
         window.delegate = self
         window.onEscape = { [weak self] in self?.window.performClose(nil) }
         window.onSpace = { [weak self] in self?.togglePlay() }
+        window.onUndo = { [weak self] redo in self?.undoKey(redo: redo) }
         build()
         refreshControls()
         window.center()
@@ -170,6 +187,13 @@ import UniformTypeIdentifiers
             guard let self else { return }
             self.duration = seconds.isFinite ? max(seconds, 0) : 0
             self.scrubber.maxValue = max(self.duration, 0.01)
+            self.zoomTrack.duration = self.duration
+            // The zoom track's time scale lines up with the scrubber's track, which is inset by half its knob.
+            if let cell = self.scrubber.cell as? NSSliderCell {
+                self.zoomTrack.inset = cell.knobRect(flipped: self.scrubber.isFlipped).width / 2
+            }
+            self.generateZoomIfNeeded()
+            self.refreshZoomControls()
             self.refreshTime()
             self.requestFrame()
         }
@@ -185,6 +209,7 @@ import UniformTypeIdentifiers
         preview.translatesAutoresizingMaskIntoConstraints = false
         well.addSubview(preview)
         preview.onClick = { [weak self] in self?.togglePlay() }
+        preview.onOptionClick = { [weak self] p in self?.aimZoom(at: p) }
 
         playButton.target = self; playButton.action = #selector(togglePlay)
         scrubber.controlSize = .small
@@ -198,9 +223,10 @@ import UniformTypeIdentifiers
         let transport = NSStackView(views: [playButton, scrubber, timeBox])
         transport.spacing = 10
         transport.alignment = .centerY
+        setUpZoomTrack()
 
-        // The inspector.
-        let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects())
+        // The inspector, scrolling when the window is too short for it.
+        let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom())
         inspector.orientation = .vertical
         inspector.alignment = .leading
         inspector.spacing = 8
@@ -208,6 +234,27 @@ import UniformTypeIdentifiers
         for v in inspector.arrangedSubviews {
             v.widthAnchor.constraint(equalTo: inspector.widthAnchor).isActive = true
         }
+        let document = InspectorDocument()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        inspector.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(inspector)
+        let inspectorScroll = NSScrollView()
+        inspectorScroll.hasVerticalScroller = true
+        inspectorScroll.autohidesScrollers = true
+        inspectorScroll.drawsBackground = false
+        inspectorScroll.borderType = .noBorder
+        inspectorScroll.automaticallyAdjustsContentInsets = false
+        inspectorScroll.documentView = document
+        let clip = inspectorScroll.contentView
+        NSLayoutConstraint.activate([
+            document.topAnchor.constraint(equalTo: clip.topAnchor),
+            document.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
+            document.widthAnchor.constraint(equalTo: clip.widthAnchor),
+            inspector.topAnchor.constraint(equalTo: document.topAnchor),
+            inspector.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            inspector.widthAnchor.constraint(equalToConstant: 300),
+            inspector.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -4),
+        ])
 
         // The export bar.
         exportButton.toolTip = "Make the finished video again with these settings and save it over the recording"
@@ -230,12 +277,15 @@ import UniformTypeIdentifiers
         bar.spacing = 10
         bar.alignment = .centerY
 
-        [well, transport, inspector, bar].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; content.addSubview($0) }
+        [well, transport, zoomTrack, inspectorScroll, bar].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview($0)
+        }
         let top = RetroUI.contentTop(of: window, in: content)
         NSLayoutConstraint.activate([
             well.topAnchor.constraint(equalTo: top, constant: 10),
             well.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
-            well.trailingAnchor.constraint(equalTo: inspector.leadingAnchor, constant: -16),
+            well.trailingAnchor.constraint(equalTo: inspectorScroll.leadingAnchor, constant: -16),
             preview.topAnchor.constraint(equalTo: well.topAnchor, constant: 8),
             preview.leadingAnchor.constraint(equalTo: well.leadingAnchor, constant: 8),
             preview.trailingAnchor.constraint(equalTo: well.trailingAnchor, constant: -8),
@@ -243,11 +293,15 @@ import UniformTypeIdentifiers
             transport.topAnchor.constraint(equalTo: well.bottomAnchor, constant: 10),
             transport.leadingAnchor.constraint(equalTo: well.leadingAnchor),
             transport.trailingAnchor.constraint(equalTo: well.trailingAnchor),
-            inspector.topAnchor.constraint(equalTo: top, constant: 10),
-            inspector.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
-            inspector.widthAnchor.constraint(equalToConstant: 300),
-            inspector.bottomAnchor.constraint(lessThanOrEqualTo: bar.topAnchor, constant: -10),
-            bar.topAnchor.constraint(equalTo: transport.bottomAnchor, constant: 12),
+            zoomTrack.topAnchor.constraint(equalTo: transport.bottomAnchor, constant: 8),
+            zoomTrack.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor),
+            zoomTrack.trailingAnchor.constraint(equalTo: scrubber.trailingAnchor),
+            zoomTrack.heightAnchor.constraint(equalToConstant: 26),
+            inspectorScroll.topAnchor.constraint(equalTo: top, constant: 10),
+            inspectorScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+            inspectorScroll.widthAnchor.constraint(equalToConstant: 306),
+            inspectorScroll.bottomAnchor.constraint(equalTo: bar.topAnchor, constant: -10),
+            bar.topAnchor.constraint(equalTo: zoomTrack.bottomAnchor, constant: 12),
             bar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             bar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
             bar.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
@@ -366,6 +420,41 @@ import UniformTypeIdentifiers
         ]
     }
 
+    private func buildZoom() -> [NSView] {
+        setUp(autoZoomSwitch, "Auto-zoom")
+        autoZoomSwitch.toolTip = "Zoom in where the zoom sections are; off shows the whole recording but keeps the sections"
+        addZoomButton.toolTip = "Add a zoom section at the playhead"
+        addZoomButton.target = self; addZoomButton.action = #selector(addZoomAtPlayhead)
+        regenerateButton.toolTip = "Make the zoom sections from the clicks again"
+        regenerateButton.target = self; regenerateButton.action = #selector(regenerateZoom)
+        setUp(levelPopup, AutoZoom.levels.map { (ZoomTrackView.levelText($0), Self.levelTag($0)) },
+              action: #selector(zoomOptionPicked(_:)))
+        setUp(modePopup, [("Follow Pointer", 0), ("Fixed", 1)], action: #selector(zoomOptionPicked(_:)))
+        zoomHint.preferredMaxLayoutWidth = 290
+        return [
+            header("Zoom"),
+            row("Auto-zoom", [autoZoomSwitch]),
+            row("", [addZoomButton, regenerateButton]),
+            row("Level", [levelPopup]),
+            row("Mode", [modePopup]),
+            zoomHint,
+        ]
+    }
+
+    private static func levelTag(_ level: Double) -> Int { Int((level * 100).rounded()) }
+
+    private func setUpZoomTrack() {
+        zoomTrack.onSelect = { [weak self] index in self?.selectZoom(index) }
+        zoomTrack.onDragBegan = { [weak self] _ in
+            guard let self else { return }
+            self.zoomDrag = (self.settings.zoomSections, "Move Zoom")
+        }
+        zoomTrack.onDrag = { [weak self] index, kind, t in self?.dragZoom(index, kind, to: t) }
+        zoomTrack.onDragEnded = { [weak self] in self?.endZoomDrag() }
+        zoomTrack.onAdd = { [weak self] t in self?.addZoom(at: t) }
+        zoomTrack.onDelete = { [weak self] in self?.deleteZoom() }
+    }
+
     /// Size choices in points, with the ones in use added.
     private static func sizes(_ base: [Int], with current: Double, saved: Double) -> [(String, Int)] {
         Array(Set(base + [Int(current.rounded()), Int(saved.rounded())])).sorted().map { ("\($0) pt", $0) }
@@ -415,6 +504,41 @@ import UniformTypeIdentifiers
         [clickColor, clickSizePopup].forEach { $0.isEnabled = e.clicks && hasClicks && !exporting }
         [keySizePopup, keyPositionPopup].forEach { $0.isEnabled = e.keystrokes && hasKeys && !exporting }
 
+        refreshZoomControls()
+    }
+
+    private func refreshZoomControls() {
+        let exporting = exportTask != nil
+        let sections = settings.zoomSections
+        if let i = selectedZoom, !sections.indices.contains(i) { selectedZoom = nil }
+        zoomTrack.sections = sections
+        zoomTrack.selected = selectedZoom
+        zoomTrack.dimmed = !settings.autoZoom
+        zoomTrack.isEnabled = !exporting
+        autoZoomSwitch.state = settings.autoZoom ? .on : .off
+        autoZoomSwitch.isEnabled = !exporting
+        addZoomButton.isEnabled = !exporting && duration > 0
+        regenerateButton.isEnabled = !exporting && duration > 0
+        let section = selectedZoom.map { sections[$0] }
+        levelPopup.isEnabled = section != nil && !exporting
+        modePopup.isEnabled = section != nil && !exporting
+        if let section {
+            let tag = Self.levelTag(section.level)
+            if levelPopup.menu?.item(withTag: tag) == nil {
+                levelPopup.addItem(withTitle: ZoomTrackView.levelText(section.level))
+                levelPopup.lastItem?.tag = tag
+            }
+            levelPopup.selectItem(withTag: tag)
+            modePopup.selectItem(withTag: section.mode == .fixed ? 1 : 0)
+        }
+        if let section {
+            zoomHint.stringValue = section.mode == .fixed ? "Option-click the preview to aim this zoom."
+                : "This zoom follows the pointer."
+        } else if sections.isEmpty {
+            zoomHint.stringValue = "No zoom sections. Double-click the track under the scrubber, or press + Zoom."
+        } else {
+            zoomHint.stringValue = "Click a zoom on the track under the scrubber to change it."
+        }
         window.isDocumentEdited = settings != saved
     }
 
@@ -445,8 +569,14 @@ import UniformTypeIdentifiers
     }
 
     private func settingsChanged() {
-        compositor = Self.previewCompositor(project: project, events: events, folder: folder, settings: settings)
-        refreshControls()
+        if settings.withoutZoom == compositor.settings.withoutZoom {
+            // Only the zoom changed (e.g. a section dragged): keep the background and effects.
+            compositor = compositor.zoomed(settings)
+            refreshZoomControls()
+        } else {
+            compositor = Self.previewCompositor(project: project, events: events, folder: folder, settings: settings)
+            refreshControls()
+        }
         redraw()
     }
 
@@ -471,6 +601,7 @@ import UniformTypeIdentifiers
         case clicksSwitch: settings.effects.clicks = on
         case keysSwitch: settings.effects.keystrokes = on
         case spotlightSwitch: settings.spotlight = on
+        case autoZoomSwitch: settings.autoZoom = on
         default: break
         }
     }
@@ -545,6 +676,156 @@ import UniformTypeIdentifiers
         }
     }
 
+    // MARK: Zoom
+
+    /// The zoom sections made from the clicks.
+    private func generatedZoom() -> [ZoomSection] {
+        AutoZoom.sections(from: events, videoSize: project.videoSize, duration: duration)
+    }
+
+    /// The first time the editor opens a recording (one from before auto-zoom too), its zoom sections are made from
+    /// the clicks. That is part of opening it, not a change to ask about when closing.
+    private func generateZoomIfNeeded() {
+        guard !settings.zoomGenerated else { return }
+        let sections = generatedZoom()
+        if !saved.zoomGenerated {
+            saved.zoomSections = sections
+            saved.zoomGenerated = true
+        }
+        settings.zoomSections = sections
+        settings.zoomGenerated = true
+    }
+
+    private func selectZoom(_ index: Int?) {
+        selectedZoom = index
+        refreshZoomControls()
+    }
+
+    /// Replaces the sections as one step Undo takes back, named `name`, and selects `select`.
+    private func setZoom(_ sections: [ZoomSection], select: Int?, undo name: String) {
+        let before = settings.zoomSections
+        selectedZoom = select
+        settings.zoomSections = sections
+        registerZoomUndo(before, name: name)
+        refreshZoomControls()
+    }
+
+    private func registerZoomUndo(_ before: [ZoomSection], name: String) {
+        guard before != settings.zoomSections, let undo = window.undoManager else { return }
+        undo.registerUndo(withTarget: self, selector: #selector(restoreZoom(_:)), object: ZoomUndoStep(before, name: name))
+        undo.setActionName(name)
+    }
+
+    /// Undo and redo: puts back the sections in `step`, registering the ones now showing to go back to.
+    @objc private func restoreZoom(_ step: ZoomUndoStep) {
+        let current = settings.zoomSections
+        if let undo = window.undoManager {
+            undo.registerUndo(withTarget: self, selector: #selector(restoreZoom(_:)), object: ZoomUndoStep(current, name: step.name))
+            undo.setActionName(step.name)
+        }
+        if let i = selectedZoom, !step.sections.indices.contains(i) { selectedZoom = nil }
+        settings.zoomSections = step.sections
+        refreshZoomControls()
+    }
+
+    /// ⌘Z and ⇧⌘Z (not while exporting).
+    private func undoKey(redo: Bool) {
+        guard exportTask == nil, zoomDrag == nil, let undo = window.undoManager else { return }
+        if redo {
+            if undo.canRedo { undo.redo() } else { NSSound.beep() }
+        } else {
+            if undo.canUndo { undo.undo() } else { NSSound.beep() }
+        }
+    }
+
+    private func dragZoom(_ index: Int, _ kind: ZoomTrackView.Drag, to t: Double) {
+        guard let drag = zoomDrag else { return }
+        switch kind {
+        case .move:
+            settings.zoomSections = AutoZoom.move(drag.before, index: index, to: t, duration: duration)
+        case .resize(let edge):
+            zoomDrag?.name = "Resize Zoom"
+            settings.zoomSections = AutoZoom.resize(drag.before, index: index, edge: edge, to: t, duration: duration)
+        }
+    }
+
+    private func endZoomDrag() {
+        guard let drag = zoomDrag else { return }
+        zoomDrag = nil
+        registerZoomUndo(drag.before, name: drag.name)
+    }
+
+    @objc private func addZoomAtPlayhead() { addZoom(at: time) }
+
+    /// Adds a section at `t`, aimed at the pointer there (for Fixed); beeps when `t` is in a section or there is no room.
+    private func addZoom(at t: Double) {
+        guard exportTask == nil else { return }
+        var center = CGPoint(x: project.videoSize.width / 2, y: project.videoSize.height / 2)
+        if let c = events.cursorState(at: t), c.visible, RecordingGeometry.contains(c.point, videoSize: project.videoSize) {
+            center = c.point
+        }
+        guard let added = AutoZoom.add(to: settings.zoomSections, at: t, duration: duration, center: center) else {
+            NSSound.beep()
+            return
+        }
+        setZoom(added.sections, select: added.index, undo: "Add Zoom")
+    }
+
+    private func deleteZoom() {
+        guard exportTask == nil, let i = selectedZoom, settings.zoomSections.indices.contains(i) else { return }
+        var sections = settings.zoomSections
+        sections.remove(at: i)
+        setZoom(sections, select: nil, undo: "Delete Zoom")
+    }
+
+    @objc private func zoomOptionPicked(_ popup: PillPopUp) {
+        guard let i = selectedZoom, settings.zoomSections.indices.contains(i) else { return }
+        let tag = popup.selectedTag()
+        var sections = settings.zoomSections
+        switch popup {
+        case levelPopup:
+            sections[i].level = AutoZoom.clampLevel(Double(tag) / 100)
+            setZoom(sections, select: i, undo: "Change Zoom Level")
+        case modePopup:
+            sections[i].mode = tag == 1 ? .fixed : .follow
+            setZoom(sections, select: i, undo: "Change Zoom Mode")
+        default: break
+        }
+    }
+
+    /// Option-click on the preview: aims the selected Fixed zoom at that spot of the recording.
+    private func aimZoom(at p: CGPoint) {
+        guard exportTask == nil, let i = selectedZoom, settings.zoomSections.indices.contains(i),
+              settings.zoomSections[i].mode == .fixed else { return }
+        let size = compositor.size, box = preview.bounds
+        let k = min(box.width / max(size.width, 1), box.height / max(size.height, 1))
+        guard k > 0 else { return }
+        let shown = CGRect(x: box.midX - size.width * k / 2, y: box.midY - size.height * k / 2,
+                           width: size.width * k, height: size.height * k)
+        let canvas = CGPoint(x: (p.x - shown.minX) / k / compositor.scale, y: (p.y - shown.minY) / k / compositor.scale)
+        let v = compositor.layout.videoPoint(canvas: canvas, crop: compositor.crop(at: time))
+        let video = project.videoSize
+        var sections = settings.zoomSections
+        sections[i].x = Double(min(max(v.x, 0), video.width))
+        sections[i].y = Double(min(max(v.y, 0), video.height))
+        setZoom(sections, select: i, undo: "Aim Zoom")
+    }
+
+    /// Makes the sections from the clicks again; asks first when that would replace sections that were changed.
+    @objc private func regenerateZoom() {
+        guard exportTask == nil else { return }
+        let fresh = generatedZoom()
+        if settings.zoomSections != fresh {
+            let alert = NSAlert()
+            alert.messageText = "Make the zoom sections from the clicks again?"
+            alert.informativeText = "This replaces the zoom sections you changed. You can undo it."
+            alert.addButton(withTitle: "Regenerate")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        setZoom(fresh, select: nil, undo: "Regenerate Zooms")
+    }
+
     // MARK: Preview
 
     /// Draws the frame at the playhead with the current settings.
@@ -575,6 +856,7 @@ import UniformTypeIdentifiers
     private func refreshTime() {
         timeField.stringValue = "\(StudioLayout.timecode(time)) / \(StudioLayout.timecode(duration))"
         scrubber.doubleValue = time
+        zoomTrack.time = time
     }
 
     @objc private func togglePlay() {
@@ -745,6 +1027,7 @@ import UniformTypeIdentifiers
         exportTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        window.undoManager?.removeAllActions(withTarget: self)
         Self.live.removeAll { $0 === self }
     }
 }
@@ -771,8 +1054,20 @@ private final class ExportProgress: @unchecked Sendable {
 private final class EditorPanel: NSWindow {
     var onEscape: (() -> Void)?
     var onSpace: (() -> Void)?
+    /// ⌘Z (false) and ⇧⌘Z (true).
+    var onUndo: ((Bool) -> Void)?
 
     override func cancelOperation(_ sender: Any?) { onEscape?() }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        if event.charactersIgnoringModifiers?.lowercased() == "z", mods == [.command] || mods == [.command, .shift],
+           let onUndo {
+            onUndo(mods.contains(.shift))
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 49, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
@@ -783,10 +1078,27 @@ private final class EditorPanel: NSWindow {
     }
 }
 
-/// The preview: the composed frame scaled to fit, on black. A click plays or pauses.
+/// The undo step for zoom section edits: the sections to go back to.
+private final class ZoomUndoStep: NSObject {
+    let sections: [ZoomSection]
+    let name: String
+    init(_ sections: [ZoomSection], name: String) {
+        self.sections = sections
+        self.name = name
+    }
+}
+
+/// The inspector's scrolling content, from the top.
+private final class InspectorDocument: NSView {
+    override var isFlipped: Bool { true }
+}
+
+/// The preview: the composed frame scaled to fit, on black. A click plays or pauses; an Option-click passes on where
+/// (in the view's coordinates).
 private final class StudioPreview: NSView {
     var image: CGImage? { didSet { layer?.contents = image } }
     var onClick: (() -> Void)?
+    var onOptionClick: ((CGPoint) -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -801,5 +1113,11 @@ private final class StudioPreview: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func mouseDown(with event: NSEvent) { onClick?() }
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.option) {
+            onOptionClick?(convert(event.locationInWindow, from: nil))
+        } else {
+            onClick?()
+        }
+    }
 }

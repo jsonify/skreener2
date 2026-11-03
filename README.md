@@ -214,7 +214,13 @@ Menu Bar → Expanded).
   Record for editing, or double-click the preview. Play and scrub the preview, and set a background around the video
   (the screenshot editor's presets, custom gradient, desktop wallpaper or a picture, with padding, rounded corners, a
   shadow and an aspect ratio). Switch the cursor, click rings, keystrokes and spotlight on or off, and change the
-  click ring color and size and the keystroke size and position. **Export** makes the video again and saves it over
+  click ring color and size and the keystroke size and position. **Auto-zoom** zooms in where you clicked and follows
+  the pointer, easing in and out: the first time you open a recording, its zoom sections are made from the clicks and
+  show as bars on the track under the scrubber. Drag a bar to move it, drag its ends to resize it, press Delete to
+  remove it, and double-click the track (or press **+ Zoom**) to add one; ⌘Z undoes. The inspector sets the selected
+  section's zoom level (1.25× to 4×) and whether it follows the pointer or stays on one spot (Option-click the preview
+  to aim it). The **Auto-zoom** switch turns the zoom off without losing the sections, and **Regenerate** makes them
+  from the clicks again (asking first if you changed them). **Export** makes the video again and saves it over
   the recording, then compresses it (if that is on) and shows a new preview. The project keeps the original clean
   video and your settings, so you can edit it again later. Recordings made without Record for editing open as before.
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
