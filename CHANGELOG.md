@@ -6,6 +6,7 @@
 ### Features
 
 * **ocr:** Capture Table copies an on-screen table as CSV, TSV or Markdown ([#248](https://github.com/jsonify/skreener2/issues/248)) ([#378](https://github.com/jsonify/skreener2/issues/378)) ([e6111a5](https://github.com/jsonify/skreener2/commit/e6111a5576786243d614e717519cc0a234c77ac8))
+* **recording:** auto-zoom on clicks in the recording editor ([#24](https://github.com/jsonify/skreener2/issues/24)) ([#391](https://github.com/jsonify/skreener2/issues/391)) ([3fc81e2](https://github.com/jsonify/skreener2/commit/3fc81e2889bebf87ff89ea747a845df28d641e6e))
 * **recording:** record clean video plus an event track ([#380](https://github.com/jsonify/skreener2/issues/380)) ([#388](https://github.com/jsonify/skreener2/issues/388)) ([08f3e9d](https://github.com/jsonify/skreener2/commit/08f3e9d0c56070c39f6cd5f35a0aceffd840b861))
 * **recording:** recording editor with Studio Mode background ([#24](https://github.com/jsonify/skreener2/issues/24)) ([#390](https://github.com/jsonify/skreener2/issues/390)) ([f1a8f56](https://github.com/jsonify/skreener2/commit/f1a8f5636c733b6339150373609eb934f17a5191))
 
