@@ -186,7 +186,7 @@ public struct DeviceFrame: Equatable, Sendable {
             for (i, color) in [0xFF5F57, 0xFEBC2E, 0x28C840].enumerated() {
                 let d = 12 * u
                 let cx = l.bar.minX + (20 + 20 * CGFloat(i)) * u
-                let dot = CGPath(ellipseIn: CGRect(x: cx - d / 2, y: l.bar.midY - d / 2, width: d, height: d), transform: nil)
+                let dot = Draw.oval(in: CGRect(x: cx - d / 2, y: l.bar.midY - d / 2, width: d, height: d))
                 Draw.fill(dot, hex(color), in: ctx)
                 Draw.stroke(dot, CGColor(gray: 0, alpha: 0.12), width: 0.5, in: ctx)
             }
@@ -206,8 +206,8 @@ public struct DeviceFrame: Equatable, Sendable {
                 Draw.fill(Draw.roundedRect(glass, radius: 0.01 * l.screen.width), black, in: ctx)
                 // Camera.
                 let c = 0.004 * l.screen.width
-                Draw.fill(CGPath(ellipseIn: CGRect(x: l.screen.midX - c, y: (l.body.maxY + l.screen.maxY) / 2 - c,
-                                                   width: 2 * c, height: 2 * c), transform: nil), hex(0x2A2A2E), in: ctx)
+                Draw.fill(Draw.oval(in: CGRect(x: l.screen.midX - c, y: (l.body.maxY + l.screen.maxY) / 2 - c,
+                                               width: 2 * c, height: 2 * c)), hex(0x2A2A2E), in: ctx)
                 // The base, a little darker than the lid, with the notch for lifting it.
                 let baseShape = Draw.roundedRect(base, radius: base.height * 0.45)
                 Draw.fill(baseShape, dark ? hex(0x2A2A2D) : hex(0xC6C7CB), in: ctx)

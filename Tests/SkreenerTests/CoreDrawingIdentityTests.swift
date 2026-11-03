@@ -135,7 +135,7 @@ final class CoreDrawingIdentityTests: XCTestCase {
             NSColor.systemRed.setFill(); area.fill()
         }
         let newClip = Self.render(area) { ctx in
-            ctx.addPath(f.outerPath(l)); ctx.clip(); ctx.addPath(f.screenPath(l)); ctx.clip()
+            Draw.clip(to: f.outerPath(l), in: ctx); Draw.clip(to: f.screenPath(l), in: ctx)
             ctx.setFillColor(NSColor.systemRed.cgColor); ctx.fill(area)
         }
         check(Self.diff(oldClip, newClip, area: area), label + " clip", text: false, file: file, line: line)

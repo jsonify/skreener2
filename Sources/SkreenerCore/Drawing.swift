@@ -25,11 +25,48 @@ extension RGBColor {
 enum Draw {
     static func srgb(_ v: Int) -> CGColor { RGBColor.hex(v).cgColor }
 
-    /// A rounded rect; the radius is clamped to half the shorter side, as AppKit's rounded rects are.
+    /// The control-point distance of a quarter circle drawn as one cubic Bézier, as a share of its radius.
+    private static let kappa: CGFloat = 4 / 3 * (2.squareRoot() - 1)
+
+    /// A rounded rect built as NSBezierPath built it (the same start, direction and control points), so edges and
+    /// strokes come out identical. Each radius is clamped to half its side, as AppKit's were.
     static func roundedRect(_ r: CGRect, radius: CGFloat) -> CGPath {
-        let radius = max(min(radius, r.width / 2, r.height / 2), 0)
-        guard radius > 0 else { return CGPath(rect: r, transform: nil) }
-        return CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        let rx = min(radius, r.width / 2), ry = min(radius, r.height / 2)
+        guard rx > 0, ry > 0 else { return CGPath(rect: r, transform: nil) }
+        let kx = kappa * rx, ky = kappa * ry
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: r.minX + rx, y: r.maxY))
+        p.addCurve(to: CGPoint(x: r.minX, y: r.maxY - ry), control1: CGPoint(x: r.minX + rx - kx, y: r.maxY),
+                   control2: CGPoint(x: r.minX, y: r.maxY - ry + ky))
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + ry))
+        p.addCurve(to: CGPoint(x: r.minX + rx, y: r.minY), control1: CGPoint(x: r.minX, y: r.minY + ry - ky),
+                   control2: CGPoint(x: r.minX + rx - kx, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - rx, y: r.minY))
+        p.addCurve(to: CGPoint(x: r.maxX, y: r.minY + ry), control1: CGPoint(x: r.maxX - rx + kx, y: r.minY),
+                   control2: CGPoint(x: r.maxX, y: r.minY + ry - ky))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - ry))
+        p.addCurve(to: CGPoint(x: r.maxX - rx, y: r.maxY), control1: CGPoint(x: r.maxX, y: r.maxY - ry + ky),
+                   control2: CGPoint(x: r.maxX - rx + kx, y: r.maxY))
+        p.closeSubpath()
+        return p
+    }
+
+    /// An oval as NSBezierPath built it: four quarter arcs counterclockwise from 45° below the right, left open.
+    static func oval(in r: CGRect) -> CGPath {
+        let c = CGPoint(x: r.midX, y: r.midY), rx = r.width / 2, ry = r.height / 2
+        func point(_ a: CGFloat, _ along: CGFloat = 0) -> CGPoint {
+            // On the unit circle at angle `a`, moved `along` its tangent, then scaled to the oval.
+            CGPoint(x: c.x + (cos(a) - along * sin(a)) * rx, y: c.y + (sin(a) + along * cos(a)) * ry)
+        }
+        let p = CGMutablePath()
+        var a = -CGFloat.pi / 4
+        p.move(to: point(a))
+        for _ in 0..<4 {
+            let b = a + .pi / 2
+            p.addCurve(to: point(b), control1: point(a, kappa), control2: point(b, -kappa))
+            a = b
+        }
+        return p
     }
 
     /// AppKit's paths flattened curves to within 0.6 pixels (NSBezierPath's default flatness) rather than the
