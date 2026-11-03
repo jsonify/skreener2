@@ -25,16 +25,17 @@ extension RGBColor {
 enum Draw {
     static func srgb(_ v: Int) -> CGColor { RGBColor.hex(v).cgColor }
 
-    /// The control-point distance of a quarter circle drawn as one cubic Bézier, as a share of its radius: AppKit's
-    /// value, measured from NSBezierPath (a hair above the textbook 4/3 (√2 − 1)). [verify]
-    private static let kappa: CGFloat = 0.5522895
+    /// The control-point distance of a quarter circle drawn as one cubic Bézier, as a share of its radius. AppKit's
+    /// rounded rects use 0.55228 (read back from NSBezierPath), its ovals the exact 4/3 (√2 − 1).
+    private static let roundedRectKappa: CGFloat = 0.55228
+    private static let ovalKappa: CGFloat = 4 / 3 * (2.squareRoot() - 1)
 
     /// A rounded rect built as NSBezierPath built it (the same start, direction and control points), so edges and
     /// strokes come out identical. Each radius is clamped to half its side, as AppKit's were.
     static func roundedRect(_ r: CGRect, radius: CGFloat) -> CGPath {
         let rx = min(radius, r.width / 2), ry = min(radius, r.height / 2)
         guard rx > 0, ry > 0 else { return CGPath(rect: r, transform: nil) }
-        let kx = kappa * rx, ky = kappa * ry
+        let kx = roundedRectKappa * rx, ky = roundedRectKappa * ry
         let p = CGMutablePath()
         p.move(to: CGPoint(x: r.minX + rx, y: r.maxY))
         p.addCurve(to: CGPoint(x: r.minX, y: r.maxY - ry), control1: CGPoint(x: r.minX + rx - kx, y: r.maxY),
@@ -64,7 +65,7 @@ enum Draw {
         p.move(to: point(a))
         for _ in 0..<4 {
             let b = a + .pi / 2
-            p.addCurve(to: point(b), control1: point(a, kappa), control2: point(b, -kappa))
+            p.addCurve(to: point(b), control1: point(a, ovalKappa), control2: point(b, -ovalKappa))
             a = b
         }
         return p
