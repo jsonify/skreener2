@@ -32,13 +32,19 @@ enum Draw {
         return CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
+    /// AppKit's paths flattened curves to within 0.6 pixels (NSBezierPath's default flatness) rather than the
+    /// context's own, finer setting; the same flatness keeps the edges identical.
+    static let flatness: CGFloat = 0.6
+
     static func fill(_ path: CGPath, _ color: CGColor, in ctx: CGContext) {
+        ctx.setFlatness(flatness)
         ctx.addPath(path)
         ctx.setFillColor(color)
         ctx.fillPath()
     }
 
     static func stroke(_ path: CGPath, _ color: CGColor, width: CGFloat, in ctx: CGContext) {
+        ctx.setFlatness(flatness)
         ctx.addPath(path)
         ctx.setStrokeColor(color)
         ctx.setLineWidth(width)
@@ -46,6 +52,7 @@ enum Draw {
     }
 
     static func clip(to path: CGPath, in ctx: CGContext) {
+        ctx.setFlatness(flatness)
         ctx.addPath(path)
         ctx.clip()
     }

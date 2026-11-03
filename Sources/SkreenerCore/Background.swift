@@ -129,10 +129,7 @@ public struct Background: Equatable, Sendable {
     /// The same geometry as AppKit's NSGradient, which drew these before: a linear gradient at `angle` degrees covers
     /// `r` from corner to corner, and the radial one runs from `r`'s center out to its corners.
     private func drawGradient(_ colors: [RGBColor], in r: CGRect, ctx: CGContext) {
-        let locations = colors.indices.map { CGFloat($0) / CGFloat(max(colors.count - 1, 1)) }
-        guard colors.count > 1,
-              let g = CGGradient(colorsSpace: Self.gradientSpace, colors: colors.map(\.cgColor) as CFArray,
-                                 locations: locations) else {
+        guard colors.count > 1, let g = Self.gradient(colors) else {
             ctx.setFillColor((colors.first ?? RGBColor(r: 1, g: 1, b: 1)).cgColor); ctx.fill(r); return
         }
         ctx.saveGState()
@@ -157,8 +154,28 @@ public struct Background: Equatable, Sendable {
                                end: CGPoint(x: center.x + dx * half, y: center.y + dy * half), options: options)
     }
 
-    /// The space gradients blend in. [verify] against NSGradient with the pixel-identity test in SkreenerTests.
-    private static let gradientSpace = CGColorSpace(name: CGColorSpace.sRGB)
+    /// Evenly spaced colors blended in sRGB, as NSGradient did. NSGradient blends see-through colors premultiplied
+    /// (CGGradient doesn't), so those get many stops in between that follow the premultiplied blend.
+    static func gradient(_ colors: [RGBColor]) -> CGGradient? {
+        var stops = colors
+        if colors.contains(where: { $0.a < 1 }) {
+            let steps = 64
+            stops = [colors[0]]
+            for (c0, c1) in zip(colors, colors.dropFirst()) {
+                for i in 1...steps {
+                    let t = Double(i) / Double(steps)
+                    let a = c0.a + (c1.a - c0.a) * t
+                    func mix(_ v0: Double, _ v1: Double) -> Double {
+                        a > 0 ? (v0 * c0.a + (v1 * c1.a - v0 * c0.a) * t) / a : 0
+                    }
+                    stops.append(RGBColor(r: mix(c0.r, c1.r), g: mix(c0.g, c1.g), b: mix(c0.b, c1.b), a: a))
+                }
+            }
+        }
+        let locations = stops.indices.map { CGFloat($0) / CGFloat(stops.count - 1) }
+        return CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: stops.map(\.cgColor) as CFArray,
+                          locations: locations)
+    }
 
     /// Scaled to cover `r`, centered.
     private static func drawAspectFill(_ img: CGImage, in r: CGRect, ctx: CGContext) {

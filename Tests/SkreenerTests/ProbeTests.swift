@@ -60,106 +60,73 @@ final class ProbeTests: XCTestCase {
         ctx.restoreGState()
     }
 
-    func testProbePathsFlatness() {
-        let black = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
-        let cases: [(CGRect, CGFloat)] = [(CGRect(x: 3.3, y: 4.1, width: 90, height: 50), 10), (CGRect(x: 2, y: 2, width: 300, height: 200), 37.5),
-                                          (CGRect(x: 1.5, y: 2.5, width: 200, height: 120), 59), (CGRect(x: 0, y: 0, width: 800, height: 528), 10)]
-        for (rect, radius) in cases {
-            let area = rect.insetBy(dx: -3, dy: -3).integral
-            for shape in ["round", "oval", "stroke"] {
-                func ns() -> NSBezierPath {
-                    shape == "oval" ? NSBezierPath(ovalIn: rect) : NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-                }
-                let old = T.renderLegacy(area) {
-                    if shape == "stroke" { NSColor.black.setStroke(); let p = ns(); p.lineWidth = 1; p.stroke() } else { NSColor.black.setFill(); ns().fill() }
-                }
-                var line = "PROBE flat \(shape) r=\(radius) \(rect.width):"
-                for flat in [CGFloat(-1), 0.1, 0.5, 0.6, 1.0] {
-                    for useNS in [false, true] {
-                        let new = T.render(area) { ctx in
-                            if flat > 0 { ctx.setFlatness(flat) }
-                            let path: CGPath = useNS ? ns().cgPath
-                                : (shape == "oval" ? CGPath(ellipseIn: rect, transform: nil)
-                                   : CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
-                            ctx.addPath(path)
-                            if shape == "stroke" { ctx.setStrokeColor(black); ctx.setLineWidth(1); ctx.strokePath() } else { ctx.setFillColor(black); ctx.fillPath() }
-                        }
-                        line += " f\(flat)\(useNS ? "ns" : "cg")=\(T.diff(old, new, area: area).maxOutside)"
-                    }
-                }
-                print(line)
+    static func dump(_ p: CGPath) -> String {
+        var out = ""
+        p.applyWithBlock { e in
+            let pts = e.pointee.points
+            func f(_ i: Int) -> String { String(format: "(%.4f,%.4f)", pts[i].x, pts[i].y) }
+            switch e.pointee.type {
+            case .moveToPoint: out += " M" + f(0)
+            case .addLineToPoint: out += " L" + f(0)
+            case .addQuadCurveToPoint: out += " Q" + f(0) + f(1)
+            case .addCurveToPoint: out += " C" + f(0) + f(1) + f(2)
+            case .closeSubpath: out += " Z"
+            @unknown default: out += " ?"
             }
         }
-        // What AppKit leaves in the context.
-        _ = T.renderLegacy(CGRect(x: 0, y: 0, width: 10, height: 10)) {
-            let ctx = NSGraphicsContext.current!.cgContext
-            print("PROBE ctx interp \(ctx.interpolationQuality.rawValue) NS flatness default \(NSBezierPath.defaultFlatness)")
-        }
+        return out
     }
 
-    func testProbeAlphaGradient() {
-        var b = Background()
-        b.fill = Background.customFill; b.direction = .horizontal
-        b.colors = [RGBColor(r: 0.9, g: 0.1, b: 0.3, a: 0.4), RGBColor(r: 0.1, g: 0.8, b: 0.2, a: 1)]
-        let rect = CGRect(x: 0, y: 0, width: 101, height: 4)
-        let old = T.renderLegacy(rect) { LegacyBackgroundFill(b).drawFill(in: rect) }
-        let new = T.render(rect) { b.drawFill(in: rect, ctx: $0, picture: nil, fallback: CGColor(gray: 0, alpha: 1)) }
-        for x in [0, 10, 25, 50, 75, 90, 100] {
-            let i = (1 * 101 + x) * 4
-            print("PROBE alpha x=\(x) old \(Array(old.data[i..<i + 4])) new \(Array(new.data[i..<i + 4]))")
-        }
+    func testProbeDumpPaths() {
+        let r = CGRect(x: 0, y: 0, width: 100, height: 60)
+        print("PROBE nsoval" + Self.dump(NSBezierPath(ovalIn: r).cgPath))
+        print("PROBE cgoval" + Self.dump(CGPath(ellipseIn: r, transform: nil)))
+        print("PROBE nsround" + Self.dump(NSBezierPath(roundedRect: r, xRadius: 10, yRadius: 10).cgPath))
+        print("PROBE cground" + Self.dump(CGPath(roundedRect: r, cornerWidth: 10, cornerHeight: 10, transform: nil)))
+        print("PROBE nsround40" + Self.dump(NSBezierPath(roundedRect: r, xRadius: 40, yRadius: 40).cgPath))
+        print("PROBE nsround0" + Self.dump(NSBezierPath(roundedRect: r, xRadius: 0, yRadius: 0).cgPath))
+        print("PROBE nsrect" + Self.dump(NSBezierPath(rect: r).cgPath))
     }
 
-    func testProbeTruncation() {
-        for u in [1, 1.37, 2.5] as [CGFloat] {
+    /// Ink extents (columns, rows) of a bitmap.
+    static func ink(_ b: T.Bitmap) -> String {
+        var x0 = Int.max, x1 = -1, y0 = Int.max, y1 = -1
+        for row in 0..<b.height { for col in 0..<b.width where b.data[(row * b.width + col) * 4 + 3] > 40 {
+            x0 = min(x0, col); x1 = max(x1, col); y0 = min(y0, row); y1 = max(y1, row)
+        } }
+        return "x\(x0)-\(x1) y\(y0)-\(y1)"
+    }
+
+    func testProbeTruncationInk() {
+        for u in [1, 2.5] as [CGFloat] {
             let url = "a-rather-long-address.example.com/with/a/path/that/cannot/fit/in/the/field"
             let field = CGRect(x: 100.25 * u, y: 7 * u, width: 320 * u, height: 26 * u)
             let area = field.insetBy(dx: -2, dy: -2).integral
             let style = NSMutableParagraphStyle()
             style.alignment = .center
             style.lineBreakMode = .byTruncatingTail
-            let color = RGBColor.hex(0x5C5C60)
             let text = NSAttributedString(string: url, attributes: [
-                .font: NSFont.systemFont(ofSize: 12.5 * u), .foregroundColor: color.nsColor, .paragraphStyle: style,
+                .font: NSFont.systemFont(ofSize: 12.5 * u), .foregroundColor: NSColor.black, .paragraphStyle: style,
             ])
             let h = text.size().height
             let rect = NSRect(x: field.minX + 8 * u, y: field.midY - h / 2, width: max(field.width - 16 * u, 0), height: h)
             let old = T.renderLegacy(area) { text.draw(in: rect) }
+            let plain = NSAttributedString(string: url, attributes: [.font: NSFont.systemFont(ofSize: 12.5 * u), .foregroundColor: NSColor.black])
+            let left = T.renderLegacy(area) { NSGraphicsContext.saveGraphicsState(); rect.clip(); plain.draw(at: rect.origin); NSGraphicsContext.restoreGraphicsState() }
             let font = CTFontCreateUIFontForLanguage(.system, 12.5 * u, nil)!
-            let attrs: [CFString: Any] = [kCTFontAttributeName: font, kCTForegroundColorAttributeName: color.cgColor]
+            let attrs: [CFString: Any] = [kCTFontAttributeName: font, kCTForegroundColorAttributeName: CGColor(gray: 0, alpha: 1)]
             func line(_ s: String) -> CTLine { CTLineCreateWithAttributedString(CFAttributedStringCreate(nil, s as CFString, attrs as CFDictionary)) }
-            let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font), leading = CTFontGetLeading(font)
-            let ch = ascent + descent + leading
-            var out = "PROBE trunc u=\(u) NSh=\(h):"
-            for k in [-4, -2, 0, 2, 4, 6, 8, 10, 12, 16] as [CGFloat] {
-                for left in [false, true] {
-                    let w = rect.width - k
-                    let t = CTLineCreateTruncatedLine(line(url), Double(w), .end, line("\u{2026}"))!
-                    let tw = CGFloat(CTLineGetTypographicBounds(t, nil, nil, nil))
-                    let new = T.render(area) { ctx in
-                        ctx.textMatrix = .identity
-                        ctx.textPosition = CGPoint(x: rect.minX + (left ? 0 : (rect.width - tw) / 2), y: field.midY + ch / 2 - ascent)
-                        CTLineDraw(t, ctx)
-                    }
-                    out += " k\(Int(k))\(left ? "L" : "C")=\(T.diff(old, new, area: area, region: area).differingInside)/tw\(Int(tw))"
-                }
+            let t = CTLineCreateTruncatedLine(line(url), Double(rect.width), .end, line("\u{2026}"))!
+            let tw = CGFloat(CTLineGetTypographicBounds(t, nil, nil, nil))
+            let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font)
+            let ct = T.render(area) { ctx in
+                ctx.textMatrix = .identity
+                ctx.textPosition = CGPoint(x: rect.minX + (rect.width - tw) / 2, y: field.midY + (ascent + descent) / 2 - ascent)
+                CTLineDraw(t, ctx)
             }
-            // CTFramesetter with the paragraph style.
-            var settings = [CTParagraphStyleSetting]()
-            var align = CTTextAlignment.center, mode = CTLineBreakMode.byTruncatingTail
-            withUnsafeBytes(of: &align) { a in
-                withUnsafeBytes(of: &mode) { m in
-                    settings = [CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: a.baseAddress!),
-                                CTParagraphStyleSetting(spec: .lineBreakMode, valueSize: MemoryLayout<CTLineBreakMode>.size, value: m.baseAddress!)]
-                    var fa = attrs
-                    fa[kCTParagraphStyleAttributeName] = CTParagraphStyleCreate(settings, settings.count)
-                    let fs = CTFramesetterCreateWithAttributedString(CFAttributedStringCreate(nil, url as CFString, fa as CFDictionary))
-                    let frame = CTFramesetterCreateFrame(fs, CFRange(location: 0, length: 0), CGPath(rect: rect, transform: nil), nil)
-                    let new = T.render(area) { ctx in ctx.textMatrix = .identity; CTFrameDraw(frame, ctx) }
-                    out += " frame=\(T.diff(old, new, area: area, region: area).differingInside)"
-                }
-            }
-            print(out)
+            print("PROBE ink u=\(u) rect \(rect) NS: \(Self.ink(old)) leftclip: \(Self.ink(left)) diffLeft=\(T.diff(old, left, area: area, region: area).differingInside) CT: \(Self.ink(ct)) tw=\(tw) glyphs=\(CTLineGetGlyphCount(t)) full=\(CTLineGetTypographicBounds(line(url), nil, nil, nil))")
+            let bounds = text.boundingRect(with: rect.size, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+            print("PROBE ink u=\(u) NS boundingRect \(bounds)")
         }
     }
 }
