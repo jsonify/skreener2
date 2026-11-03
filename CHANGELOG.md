@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/jsonify/skreener2/compare/v1.12.0...v1.13.0) (2026-11-03)
+
+
+### Features
+
+* **build:** Universal app for Intel and Apple Silicon Macs ([#376](https://github.com/jsonify/skreener2/issues/376)) ([144a489](https://github.com/jsonify/skreener2/commit/144a489e0e19933d8d5d293ee99ceb9d5261525e))
+
 ## [1.12.0](https://github.com/jsonify/skreener2/compare/v1.11.2...v1.12.0) (2026-11-03)
 
 
