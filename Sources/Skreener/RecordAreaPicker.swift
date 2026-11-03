@@ -86,7 +86,7 @@ private final class Action: NSObject {
 /// the handles or the inside, or drag outside for a new one) and a mode bar at the bottom of the screen offers
 /// Area / Fullscreen / Window / Timer / OCR screenshots or Recording, next to the size fields. Recording (or
 /// Return) shows the recording panel in the selection: options, audio and effect toggles, Record GIF ⌥↩ /
-/// Record Video ↩. Esc cancels. The bar and the panel are SK-1 chassis plates with keys in trays (#344), following
+/// Record Video ↩. Esc or the Cancel key cancels. The bar and the panel are SK-1 chassis plates with keys in trays (#344), following
 /// the system's appearance.
 final class RecordAreaPicker: NSObject {
     private var panel: PickerPanel?
@@ -103,6 +103,8 @@ final class RecordAreaPicker: NSObject {
     private var screen: NSScreen!
     private var completion: ((RecordPick?) -> Void)?
     private var purpose = PickerPurpose.record
+    /// Esc watchers while the picker is open (see `watchEscape`).
+    private var escMonitors: [Any] = []
 
     var isActive: Bool { completion != nil }
 
@@ -142,6 +144,7 @@ final class RecordAreaPicker: NSObject {
         self.completion = completion
         layout()
         showOtherScreens()
+        watchEscape()
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(v)
         NSApp.activate(ignoringOtherApps: true)
@@ -156,11 +159,33 @@ final class RecordAreaPicker: NSObject {
     }
 
     private func tearDown() {
+        escMonitors.forEach(NSEvent.removeMonitor)
+        escMonitors = []
         let old = [panel].compactMap { $0 } + others
         old.forEach { $0.orderOut(nil) }
         panel = nil; adjust = nil; controls = nil; modeBar = nil; others = []
         // We may be inside one of these panels' event handlers; keep them alive until that returns.
         DispatchQueue.main.async { withExtendedLifetime(old) {} }
+    }
+
+    /// Esc cancels the picker wherever the keyboard is: the selection view only sees it while it is the first
+    /// responder, so Esc in the size fields (whose editor swallows it) or with the panel not key did nothing, and
+    /// the only way out was to record. The local monitor catches it in any of the picker's windows (closing the
+    /// options popover first, if it is open); the global one catches it when another app has the keyboard (it
+    /// only sees keys with Accessibility access, which the keystroke overlay asks for).
+    private func watchEscape() {
+        escMonitors.forEach(NSEvent.removeMonitor)
+        escMonitors = []
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
+            guard let self, e.keyCode == 53, completion != nil else { return e }
+            if let p = popover, p.isShown { p.close(); return nil }
+            finish(nil)
+            return nil
+        }) { escMonitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
+            guard e.keyCode == 53 else { return }
+            self?.finish(nil)
+        }) { escMonitors.append(m) }
     }
 
     private func showOtherScreens() {
@@ -473,9 +498,19 @@ final class RecordAreaPicker: NSObject {
         row.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 8, right: 12)
         row.setClippingResistancePriority(.required, for: .vertical)
         let modesCard = Self.card(row), sizeCard = Self.card(buildSizeControls())
-        let bar = NSStackView(views: [modesCard, sizeCard])
-        // Only once both cards are in the stack: a constraint between views with no common ancestor throws.
+        // A visible way out, besides Esc: closes the picker without capturing or recording.
+        let cancel = PillButton(title: "Cancel", symbol: "xmark", style: .keycap, height: 30) { [weak self] in self?.finish(nil) }
+        cancel.legend = "esc"
+        cancel.toolTip = "Cancel (esc)"
+        cancel.setAccessibilityLabel("Cancel")
+        let cancelRow = NSStackView(views: [KeycapTray([cancel])])
+        cancelRow.alignment = .centerY
+        cancelRow.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        let cancelCard = Self.card(cancelRow)
+        let bar = NSStackView(views: [modesCard, sizeCard, cancelCard])
+        // Only once the cards are in the stack: a constraint between views with no common ancestor throws.
         sizeCard.heightAnchor.constraint(equalTo: modesCard.heightAnchor).isActive = true
+        cancelCard.heightAnchor.constraint(equalTo: modesCard.heightAnchor).isActive = true
         bar.spacing = 10
         bar.alignment = .centerY
         return bar
@@ -809,7 +844,6 @@ private final class AdjustView: NSView {
     var selection = NSRect.zero {
         didSet {
             needsDisplay = true
-            window?.invalidateCursorRects(for: self)
             onChange?()
         }
     }
@@ -820,39 +854,40 @@ private final class AdjustView: NSView {
 
     private enum Drag { case move(NSPoint), resize(Int, NSRect), new(NSPoint) }
     private var drag: Drag?
-    private static let grab: CGFloat = 10
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// Handle positions, counter-clockwise from bottom-left: corners at even indexes, edge midpoints at odd ones.
-    private var handles: [NSPoint] {
-        let r = selection
-        return [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.midX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
-                NSPoint(x: r.maxX, y: r.midY), NSPoint(x: r.maxX, y: r.maxY), NSPoint(x: r.midX, y: r.maxY),
-                NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.minX, y: r.midY)]
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    private func handleRect(_ p: NSPoint) -> NSRect {
-        NSRect(x: p.x - Self.grab, y: p.y - Self.grab, width: Self.grab * 2, height: Self.grab * 2)
-    }
-
-    override func resetCursorRects() {
-        for (i, p) in handles.enumerated() {
-            let cursor: NSCursor = i % 2 == 0 ? .crosshair : (i == 1 || i == 5 ? .resizeUpDown : .resizeLeftRight)
-            addCursorRect(handleRect(p), cursor: cursor)
+    /// Resize arrows over the handles' grab zones (`SelectionGeometry.handleZones`, much larger than the drawn
+    /// handles), an open hand inside the selection, the crosshair elsewhere and the arrow over the panels. Set on
+    /// every move rather than with cursor rects, which can't follow the zones' shapes and which another app's
+    /// cursor rects can reset (#161).
+    override func mouseMoved(with event: NSEvent) {
+        guard drag == nil else { return }
+        let p = convert(event.locationInWindow, from: nil)
+        if let hit = hitTest(convert(p, to: superview)), hit !== self { NSCursor.arrow.set(); return }
+        if let i = SelectionGeometry.handle(at: p, of: selection) {
+            (i % 2 == 0 ? NSCursor.crosshair : (i == 1 || i == 5 ? NSCursor.resizeUpDown : NSCursor.resizeLeftRight)).set()
+        } else if selection.contains(p) {
+            NSCursor.openHand.set()
+        } else {
+            NSCursor.crosshair.set()
         }
-        // A new selection starts at 8 × 8: inset by the grab margin it would be a null rect (infinite origin),
-        // which crashes as a cursor rect. Only add the move cursor when there is an inside left.
-        let inside = selection.insetBy(dx: Self.grab, dy: Self.grab)
-        if !inside.isNull, !inside.isEmpty { addCursorRect(inside, cursor: .openHand) }
     }
 
     override func mouseDown(with event: NSEvent) {
+        // Take the keyboard back (Esc, arrows, Return) after a click in the size fields or another app.
+        if window?.isKeyWindow == false { window?.makeKey() }
         window?.makeFirstResponder(self)
         hint = nil
         let p = convert(event.locationInWindow, from: nil)
-        if let i = handles.firstIndex(where: { handleRect($0).contains(p) }) {
+        if let i = SelectionGeometry.handle(at: p, of: selection) {
             drag = .resize(i, selection)
         } else if selection.contains(p) {
             drag = .move(NSPoint(x: p.x - selection.minX, y: p.y - selection.minY))
@@ -920,8 +955,16 @@ private final class AdjustView: NSView {
         border.lineWidth = 1
         border.stroke()
 
-        // CleanShot-style handles: L-shaped corners and short bars on the edges, just outside the selection.
-        NSColor.white.setStroke()
+        // CleanShot-style handles: L-shaped corners and short bars on the edges, just outside the selection, in the
+        // SK-1 orange, with a soft dark shadow so they read on light and dark content alike.
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let glow = NSShadow()
+        glow.shadowColor = NSColor.black.withAlphaComponent(0.45)
+        glow.shadowBlurRadius = 2
+        glow.shadowOffset = .zero
+        glow.set()
+        Retro.color(Retro.orange).setStroke()
         let r = selection.insetBy(dx: -2, dy: -2), arm: CGFloat = 16, bar: CGFloat = 10
         let corners: [(NSPoint, CGFloat, CGFloat)] = [(NSPoint(x: r.minX, y: r.minY), 1, 1), (NSPoint(x: r.maxX, y: r.minY), -1, 1),
                                                       (NSPoint(x: r.maxX, y: r.maxY), -1, -1), (NSPoint(x: r.minX, y: r.maxY), 1, -1)]

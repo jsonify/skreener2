@@ -120,4 +120,54 @@ final class SelectionGeometryTests: XCTestCase {
         XCTAssertEqual(SelectionGeometry.move(rect, to: CGPoint(x: 900, y: -20), in: bounds),
                        CGRect(x: 800, y: 0, width: 200, height: 150))
     }
+
+    // MARK: Handle grab zones (record-area picker)
+
+    private func handle(_ x: CGFloat, _ y: CGFloat, of r: CGRect? = nil) -> Int? {
+        SelectionGeometry.handle(at: CGPoint(x: x, y: y), of: r ?? rect)
+    }
+
+    func testCornersGrabAroundAndAlongTheirArms() {
+        XCTAssertEqual(handle(100, 100), 0)        // on the corner
+        XCTAssertEqual(handle(90, 92), 0)          // just outside it
+        XCTAssertEqual(handle(118, 102), 0)        // along the bottom arm, well off the corner point
+        XCTAssertEqual(handle(298, 248), 4)
+        XCTAssertEqual(handle(310, 95), 2)
+        XCTAssertEqual(handle(95, 240), 6)
+    }
+
+    func testEdgesGrabAlongTheirWholeLength() {
+        XCTAssertEqual(handle(95, 140), 7)         // left edge, far from its midpoint
+        XCTAssertEqual(handle(306, 210), 3)
+        XCTAssertEqual(handle(260, 92), 1)
+        XCTAssertEqual(handle(140, 245), 5)        // just inside the top edge
+    }
+
+    func testMiddleAndFarOutsideAreNotHandles() {
+        XCTAssertNil(handle(200, 175))             // inside: a move
+        XCTAssertNil(handle(80, 175))              // 20 pt outside: a new selection
+        XCTAssertNil(handle(200, 120))             // 20 pt inside the bottom edge
+    }
+
+    func testSmallSelectionKeepsAMiddleToMove() {
+        let small = CGRect(x: 0, y: 0, width: 9, height: 9)
+        XCTAssertNil(handle(4.5, 4.5, of: small))
+        XCTAssertEqual(handle(0, 0, of: small), 0)
+        XCTAssertEqual(handle(9, 4.5, of: small), 3)
+    }
+
+    func testHandleZonesDoNotOverlap() {
+        for r in [rect, CGRect(x: 0, y: 0, width: 9, height: 9), CGRect(x: 10, y: 10, width: 40, height: 400)] {
+            let zones = SelectionGeometry.handleZones(of: r)
+            XCTAssertEqual(zones.map(\.index), Array(0..<8))
+            for a in zones { for b in zones where a.index < b.index {
+                let i = a.zone.intersection(b.zone)
+                XCTAssertTrue(i.isNull || i.width * i.height == 0, "zones \(a.index) and \(b.index) overlap in \(r)")
+            } }
+        }
+    }
+
+    func testEmptySelectionHasNoHandles() {
+        XCTAssertTrue(SelectionGeometry.handleZones(of: .zero).isEmpty)
+    }
 }

@@ -97,6 +97,40 @@ enum SelectionGeometry {
         return CGRect(x: min(minX, maxX), y: min(minY, maxY), width: abs(maxX - minX), height: abs(maxY - minY))
     }
 
+    /// How far the grab zones of `handleZones` reach: outside the selection, inside it along an edge, and along
+    /// the edges from a corner (the drawn corner arms are 16 pt long).
+    static let grabOutside: CGFloat = 12, grabInside: CGFloat = 10, grabCorner: CGFloat = 24
+
+    /// Generous, non-overlapping grab zones for the eight handles of `rect`, indexed like `resize` (counter-clockwise
+    /// from bottom-left: corners at even indexes, edges at odd ones). A corner takes a square around it, an edge
+    /// the whole band along it between the corners, so the selection can be resized without hitting a handle
+    /// exactly. Inside a small selection the zones shrink, leaving its middle to move it.
+    static func handleZones(of rect: CGRect) -> [(index: Int, zone: CGRect)] {
+        guard rect.width > 0, rect.height > 0, rect.width.isFinite, rect.height.isFinite else { return [] }
+        let out = grabOutside
+        let inX = min(grabInside, rect.width / 4), inY = min(grabInside, rect.height / 4)
+        let cX = min(grabCorner, rect.width / 3), cY = min(grabCorner, rect.height / 3)
+        let r = rect
+        func zone(_ x0: CGFloat, _ x1: CGFloat, _ y0: CGFloat, _ y1: CGFloat) -> CGRect {
+            CGRect(x: x0, y: y0, width: max(x1 - x0, 0), height: max(y1 - y0, 0))
+        }
+        return [
+            (0, zone(r.minX - out, r.minX + cX, r.minY - out, r.minY + cY)),
+            (1, zone(r.minX + cX, r.maxX - cX, r.minY - out, r.minY + inY)),
+            (2, zone(r.maxX - cX, r.maxX + out, r.minY - out, r.minY + cY)),
+            (3, zone(r.maxX - inX, r.maxX + out, r.minY + cY, r.maxY - cY)),
+            (4, zone(r.maxX - cX, r.maxX + out, r.maxY - cY, r.maxY + out)),
+            (5, zone(r.minX + cX, r.maxX - cX, r.maxY - inY, r.maxY + out)),
+            (6, zone(r.minX - out, r.minX + cX, r.maxY - cY, r.maxY + out)),
+            (7, zone(r.minX - out, r.minX + inX, r.minY + cY, r.maxY - cY)),
+        ]
+    }
+
+    /// The handle of `rect` whose grab zone holds `point`, or nil (inside the selection that means a move).
+    static func handle(at point: CGPoint, of rect: CGRect) -> Int? {
+        handleZones(of: rect).first { $0.zone.contains(point) }?.index
+    }
+
     /// Moves `rect` so its origin is at `origin`, kept inside `bounds`.
     static func move(_ rect: CGRect, to origin: CGPoint, in bounds: CGRect) -> CGRect {
         CGRect(x: min(max(origin.x, bounds.minX), bounds.maxX - rect.width),
