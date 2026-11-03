@@ -213,8 +213,8 @@ final class RecordingController {
     }
 
     /// Compresses a finished MP4 when that is turned on, with a message. After the audio tracks were mixed (that
-    /// happens before the recorder reports); the preview waits for it.
-    @MainActor private static func compress(_ url: URL) async {
+    /// happens before the recorder reports); the preview waits for it. The recording editor's Export uses it too.
+    @MainActor static func compress(_ url: URL) async {
         guard Preferences.compressRecordings else { return }
         MessageHUD.show("Compressing recording…", symbol: "arrow.down.right.and.arrow.up.left", placement: .top)
         if let savings = await Compressor.compress([url]) {
@@ -258,11 +258,14 @@ final class RecordingController {
             }
             await Self.compress(output)
             guard let self else { return }
-            let filed = self.delivered(output)
-            var saved = project
-            saved.exported = filed.path
-            do { try saved.encoded().write(to: folder.appendingPathComponent(RecordingProject.projectFile)) } catch {
-                NSLog("Couldn't update the recording project: \(error)")
+            // Where the finished MP4 ended up goes into the project before its preview shows, so the preview's Edit
+            // finds the project.
+            self.delivered(output) { filed in
+                var saved = project
+                saved.exported = filed.path
+                do { try saved.encoded().write(to: folder.appendingPathComponent(RecordingProject.projectFile)) } catch {
+                    NSLog("Couldn't update the recording project: \(error)")
+                }
             }
             if let problem {
                 Notifier.problem("Couldn't draw the effects into the recording",
@@ -272,11 +275,11 @@ final class RecordingController {
     }
 
     /// `video` is the temporary MP4 a GIF was made from: the preview keeps it for Trim, else it is deleted here.
-    /// Returns where the file ended up (a filing rule may move it).
-    @discardableResult
-    private func delivered(_ saved: URL, video: URL? = nil) -> URL {
+    /// `filed` is told where the file ended up (a filing rule may move it) before the preview shows.
+    private func delivered(_ saved: URL, video: URL? = nil, filed: (URL) -> Void = { _ in }) {
         if let app { SavedLibrary.shared.note(saved, app: app) }
         let url = AutoFiling.afterSave(saved, app: app)
+        filed(url)
         Sound.play("Glass")
         if Preferences.copyToClipboard {
             NSPasteboard.general.clearContents()
@@ -289,7 +292,6 @@ final class RecordingController {
             Notifier.confirm(url.pathExtension.lowercased() == "gif" ? "GIF saved" : "Recording saved",
                              detail: url.lastPathComponent, file: url)
         }
-        return url
     }
 
     /// Turns the cursor spotlight on or off mid-recording (the hotkey). Ignored when nothing is recording.

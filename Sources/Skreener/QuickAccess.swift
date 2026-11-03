@@ -26,6 +26,8 @@ import AVFoundation
     private let savedFile: URL?
     /// The video or GIF file when this previews a recording; `image` is then its first frame.
     private let recording: URL?
+    /// The recording project a Record for editing recording was made from: Edit opens it in the recording editor (#24).
+    private let project: URL?
     /// For a GIF recording, the temporary MP4 it was made from, kept for Trim; deleted when the preview goes away
     /// (unless the trim editor took it over).
     private var video: URL?
@@ -145,6 +147,7 @@ import AVFoundation
         self.savedFile = saved
         self.editor = editor
         self.recording = recording
+        project = recording.flatMap { $0.pathExtension.lowercased() == "mp4" ? RecordingProjectLookup.folder(for: $0) : nil }
         let aspect = image.size.height / max(image.size.width, 1)
         let size = NSSize(width: Self.width, height: min(max((Self.width * aspect).rounded(), 90), 200))
         panel = NSPanel(contentRect: NSRect(origin: .zero, size: size),
@@ -163,8 +166,13 @@ import AVFoundation
         let hidden = Preferences.hiddenQuickAccessButtons
         card.addCorner(symbol: "xmark", label: "Close", at: .topLeft) { [weak self] in self?.close() }
         if recording != nil {
-            // The recording is already saved, so there is no Save; nor an editor or a pin for a video.
-            card.addCorner(symbol: "play.fill", label: "Open", at: .topRight) { [weak self] in self?.open() }
+            // The recording is already saved, so there is no Save; nor a pin for a video. One made for editing opens
+            // in the recording editor, beside Open.
+            var edit: PillButton?
+            if project != nil, !hidden.contains(.edit) {
+                edit = card.addCorner(symbol: "pencil", label: "Edit", at: .topRight) { [weak self] in self?.editRecording() }
+            }
+            card.addCorner(symbol: "play.fill", label: "Open", at: .topRight, beside: edit) { [weak self] in self?.open() }
             card.addCorner(symbol: "folder", label: "Show in Finder", at: .bottomLeft) { [weak self] in self?.showInFinder() }
         } else {
             if !hidden.contains(.edit) {
@@ -199,10 +207,16 @@ import AVFoundation
             center.append(("Compress", { [weak self] in self?.compress(AutoFiling.current(file)) }))
         }
         if !center.isEmpty { card.addCenter(center) }
-        // Double-clicking the preview does what Edit does (Open for a recording) (#127).
+        // Double-clicking the preview does what Edit does (Open for a recording without a project) (#127).
         card.onDoubleClick = { [weak self] in
             guard let self else { return }
-            if recording != nil { open() } else { edit() }
+            if recording == nil {
+                edit()
+            } else if project != nil {
+                editRecording()
+            } else {
+                open()
+            }
         }
         // Dragging the preview out hands over the file: the recording, the saved screenshot, or a named temporary copy.
         card.fileToDrag = {
@@ -299,6 +313,15 @@ import AVFoundation
 
     private func open() {
         if let recording { NSWorkspace.shared.open(recording) }
+        close()
+    }
+
+    /// Opens a Record for editing recording in the recording editor (#24); Open if its project can't be read.
+    private func editRecording() {
+        guard !compressing else { NSSound.beep(); return }
+        guard let recording, let project else { open(); return }
+        let file = AutoFiling.current(recording)
+        guard RecordingEditorWindow.open(file, project: project) else { open(); return }
         close()
     }
 

@@ -209,8 +209,14 @@ Menu Bar → Expanded).
 - **Record for editing** (in the recording options and Settings > Screen Recording, off by default): Skreener keeps
   the screen video without the cursor, click rings, keystrokes or spotlight, plus a record of where they go, in a
   recording project (Application Support/Skreener/Recordings). After you stop, it draws them back in, so the MP4 in
-  the save folder and Quick Access looks the same as before. This is the groundwork for the recording editor. GIFs
-  are recorded as usual.
+  the save folder and Quick Access looks the same as before. GIFs are recorded as usual.
+- **Recording editor (Studio Mode)**: click **Edit** (the pencil) on the Quick Access preview of a recording made with
+  Record for editing, or double-click the preview. Play and scrub the preview, and set a background around the video
+  (the screenshot editor's presets, custom gradient, desktop wallpaper or a picture, with padding, rounded corners, a
+  shadow and an aspect ratio). Switch the cursor, click rings, keystrokes and spotlight on or off, and change the
+  click ring color and size and the keystroke size and position. **Export** makes the video again and saves it over
+  the recording, then compresses it (if that is on) and shows a new preview. The project keeps the original clean
+  video and your settings, so you can edit it again later. Recordings made without Record for editing open as before.
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
 - **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
   Command-Z undoes), scroll or press Command-Plus / Command-Minus to zoom in around the pointer, and move the pointer
