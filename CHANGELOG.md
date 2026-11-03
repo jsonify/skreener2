@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.2](https://github.com/jsonify/skreener2/compare/v1.11.1...v1.11.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **capture:** the editor stays behind when a capture panel closes ([#369](https://github.com/jsonify/skreener2/issues/369)) ([ce1f394](https://github.com/jsonify/skreener2/commit/ce1f394da8feeeeb2c6ece286a99f780f6c889fc))
+
 ## [1.11.1](https://github.com/jsonify/skreener2/compare/v1.11.0...v1.11.1) (2026-11-02)
 
 
