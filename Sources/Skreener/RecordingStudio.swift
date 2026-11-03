@@ -8,7 +8,8 @@ import VideoToolbox
 /// The recording editor's settings for one recording, saved as `studio.json` in its project folder so reopening the
 /// editor shows them again. Versioned like the project and events files (`RecordingFile.check`).
 struct StudioSettings: Codable, Equatable {
-    static let currentVersion = 1
+    /// 2 added auto-zoom (#24); a version 1 file reads with no zoom sections, made from the clicks on first open.
+    static let currentVersion = 2
     static let file = "studio.json"
 
     var version = StudioSettings.currentVersion
@@ -19,6 +20,13 @@ struct StudioSettings: Codable, Equatable {
     var effects: EffectsStyle
     /// Whether the spotlight is drawn where it was switched on while recording.
     var spotlight = true
+    /// Off: no zoom is drawn, but the sections are kept.
+    var autoZoom = true
+    /// In time order, never overlapping.
+    var zoomSections: [ZoomSection] = []
+    /// Whether the sections have been made from the clicks yet: once, the first time the editor opens the recording;
+    /// after that they are the user's.
+    var zoomGenerated = false
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -36,6 +44,9 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.background { s.background = v }
         if let v = saved.effects { s.effects = v }
         if let v = saved.spotlight { s.spotlight = v }
+        if let v = saved.autoZoom { s.autoZoom = v }
+        if let v = saved.zoomSections { s.zoomSections = AutoZoom.tidy(v) }
+        if let v = saved.zoomGenerated { s.zoomGenerated = v }
         return s
     }
 
@@ -58,7 +69,22 @@ struct StudioSettings: Codable, Equatable {
         var background: StudioBackground?
         var effects: EffectsStyle?
         var spotlight: Bool?
+        var autoZoom: Bool?
+        var zoomSections: [ZoomSection]?
+        var zoomGenerated: Bool?
     }
+
+    /// These settings without the zoom ones: what changes the background and effects (`StudioCompositor.zoomed`).
+    var withoutZoom: StudioSettings {
+        var s = self
+        s.autoZoom = true
+        s.zoomSections = []
+        s.zoomGenerated = false
+        return s
+    }
+
+    /// Whether a zoom is drawn anywhere.
+    var zooms: Bool { autoZoom && !zoomSections.isEmpty }
 }
 
 /// The screenshot editor's `Background` as saved in `studio.json`: fill, gradient, picture, padding, corner radius,
@@ -188,12 +214,19 @@ struct StudioLayout: Equatable {
     func canvasPoint(video p: CGPoint, crop: CGRect? = nil) -> CGPoint {
         CGPoint(x: p.x, y: videoSize.height - p.y).applying(transform(crop: crop))
     }
+
+    /// The video point (pixels, top-left origin) shown at a canvas point: `canvasPoint` the other way round.
+    func videoPoint(canvas p: CGPoint, crop: CGRect? = nil) -> CGPoint {
+        let v = p.applying(transform(crop: crop).inverted())
+        return CGPoint(x: v.x, y: videoSize.height - v.y)
+    }
 }
 
 /// Draws one Studio frame: the background (made once, at init), then the recording's frame in its rounded rect with
-/// the shadow under it, then the effects over it, clipped to the same rounded rect. The export (`RecordingRenderer`)
-/// and the editor's preview both draw with this, so the preview is what Export makes. Make it on the main thread (the
-/// background is drawn with AppKit); after that it is fixed and safe to use from any thread.
+/// the shadow under it, then the effects over it, clipped to the same rounded rect. With auto-zoom, the frame and the
+/// effects (but not the keystroke pill) show the camera's crop of the video (`ZoomCamera`). The export
+/// (`RecordingRenderer`) and the editor's preview both draw with this, so the preview is what Export makes. Make it on
+/// the main thread (the background is drawn with AppKit); after that it is fixed and safe to use from any thread.
 final class StudioCompositor: @unchecked Sendable {
     let layout: StudioLayout
     let settings: StudioSettings
@@ -201,6 +234,7 @@ final class StudioCompositor: @unchecked Sendable {
     /// Output size: the canvas times `scale` (below 1 for the preview).
     let size: CGSize
     let scale: CGFloat
+    let camera: ZoomCamera
     /// The background and the shadow, at `size`; nil without a background.
     private let backdrop: CGImage?
 
@@ -215,10 +249,37 @@ final class StudioCompositor: @unchecked Sendable {
                                  scale: project.pixelScale, events: events, folder: folder)
         size = CGSize(width: max(1, (layout.canvas.width * scale).rounded()), height: max(1, (layout.canvas.height * scale).rounded()))
         backdrop = settings.backgroundOn ? Self.makeBackdrop(layout: layout, background: settings.background, size: size) : nil
+        camera = ZoomCamera(sections: settings.zoomSections, events: events, videoSize: project.videoSize)
     }
 
-    /// Whether this draws anything but the recording itself (a background, or effects).
-    var changesTheVideo: Bool { settings.backgroundOn || overlay.drawsAnything }
+    private init(_ other: StudioCompositor, settings: StudioSettings) {
+        self.settings = settings
+        layout = other.layout
+        overlay = other.overlay
+        size = other.size
+        scale = other.scale
+        backdrop = other.backdrop
+        camera = ZoomCamera(sections: settings.zoomSections, events: other.overlay.events, videoSize: other.layout.videoSize)
+    }
+
+    /// This compositor with `settings`' zoom (the rest of `settings` must be the same as this one's): keeps the
+    /// background and the effects, so it is quick to make while a zoom section is dragged.
+    func zoomed(_ settings: StudioSettings) -> StudioCompositor {
+        StudioCompositor(self, settings: settings)
+    }
+
+    /// Whether frames are composed (on a canvas, or zoomed) rather than drawn over the recording.
+    var composes: Bool { settings.backgroundOn || settings.zooms }
+
+    /// Whether this draws anything but the recording itself (a background, a zoom, or effects).
+    var changesTheVideo: Bool { composes || overlay.drawsAnything }
+
+    /// The part of the video showing at `t`; nil for all of it.
+    func crop(at t: Double) -> CGRect? {
+        guard settings.zooms else { return nil }
+        let c = camera.crop(at: t)
+        return c == camera.fullCrop ? nil : c
+    }
 
     /// The content's corner radius in canvas pixels.
     private var cornerRadius: CGFloat {
@@ -228,8 +289,8 @@ final class StudioCompositor: @unchecked Sendable {
     }
 
     /// Draws the frame at video time `t` into `ctx`, which covers `size` (bottom-left origin). `source` is the
-    /// recording's frame showing at `t`; nil draws the background and effects only. `crop` is reserved for zoom.
-    func draw(in ctx: CGContext, source: CGImage?, at t: Double, crop: CGRect? = nil) {
+    /// recording's frame showing at `t`; nil draws the background and effects only.
+    func draw(in ctx: CGContext, source: CGImage?, at t: Double) {
         ctx.saveGState()
         defer { ctx.restoreGState() }
         if let backdrop {
@@ -242,13 +303,20 @@ final class StudioCompositor: @unchecked Sendable {
         let clip = CGPath(roundedRect: layout.content, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
         ctx.addPath(clip)
         ctx.clip()
-        let toCanvas = layout.transform(crop: crop)
-        ctx.concatenate(toCanvas)
+        let shown = crop(at: t)
+        ctx.saveGState()
+        ctx.concatenate(layout.transform(crop: shown))
         if let source {
             ctx.interpolationQuality = .high
             ctx.draw(source, in: CGRect(origin: .zero, size: layout.videoSize))
         }
-        overlay.draw(in: ctx, at: t)
+        // Zoomed, the effects stay on the content they belong to, but the keystroke pill stays put in the frame.
+        overlay.draw(in: ctx, at: t, keystrokes: shown == nil)
+        ctx.restoreGState()
+        if shown != nil {
+            ctx.concatenate(layout.transform())
+            overlay.drawKeystrokes(in: ctx, at: t)
+        }
     }
 
     /// The background filling the canvas, with the shadow the content casts on it, drawn with AppKit like the

@@ -35,7 +35,7 @@ enum RecordingRenderer {
                        progress: (@Sendable (Double) -> Void)? = nil) async throws {
         let video = folder.appendingPathComponent(RecordingProject.videoFile)
         let painting: Painting
-        if compositor.settings.backgroundOn {
+        if compositor.composes {
             painting = .composed(size: compositor.size) { ctx, source, t in compositor.draw(in: ctx, source: source, at: t) }
         } else {
             let overlay = compositor.overlay
@@ -350,11 +350,12 @@ final class EffectsOverlay: @unchecked Sendable {
     }
 
     /// Draws the effects at video time `t` into `ctx`, which covers the video with a bottom-left origin, in pixels.
-    func draw(in ctx: CGContext, at t: Double) {
+    /// Without `keystrokes` the pill is left out, to be drawn separately (`drawKeystrokes`) when the rest is zoomed.
+    func draw(in ctx: CGContext, at t: Double, keystrokes: Bool = true) {
         let bounds = CGRect(origin: .zero, size: videoSize)
         let cursor = events.cursorState(at: t)
         if spotlight, let cursor, events.isSpotlightOn(at: t) { drawSpotlight(in: ctx, at: flip(cursor.point), bounds: bounds) }
-        if style.keystrokes, let text = events.keystroke(at: t, pills: pills) { drawPill(text, in: ctx, bounds: bounds) }
+        if keystrokes { drawKeystrokes(in: ctx, at: t) }
         if style.clicks { events.rings(at: t, videoSize: videoSize).forEach { drawRing($0, in: ctx) } }
         if style.cursor, let cursor, cursor.visible, let i = cursor.image, cursors.indices.contains(i), let image = cursors[i] {
             let info = events.cursorImages[i]
@@ -366,6 +367,12 @@ final class EffectsOverlay: @unchecked Sendable {
             ctx.draw(image, in: rect)
             ctx.restoreGState()
         }
+    }
+
+    /// The keystroke pill showing at `t`, if any.
+    func drawKeystrokes(in ctx: CGContext, at t: Double) {
+        guard style.keystrokes, let text = events.keystroke(at: t, pills: pills) else { return }
+        drawPill(text, in: ctx, bounds: CGRect(origin: .zero, size: videoSize))
     }
 
     /// A video point (top-left origin) in the context's bottom-left origin.
