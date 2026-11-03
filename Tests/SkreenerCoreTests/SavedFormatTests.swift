@@ -33,7 +33,9 @@ final class SavedFormatTests: XCTestCase {
 
     func testTheDefaultBackgroundWritesTheDefaultColors() {
         let colors = Background().plist["colors"] as? [[Double]]
-        XCTAssertEqual(colors, [[0x4F / 255.0, 0xAC / 255.0, 0xFE / 255.0, 1], [0xF5 / 255.0, 0x57 / 255.0, 0x6C / 255.0, 1]])
+        let from: [Double] = [Double(0x4F) / 255, Double(0xAC) / 255, Double(0xFE) / 255, 1]
+        let to: [Double] = [Double(0xF5) / 255, Double(0x57) / 255, Double(0x6C) / 255, 1]
+        XCTAssertEqual(colors, [from, to])
     }
 
     func testAPictureBackgroundKeepsItsPath() throws {

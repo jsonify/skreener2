@@ -78,6 +78,9 @@ extension Background {
     }
 }
 
+/// AppKit brings in QuickDraw's `RGBColor` too; a type of this module takes precedence over both imports.
+typealias RGBColor = SkreenerCore.RGBColor
+
 extension RGBColor {
     /// The color's sRGB components, as the color wells give them.
     init(_ c: NSColor) {
