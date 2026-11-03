@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/jsonify/skreener2/main/Scripts/inst
 
 It downloads the latest release, checks it against the release's checksums, installs it in **Applications** and
 opens it. Its icon shows up in the menu bar, not in the Dock. Run the same command again to update, or use
-**Check for Updates…** in Skreener's menu: Skreener also checks once a day and asks before installing.
+**Check for Updates…** in Skreener's menu (or click the menu's LCD when it says UPDATE): Skreener also checks once a day and asks before installing.
 
 Releases are signed with Skreener's own certificate, not an Apple Developer ID. Every release has the same
 certificate, so the Screen Recording permission you grant once carries over to every update. macOS only checks
@@ -68,26 +68,34 @@ Permissions switched on but not working, or asked for again after every build? S
 [Resetting permissions](docs/resetting-permissions.md).
 
 A new install opens a short **Welcome Guide** that walks through the permission, the capture shortcut and the
-selection keys. After an update, **What's New** lists the changes. Both are also under **Help** in the menu-bar menu.
+selection keys. After an update, **What's New** lists the changes. Both are also in the menu-bar menu's **Help** tray (Settings →
+Menu Bar → Expanded).
 
 ## Major features
 
 ### Menu-bar menu
-- **Launcher.** The top of the menu is a small SK-1 panel: a strip of olive LCD glass (it shows the name and shortcut of the
-  key under the pointer) over six cream keys in a sunken tray, for **Area**, **Window**, **Fullscreen**, **Scrolling**,
+- **All SK-1.** The menu is one small SK-1 panel. At the top, a strip of olive LCD glass shows the version and whether
+  it's up to date (once the update check has run), or the name and shortcut of the key under the pointer. When a newer
+  release is out it says **UPDATE** with the new version next to a lit orange lamp: click the LCD to see the update.
+  It follows Light and Dark Mode.
+- **Capture keys.** Six cream keys in a sunken tray, for **Area**, **Window**, **Fullscreen**, **Scrolling**,
   **Text** and **Record** (the orange one), each with its name and current shortcut under it. Click one to start that
-  capture mode. It follows Light and Dark Mode.
-  **Text** and **Record**, each with its current shortcut. Click one to start that capture mode.
+  capture mode. The other capture modes (Self-Timer, All-in-One, Capture Code and the rest) are on the radial menu
+  and their shortcuts.
 - **Recent.** Under the keys are your four newest captures in sunken wells, each with its size. Click one to open it in the editor, with its annotations
   still editable, or click **Show All** for Capture History. This row is hidden when Capture History is turned off.
-- **All Capture Modes** lists every capture mode, including Self-Timer, with its shortcut. The keyboard can reach
-  everything in it.
+- **Compact or Expanded** (Settings → Menu Bar). Compact, the default, ends with a tray of small keys: **History**,
+  **Open Clip** (open the clipboard's image in the editor), **Pin Clip**, **Settings** and **Quit**. Expanded adds
+  trays for **Open & Pin** (Open…, Pin a file, Pin Click-Through, From iPhone or iPad), **Tools** (Zoom & Draw, Step
+  Recorder, Step Guide, Watch This Area) and **Help** (Keyboard Shortcuts, Welcome Guide, What's New, Check for
+  Updates, About). While a watch runs, Compact shows its **Stop** key too. Command-Q, Command-Comma and Command-V
+  (Open from Clipboard) work while the menu is open.
 
 ### Radial menu
 
 - **A ring of capture modes at the pointer.** Give **Radial Menu** a shortcut in Settings → Shortcuts (it has none at
   first). Press it and an SK-1 ring opens round the pointer, with **Area**, **Window**, **Self-Timer** (an area, after
-  the delay set in the menu), **Scrolling**, **Text** and **Record** (the orange key) clockwise from the top. The olive
+  the delay chosen on the ring), **Scrolling**, **Text** and **Record** (the orange key) clockwise from the top. The olive
   LCD in the middle names the slice you point at, with its shortcut or the timer's delay.
 - **Tap or hold.** Tap the shortcut and the ring stays open: click a slice, press its number (1–6), or use the arrow
   keys and Return. Or hold the shortcut, move toward a slice and let go. While you hold it, the direction is what
@@ -162,7 +170,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   choice for that app or site and switches the clipboard right away. It works alongside clipboard managers. It needs
   the Accessibility permission (without it, copies paste as clean text); Settings → After Capture → **Paste
   Destinations** turns it off and lists the remembered destinations to change or remove.
-- **Capture Code** (menu bar or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
+- **Capture Code** (the radial menu's Text options, its shortcut or `skreener://ocr/code`) is Capture Text for code on a screen, slide or video: it
   copies the text with its indentation kept and common OCR mistakes fixed (curly quotes, `l`/`O` inside numbers).
   Settings can copy it as a Markdown code block.
 - In the editor, **Copy Text** copies the text from the whole screenshot or from a dragged area. **Redact** finds
@@ -176,7 +184,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   changes (Low, Medium or High sensitivity), or when a text you type appears or disappears (on-device OCR), e.g.
   "Build succeeded". Press Space in the picker to watch a window instead: it keeps working while other windows cover it.
 - The notification shows before and after side by side; click it to open both in the editor. While a watch runs the
-  menu-bar icon is an eye, and the menu offers **Stop Watching**.
+  menu-bar icon is an eye, and the menu's **Stop** key (under Running, or Tools in Expanded) ends it.
 
 ### Screen recording
 
@@ -200,10 +208,11 @@ selection keys. After an update, **What's New** lists the changes. Both are also
 
 ### Step Recorder
 
-- **Start Step Recorder** in the menu, then click through a task. Each click takes a screenshot of the window under
+- Start the **Step Recorder** from the radial menu (Record's options), its shortcut, or the menu's **Steps** key
+  (Expanded), then click through a task. Each click takes a screenshot of the window under
   the pointer with a numbered marker where you clicked, and names the step from the clicked button's title or the
   text around it ("Click **Save**"). The menu bar icon turns red while it is on.
-- **Stop Step Recorder** opens the **Step Guide**: edit each step's text, move steps up or down, delete them, or
+- Stopping it opens the **Step Guide**: edit each step's text, move steps up or down, delete them, or
   annotate a screenshot in the editor. Export the guide as Markdown with an images folder, one HTML file or a PDF.
   Everything stays on your Mac.
 
@@ -247,7 +256,7 @@ selection keys. After an update, **What's New** lists the changes. Both are also
   movable images. Pick them from the editor tabs or the history.
 - **Photos from your iPhone or iPad.** **Add Image > Import from iPhone or iPad** takes a photo, scans documents or
   adds a sketch on a nearby iPhone or iPad (same Apple ID, Wi-Fi and Bluetooth on), and places it as a movable layer.
-  The menu-bar menu's **Open from iPhone or iPad** opens the picture in a new tab.
+  The menu-bar menu's **iPhone** key (Expanded) does the same and opens the picture in a new tab.
 - **Backgrounds.** Gradients, solid colors, your wallpaper or a picture of your own. There are presets for
   common aspect ratios and social media sizes, plus padding, corner radius and shadow.
 - **Frames.** Wrap a screenshot in a macOS window, a browser (with an address you can edit), a MacBook, an iPhone

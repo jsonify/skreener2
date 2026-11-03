@@ -24,11 +24,12 @@ final class SettingsWindowController: NSWindowController {
     private static let paneMargin: CGFloat = 22
 
     private enum Pane: Int, CaseIterable {
-        case general, afterCapture, sendTo, shortcuts, screenshots, recording, annotate, askClaude, about
+        case general, menuBar, afterCapture, sendTo, shortcuts, screenshots, recording, annotate, askClaude, about
 
         var title: String {
             switch self {
             case .general: return "General"
+            case .menuBar: return "Menu Bar"
             case .afterCapture: return "After Capture"
             case .sendTo: return "Send To"
             case .shortcuts: return "Shortcuts"
@@ -42,6 +43,7 @@ final class SettingsWindowController: NSWindowController {
         var symbol: String {
             switch self {
             case .general: return "gearshape.fill"
+            case .menuBar: return "menubar.rectangle"
             case .afterCapture: return "rectangle.stack.fill"
             case .sendTo: return "paperplane.fill"
             case .shortcuts: return "command"
@@ -315,6 +317,18 @@ final class SettingsWindowController: NSWindowController {
                 ], note: "Links like skreener://grab/area?then=copy,save start a capture; then= picks copy, save, edit, pin "
                     + "and quickaccess for that capture. Other commands: grab/fullscreen, grab/window, grab/previous, "
                     + "grab/window/active, grab/scrolling, grab/delayed/area?delay=5, ocr, record, load/clipboard, pin/clipboard, pin/live, history, settings."),
+            ]
+
+        case .menuBar:
+            return [
+                group("Menu", [
+                    row("Layout", "Compact has the capture keys, your newest captures and keys for Capture History, the "
+                        + "clipboard, Settings and Quit. Expanded adds keys to open and pin files, the tools and Help.",
+                        menuBarModePopup()),
+                    toggle("Show recording time in the menu bar", "The elapsed time next to the stop button while recording.",
+                           Preferences.recordTimeInMenuBar) { Preferences.recordTimeInMenuBar = $0 },
+                ], note: "The menu shows a change the next time it opens. Every capture mode is also on the radial menu "
+                    + "and its shortcut (Settings → Shortcuts)."),
             ]
 
         case .afterCapture:
@@ -643,6 +657,14 @@ final class SettingsWindowController: NSWindowController {
                   name: "Quick Access position") {
             Preferences.quickAccessOnRight = $0 == 1
             QuickAccessController.refreshPosition()
+        }
+    }
+
+    private func menuBarModePopup() -> RetroSegmented {
+        let all = MenuBarMode.allCases
+        return segmented(all.enumerated().map { ($0.element.title, $0.offset) },
+                         selected: all.firstIndex(of: Preferences.menuBarMode) ?? 0, name: "Menu layout") {
+            Preferences.menuBarMode = all.indices.contains($0) ? all[$0] : .default
         }
     }
 

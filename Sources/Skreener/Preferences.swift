@@ -90,6 +90,23 @@ enum AppAppearance: String, CaseIterable {
     }
 }
 
+/// How much the menu-bar menu shows (Settings → Menu Bar, #371). Both are all SK-1 keys.
+enum MenuBarMode: String, CaseIterable {
+    /// The capture keys, the newest captures and a tray of everyday keys.
+    case compact
+    /// Compact plus trays for opening and pinning, the tools and help.
+    case expanded
+
+    static let `default`: MenuBarMode = .compact
+
+    var title: String {
+        switch self {
+        case .compact: return "Compact"
+        case .expanded: return "Expanded"
+        }
+    }
+}
+
 enum Preferences {
     private static let d = UserDefaults.standard
 
@@ -448,6 +465,10 @@ enum Preferences {
     static var recordRememberSelection: Bool {
         get { d.bool(forKey: "recordRememberSelection") }
         set { d.set(newValue, forKey: "recordRememberSelection") }
+    }
+    static var menuBarMode: MenuBarMode {
+        get { d.string(forKey: "menuBarMode").flatMap(MenuBarMode.init(rawValue:)) ?? .default }
+        set { d.set(newValue.rawValue, forKey: "menuBarMode") }
     }
     static var recordTimeInMenuBar: Bool {
         get { d.bool(forKey: "recordTimeInMenuBar") }

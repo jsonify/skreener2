@@ -90,6 +90,33 @@ enum Updater {
         return version != skipped
     }
 
+    /// What the last check found, for the menu's LCD (#371): nothing yet, no newer release, or one to update to.
+    enum Status: Equatable {
+        case unknown, upToDate
+        case available(version: String)
+    }
+
+    /// The newer release the last check found (daily or user-initiated), even one the user skipped or postponed; nil
+    /// when no check has found one or the last one found Skreener up to date.
+    @MainActor private(set) static var available: Release?
+    /// Whether a check has finished and found nothing newer.
+    @MainActor private static var foundUpToDate = false
+
+    @MainActor static var status: Status {
+        if let available { return .available(version: available.version) }
+        return foundUpToDate ? .upToDate : .unknown
+    }
+
+    /// The running copy's version ("1.11.2"), "dev" outside a release build.
+    static var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev" }
+
+    /// Opens the update window for the release the last check found, or checks now (as Check for Updates… does) when
+    /// none is known. Skip and Later work as for any offer.
+    @MainActor static func offerAvailable() {
+        guard let available else { check(userInitiated: true); return }
+        offer(available, current: currentVersion)
+    }
+
     @MainActor private static var timer: Timer?
     @MainActor private static var busy = false
     /// The version the user answered Later for: the daily check doesn't ask about it again until Skreener restarts.
@@ -112,7 +139,7 @@ enum Updater {
     /// the check failed.
     @MainActor static func check(userInitiated: Bool) {
         guard !busy else { return }
-        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        let current = currentVersion
         busy = true
         Task { @MainActor in
             defer { busy = false }
@@ -124,9 +151,13 @@ enum Updater {
                     throw Failure("GitHub didn't list a release to update to. Try again in a few minutes.")
                 }
                 guard isNewer(latest.version, than: current) else {
+                    available = nil
+                    foundUpToDate = true
                     if userInitiated { tell("Skreener is up to date", "Version \(current) is the newest.") }
                     return
                 }
+                available = latest
+                foundUpToDate = false
                 // A version the user chose Skip for isn't re-offered by the daily check; a user check still shows it.
                 guard shouldOffer(version: latest.version, skipped: Preferences.skippedVersion, userInitiated: userInitiated) else { return }
                 // Don't interrupt a capture, recording or open dialog with an update nobody asked about.

@@ -8,10 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     private let overlay = SelectionOverlay()
     private let selfTimer = SelfTimer()
     private var lastArea: (NSScreen, CGRect)?
-    private var desktopIconsItem: NSMenuItem!
-    /// Menu items that show their action's global shortcut (see `updateMenuShortcuts`).
-    private var shortcutItems: [HotKeyAction: NSMenuItem] = [:]
-    /// The tiles and recent captures at the top of the menu.
+    /// The menu-bar menu's SK-1 panel: the LCD, the capture keys, the recent captures and the small keys (#371).
     @MainActor private lazy var launcher = MenuLauncher()
     private var iconsHiddenForCapture = false
     private let recording = RecordingController()
@@ -22,9 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     /// Whether the picker on screen was opened by Record Screen or by All-in-One (#29).
     private var pickerPurpose = PickerPurpose.record
     private let scrollCapture = ScrollCaptureController()
-    /// Watch This Area (#240), and its menu item, which turns into Stop Watching while a watch runs.
+    /// Watch This Area (#240); its key in the menu turns into Stop Watching while a watch runs.
     private let watcher = AreaWatcher()
-    private var watchItem: NSMenuItem?
     /// After-capture steps a skreener:// link chose (`then=`) for the capture it started; nil uses Settings.
     /// `endCapture()` clears it, so it never carries over to a later capture.
     private var linkActions: CaptureActions?
@@ -95,9 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         // The radial menu tells a tap from a hold by when its shortcut is let go.
         shortcuts.releaseHandlers = [.radialMenu: { [weak self] in self?.radial.released() }]
         radial.onPick = { action in ShortcutCenter.shared.handlers[action]?() }
-        shortcuts.onChange = { [weak self] in self?.updateMenuShortcuts() }
         shortcuts.register()
-        updateMenuShortcuts()
         recording.onStateChange = { [weak self] on in self?.recordingChanged(on) }
         StepRecorder.shared.onStateChange = { [weak self] on in self?.stepRecorderChanged(on) }
         watcher.onStateChange = { [weak self] _ in self?.watchChanged() }
@@ -157,105 +151,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         }
     }
 
+    /// The menu-bar menu: one item, the SK-1 panel (`MenuLauncher`), which lays itself out for the mode chosen in
+    /// Settings → Menu Bar each time the menu opens. Hidden items keep ⌘Q, ⌘, and ⌘V working while it is open.
     @MainActor private func buildMenu() -> NSMenu {
         let m = NSMenu()
         m.delegate = self
-        // The launcher: tiles for the everyday capture modes and the newest captures.
         launcher.onTile = { action in ShortcutCenter.shared.handlers[action]?() }
         launcher.onShowHistory = { CaptureHistoryPanel.shared.show() }
+        launcher.onCommand = { [weak self] command in self?.runMenuCommand(command) }
+        launcher.isActive = { [weak self] command in
+            switch command {
+            case .watchArea: return self?.watcher.isWatching ?? false
+            case .stepRecorder: return StepRecorder.shared.isOn
+            default: return false
+            }
+        }
         let launcherItem = NSMenuItem()
         launcherItem.view = launcher
         m.addItem(launcherItem)
-        m.addItem(.separator())
-        // Every capture mode, also the launcher's, where the keyboard reaches them.
-        let all = NSMenuItem(title: "All Capture Modes", action: nil, keyEquivalent: "")
-        let cm = NSMenu()
-        all.submenu = cm; m.addItem(all)
-        // Key equivalents come from the global shortcuts (`updateMenuShortcuts`).
-        func add(_ t: String, _ s: Selector, _ shortcut: HotKeyAction, in menu: NSMenu? = nil) {
-            let i = NSMenuItem(title: t, action: s, keyEquivalent: "")
-            i.target = self; (menu ?? m).addItem(i)
-            shortcutItems[shortcut] = i
+        let keys: [(String, Selector, String, AnyObject?)] = [
+            ("Quit Skreener", #selector(NSApplication.terminate(_:)), "q", nil),
+            ("Settings…", #selector(openSettings), ",", self),
+            ("Open from Clipboard", #selector(openClipboard), "v", self),
+        ]
+        for (title, action, key, target) in keys {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = [.command]
+            item.target = target
+            item.isHidden = true
+            item.allowsKeyEquivalentWhenHidden = true
+            m.addItem(item)
         }
-        add("Capture Area", #selector(captureArea), .captureArea, in: cm)
-        add("All-in-One", #selector(allInOne), .allInOne, in: cm)
-        add("Capture Previous Area", #selector(capturePreviousArea), .capturePreviousArea, in: cm)
-        add("Capture Area & Pin", #selector(captureAreaAndPin), .captureAreaAndPin, in: cm)
-        add("Capture Area & Live Pin", #selector(captureAreaAndLivePin), .captureAreaAndLivePin, in: cm)
-        add("Live Pin Window…", #selector(livePinWindow), .livePinWindow, in: cm)
-        add("Capture Fullscreen", #selector(captureFullscreen), .captureFullscreen, in: cm)
-        add("Capture Window", #selector(captureWindow), .captureWindow, in: cm)
-        add("Capture Active Window", #selector(captureActiveWindow), .captureActiveWindow, in: cm)
-        add("Capture Scrolling", #selector(captureScrolling), .captureScrolling, in: cm)
-        add("Capture Text (OCR)", #selector(captureText), .captureText, in: cm)
-        add("Capture Code (OCR)", #selector(captureCode), .captureCode, in: cm)
-        add("Scan QR Code", #selector(scanQRCode), .scanQRCode, in: cm)
-        let timerItem = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
-        let timerMenu = NSMenu()
-        for (title, sel, shortcut) in [("Area…", #selector(timedArea), HotKeyAction.timedArea),
-                                       ("Window…", #selector(timedWindow), HotKeyAction.timedWindow),
-                                       ("Fullscreen", #selector(timedFullscreen), HotKeyAction.timedFullscreen)] {
-            let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; timerMenu.addItem(i)
-            shortcutItems[shortcut] = i
-        }
-        timerMenu.addItem(.separator())
-        for s in [3, 5, 10] {
-            let i = NSMenuItem(title: "\(s) Second Delay", action: #selector(timerDelayPicked(_:)), keyEquivalent: "")
-            i.target = self; i.tag = s; timerMenu.addItem(i)
-        }
-        timerMenu.delegate = self
-        timerItem.submenu = timerMenu; cm.addItem(timerItem)
-        m.addItem(.separator())
-        add("Record Screen", #selector(recordScreen), .recordScreen)
-        add("Zoom & Draw on Screen", #selector(togglePresenter), .presenter)
-        add("Start Step Recorder", #selector(toggleStepRecorder), .stepRecorder)
-        let guide = NSMenuItem(title: "Step Guide…", action: #selector(showStepGuide), keyEquivalent: "")
-        guide.target = self; m.addItem(guide)
-        add("Watch This Area…", #selector(watchArea), .watchArea)
-        watchItem = shortcutItems[.watchArea]
-        m.addItem(.separator())
-        add("Capture History", #selector(showHistory), .showHistory)
-        m.addItem(.separator())
-        desktopIconsItem = NSMenuItem(title: DesktopIcons.visible ? "Hide Desktop Icons" : "Show Desktop Icons",
-                                      action: #selector(toggleDesktopIcons), keyEquivalent: "")
-        desktopIconsItem.target = self; m.addItem(desktopIconsItem)
-        shortcutItems[.toggleDesktopIcons] = desktopIconsItem
-        m.addItem(.separator())
-        for (title, sel, shortcut) in [("Open…", #selector(openFile), HotKeyAction.openFile),
-                                       ("Open from Clipboard", #selector(openClipboard), HotKeyAction.openClipboard),
-                                       ("Pin to the Screen…", #selector(pinFile), HotKeyAction.pinFile),
-                                       ("Pin from Clipboard", #selector(pinClipboard), HotKeyAction.pinClipboard),
-                                       ("Pin Click-Through On / Off", #selector(pinClickThrough),
-                                        HotKeyAction.pinClickThrough)] {
-            let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; m.addItem(i)
-            shortcutItems[shortcut] = i
-        }
-        m.addItem(ContinuityCamera.menuItem(title: "Open from iPhone or iPad"))
-        m.addItem(.separator())
-        let helpItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
-        let helpMenu = NSMenu()
-        for (title, sel) in [("Keyboard Shortcuts…", #selector(showKeyboardShortcuts)),
-                             ("Welcome Guide…", #selector(showWelcomeGuide)),
-                             ("What's New…", #selector(showWhatsNew))] {
-            let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = self; helpMenu.addItem(i)
-        }
-        helpItem.submenu = helpMenu; m.addItem(helpItem)
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.keyEquivalentModifierMask = [.command]; settings.target = self; m.addItem(settings)
-        m.addItem(withTitle: "About Skreener", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        let update = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
-        update.target = self; m.addItem(update)
-        let version = NSMenuItem(title: "Version \(SettingsWindowController.version)", action: nil, keyEquivalent: "")
-        version.isEnabled = false; m.addItem(version)
-        m.addItem(.separator())
-        m.addItem(withTitle: "Quit Skreener", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         return m
     }
 
+    /// A small key in the menu, or its LCD, once the menu has closed.
+    @MainActor private func runMenuCommand(_ command: MenuCommand) {
+        switch command {
+        case .showHistory: CaptureHistoryPanel.shared.show()
+        case .openClipboard: openClipboard()
+        case .pinClipboard: pinClipboard()
+        case .settings: openSettings()
+        case .quit: NSApp.terminate(nil)
+        case .openFile: openFile()
+        case .pinFile: pinFile()
+        case .pinClickThrough: pinClickThrough()
+        case .fromDevice: openFromDevice()
+        case .presenter: togglePresenter()
+        case .stepRecorder: toggleStepRecorder()
+        case .stepGuide: StepGuideWindow.show()
+        case .watchArea: watchArea()
+        case .keyboardShortcuts: showKeyboardShortcuts()
+        case .welcomeGuide: showWelcomeGuide()
+        case .whatsNew: showWhatsNew()
+        case .checkForUpdates: checkForUpdates()
+        case .about:
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.orderFrontStandardAboutPanel(nil)
+        case .showUpdate: Updater.offerAvailable()
+        }
+    }
+
+    /// From iPhone or iPad (#270): AppKit fills only a real menu item with the nearby devices, so the key pops up a
+    /// small menu holding that item under the menu-bar icon. The picture opens in a new editor tab.
+    @MainActor private func openFromDevice() {
+        guard let button = statusItem.button else { return }
+        ContinuityCamera.opensInNewTab = true
+        let m = NSMenu()
+        m.addItem(ContinuityCamera.menuItem(title: "Open from iPhone or iPad"))
+        m.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
     @MainActor @objc private func openSettings() { SettingsWindowController.shared.present() }
-    @MainActor @objc private func showKeyboardShortcuts() { ShortcutSheet.show() }
-    @MainActor @objc private func showWelcomeGuide() { WelcomeGuide.show() }
-    @MainActor @objc private func showWhatsNew() { WelcomeGuide.showWhatsNew() }
+    @MainActor private func showKeyboardShortcuts() { ShortcutSheet.show() }
+    @MainActor private func showWelcomeGuide() { WelcomeGuide.show() }
+    @MainActor private func showWhatsNew() { WelcomeGuide.showWhatsNew() }
     @MainActor @objc private func checkForUpdates() { Updater.check(userInitiated: true) }
 
     // MARK: skreener:// links
@@ -329,41 +299,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         return shortcutResult
     }
 
-    /// The self-timer delay for the countdown about to start: a link's `delay=` (once), else the menu's.
+    /// The self-timer delay for the countdown about to start: a link's `delay=` (once), else the one chosen on the radial menu.
     private func timerSeconds() -> Int {
         defer { linkDelay = nil }
         return linkDelay ?? Preferences.selfTimerSeconds
     }
 
-    /// Shows each action's current global shortcut in the menu. Open from Clipboard keeps its ⌘V (which only works
-    /// while the menu is open) when it has no global shortcut.
-    private func updateMenuShortcuts() {
-        for (action, item) in shortcutItems {
-            if let combo = ShortcutStore.combo(for: action), let key = combo.keyEquivalent {
-                item.keyEquivalent = key
-                item.keyEquivalentModifierMask = combo.modifierFlags
-            } else if action == .openClipboard {
-                item.keyEquivalent = "v"
-                item.keyEquivalentModifierMask = [.command]
-            } else {
-                item.keyEquivalent = ""
-                item.keyEquivalentModifierMask = []
-            }
-        }
-    }
-
-    /// Self-Timer submenu: tick the current delay.
+    /// The menu is about to open: the panel shows the shortcuts, captures, update news and mode as they are now.
     func menuNeedsUpdate(_ menu: NSMenu) {
         // No activation here: it would take focus from the app in front on every menu use. The editor that
         // opens the picture activates Skreener itself.
-        if menu === self.menu {
-            launcher.refresh()
-            ContinuityCamera.opensInNewTab = true
-            watchItem?.title = watcher.isWatching ? "Stop Watching" : "Watch This Area…"
-        }
-        for i in menu.items where i.action == #selector(timerDelayPicked(_:)) {
-            i.state = i.tag == Preferences.selfTimerSeconds ? .on : .off
-        }
+        guard menu === self.menu else { return }
+        launcher.refresh()
+        ContinuityCamera.opensInNewTab = true
     }
     @objc private func showHistory() { CaptureHistoryPanel.shared.toggle() }
 
@@ -448,7 +396,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     @objc private func toggleDesktopIcons() {
         let show = !DesktopIcons.visible
         DesktopIcons.setVisible(show)
-        desktopIconsItem.title = show ? "Hide Desktop Icons" : "Show Desktop Icons"
     }
 
     // MARK: Open / pin existing images
@@ -469,7 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         if let picked = ImageSource.pickFile() { PinnedScreenshotController.pin(picked.image) }
     }
 
-    /// The status menu's "Open from iPhone or iPad" looks for somewhere to put the picture (#270).
+    /// The menu's From iPhone or iPad key looks for somewhere to put the picture (#270).
     func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?,
                         returnType: NSPasteboard.PasteboardType?) -> Any? {
         ContinuityCamera.accepts(sendType: sendType, returnType: returnType) ? self : nil
@@ -726,12 +673,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     /// Presenter mode (#266): zoom and draw on the live screen; the same command leaves.
     @objc private func togglePresenter() { presenter.toggle() }
 
-    /// Step Recorder (#242): the menu item says Stop while it is on, and the menu bar icon becomes a red click.
+    /// Step Recorder (#242): its key in the menu says Stop while it is on, and the menu bar icon becomes a red click.
     @MainActor @objc private func toggleStepRecorder() { StepRecorder.shared.toggle() }
-    @MainActor @objc private func showStepGuide() { StepGuideWindow.show() }
 
     @MainActor private func stepRecorderChanged(_ on: Bool) {
-        shortcutItems[.stepRecorder]?.title = on ? "Stop Step Recorder" : "Start Step Recorder"
         // A screen recording's stop button stays until the recording ends.
         if !recording.isRecording { showIdleIcon() }
     }
@@ -819,8 +764,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
     }
 
     // MARK: Self-timer: pick the area or window first, then count down, then capture it live.
-
-    @objc private func timerDelayPicked(_ item: NSMenuItem) { Preferences.selfTimerSeconds = item.tag }
 
     @objc func timedFullscreen() {
         selfTimer.start(seconds: timerSeconds(), completion: { [weak self] in self?.captureFullscreen() },

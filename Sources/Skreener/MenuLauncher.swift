@@ -1,15 +1,68 @@
 import AppKit
 import ImageIO
 
-/// The top of the menu-bar menu, in the SK-1 look (#344): a slim LCD strip, six everyday capture modes as keys in a sunken
-/// tray (Record the orange one), each with its name and shortcut under it, and the newest captures from the history in
-/// sunken wells, one click from the editor. Every capture mode is still under All Capture Modes below it, where the
-/// keyboard reaches them.
+/// What a key under the capture keys does; the app delegate runs it (`MenuLauncher.onCommand`) once the menu has closed.
+enum MenuCommand: Hashable {
+    case showHistory, openClipboard, pinClipboard, settings, quit
+    case openFile, pinFile, pinClickThrough, fromDevice
+    case presenter, stepRecorder, stepGuide, watchArea
+    case keyboardShortcuts, welcomeGuide, whatsNew, checkForUpdates, about
+    /// A click on the LCD while it shows a newer release.
+    case showUpdate
+
+    /// The global shortcut that runs the same thing, shown on the LCD while the pointer is over the key.
+    var hotKey: HotKeyAction? {
+        switch self {
+        case .showHistory: return .showHistory
+        case .openClipboard: return .openClipboard
+        case .pinClipboard: return .pinClipboard
+        case .openFile: return .openFile
+        case .pinFile: return .pinFile
+        case .pinClickThrough: return .pinClickThrough
+        case .presenter: return .presenter
+        case .stepRecorder: return .stepRecorder
+        case .watchArea: return .watchArea
+        default: return nil
+        }
+    }
+
+    /// The menu's own key equivalents, which work while it is open.
+    var menuShortcut: String? {
+        switch self {
+        case .settings: return "⌘,"
+        case .quit: return "⌘Q"
+        default: return nil
+        }
+    }
+}
+
+/// The SK-1 menu-bar menu (#344, #371): a slim LCD strip (the version and whether an update is out, or the name and
+/// shortcut of the key under the pointer), six everyday capture modes as keys in a sunken tray (Record the orange one),
+/// the newest captures from the history in sunken wells, one click from the editor, and trays of small captioned keys:
+/// the everyday ones in Compact mode, more grouped under captions in Expanded (Settings → Menu Bar). Every capture
+/// mode is also on the radial menu and its global shortcut.
 @MainActor final class MenuLauncher: NSView {
     struct Tile {
         let action: HotKeyAction
         let title: String
         let symbol: String
+    }
+
+    /// A small key: `caption` printed under it, `name` on the LCD and for VoiceOver. A key that turns something on and
+    /// off has the `active` caption and name while it is on, and a lamp that is lit then.
+    struct Key {
+        let command: MenuCommand
+        let caption: String
+        let name: String
+        let symbol: String
+        var variant: Retro.KeyVariant = .cream
+        var active: (caption: String, name: String)?
+    }
+
+    /// A tray of keys, with a caption over it (none for the everyday tray at the bottom).
+    struct KeyGroup {
+        let title: String?
+        let keys: [Key]
     }
 
     /// Fills the 3 × 2 grid, in reading order.
@@ -24,6 +77,73 @@ import ImageIO
     static let columns = 3
     /// How many of the newest captures the strip shows.
     static let recentCount = 4
+    /// The most keys a tray of small keys holds in a row.
+    static let maxKeysPerTray = 5
+
+    /// The tray at the bottom, in both modes.
+    static let everyday = KeyGroup(title: nil, keys: [
+        Key(command: .showHistory, caption: "History", name: "Capture History", symbol: "clock.arrow.circlepath"),
+        Key(command: .openClipboard, caption: "Open Clip", name: "Open from Clipboard", symbol: "doc.on.clipboard"),
+        Key(command: .pinClipboard, caption: "Pin Clip", name: "Pin from Clipboard", symbol: "pin"),
+        Key(command: .settings, caption: "Settings", name: "Settings", symbol: "gearshape", variant: .charcoal),
+        Key(command: .quit, caption: "Quit", name: "Quit Skreener", symbol: "power", variant: .charcoal),
+    ])
+
+    /// Expanded mode's trays, over the everyday one.
+    static let expandedGroups = [
+        KeyGroup(title: "Open & Pin", keys: [
+            Key(command: .openFile, caption: "Open", name: "Open…", symbol: "folder"),
+            Key(command: .pinFile, caption: "Pin File", name: "Pin to the Screen…", symbol: "pin.circle"),
+            Key(command: .pinClickThrough, caption: "Click-Thru", name: "Pin Click-Through", symbol: "cursorarrow.rays"),
+            Key(command: .fromDevice, caption: "iPhone", name: "From iPhone or iPad", symbol: "iphone"),
+        ]),
+        KeyGroup(title: "Tools", keys: [
+            Key(command: .presenter, caption: "Draw", name: "Zoom & Draw", symbol: "scribble.variable"),
+            Key(command: .stepRecorder, caption: "Steps", name: "Step Recorder", symbol: "cursorarrow.click.2",
+                active: ("Stop", "Stop Step Recorder")),
+            Key(command: .stepGuide, caption: "Guide", name: "Step Guide", symbol: "list.number"),
+            Key(command: .watchArea, caption: "Watch", name: "Watch This Area", symbol: "eye",
+                active: ("Stop", "Stop Watching")),
+        ]),
+        KeyGroup(title: "Help", keys: [
+            Key(command: .keyboardShortcuts, caption: "Keys", name: "Keyboard Shortcuts", symbol: "command"),
+            Key(command: .welcomeGuide, caption: "Welcome", name: "Welcome Guide", symbol: "hand.wave"),
+            Key(command: .whatsNew, caption: "New", name: "What's New", symbol: "sparkles"),
+            Key(command: .checkForUpdates, caption: "Update", name: "Check for Updates", symbol: "arrow.down.circle"),
+            Key(command: .about, caption: "About", name: "About Skreener", symbol: "info.circle"),
+        ]),
+    ]
+
+    /// The trays under the recent captures, top to bottom. Compact has only the everyday tray, plus a Running tray
+    /// while something `active` runs that only Expanded has a key for (a watch), so it can still be stopped.
+    static func keyGroups(for mode: MenuBarMode, active: Set<MenuCommand> = []) -> [KeyGroup] {
+        switch mode {
+        case .expanded:
+            return expandedGroups + [everyday]
+        case .compact:
+            let running = expandedGroups.flatMap(\.keys).filter { $0.active != nil && active.contains($0.command) }
+            return (running.isEmpty ? [] : [KeyGroup(title: "Running", keys: running)]) + [everyday]
+        }
+    }
+
+    /// The LCD's text with the pointer on no key.
+    struct Resting: Equatable {
+        let left: String
+        let right: String
+        /// A newer release is out: the lamp is lit and a click on the LCD shows it.
+        let update: Bool
+    }
+
+    /// The version, and what the last update check found: "v1.11.2 · UP TO DATE", "UPDATE 1.12.0", or just the
+    /// version before any check has finished.
+    nonisolated static func resting(version: String, status: Updater.Status) -> Resting {
+        let shown = version.first?.isNumber == true ? "v\(version)" : version.uppercased()
+        switch status {
+        case .unknown: return Resting(left: "Skreener", right: shown, update: false)
+        case .upToDate: return Resting(left: "Skreener", right: "\(shown) · UP TO DATE", update: false)
+        case .available(let new): return Resting(left: "Skreener", right: "UPDATE \(new)", update: true)
+        }
+    }
 
     private static let padding: CGFloat = 12
     private static let gap: CGFloat = 6
@@ -33,6 +153,9 @@ import ImageIO
     private static let cellGap: CGFloat = 4
     private static let cellSize = NSSize(width: 85, height: 58)
     private static let headerHeight: CGFloat = 20
+    /// Between the trays of small keys, and between a tray's caption and the tray.
+    private static let groupGap: CGFloat = 10
+    private static let groupCaptionHeight: CGFloat = 14
     static let width = padding * 2 + trayPadding * 2 + cellSize.width * CGFloat(columns) + cellGap * CGFloat(columns - 1)
     private static let thumbWidth = ((width - padding * 2 - gap * CGFloat(recentCount - 1)) / CGFloat(recentCount)).rounded(.down)
 
@@ -44,6 +167,10 @@ import ImageIO
     /// Runs a tile's capture mode; set by the app delegate.
     var onTile: ((HotKeyAction) -> Void)?
     var onShowHistory: (() -> Void)?
+    /// Runs a small key's command, or the LCD's `.showUpdate`; set by the app delegate.
+    var onCommand: ((MenuCommand) -> Void)?
+    /// Whether a key that turns something on and off is on now (a watch, the Step Recorder); asked as the menu opens.
+    var isActive: ((MenuCommand) -> Bool)?
 
     private var tileViews: [LauncherTile] = []
     private let lcd = LauncherLCD()
@@ -51,8 +178,11 @@ import ImageIO
     private let showAll = LauncherChip(title: "Show All")
     private let emptyHint = RetroLabel(text: "Your captures will show up here.", size: 11)
     private var thumbViews: [RecentThumb] = []
-    /// Where the sunken tray round the keys is.
+    /// Where the sunken tray round the capture keys is.
     private var trayRect = NSRect.zero
+    /// The small keys' trays as laid out by the last `refresh()`, with their captions and keys.
+    private var keyWells: [NSRect] = []
+    private var groupViews: [NSView] = []
     /// What to run once the menu has closed (`runAfterMenuCloses`).
     private var pending: (() -> Void)?
 
@@ -62,6 +192,7 @@ import ImageIO
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 100))
         lcd.frame = NSRect(x: Self.padding, y: Self.padding, width: Self.width - Self.padding * 2, height: Self.lcdHeight)
+        lcd.onClick = { [weak self] in self?.runAfterMenuCloses { self?.onCommand?(.showUpdate) } }
         addSubview(lcd)
         let rows = (Self.tiles.count + Self.columns - 1) / Self.columns
         trayRect = NSRect(x: Self.padding, y: Self.padding + Self.lcdHeight + Self.gap + 2, width: Self.width - Self.padding * 2,
@@ -74,7 +205,7 @@ import ImageIO
                                 width: Self.cellSize.width, height: Self.cellSize.height)
             let action = tile.action
             view.onClick = { [weak self] in self?.runAfterMenuCloses { self?.onTile?(action) } }
-            view.onHover = { [weak self] tile in self?.lcd.show(tile) }
+            view.onHover = { [weak self] tile in self?.lcd.show(tile.map { ($0.title, $0.shortcut ?? "") }) }
             addSubview(view)
             tileViews.append(view)
         }
@@ -102,6 +233,7 @@ import ImageIO
         // Square: the menu has its own edge.
         Retro.drawPlate(bounds, radius: 0, palette: p, flipped: true)
         Retro.drawWell(trayRect, radius: 10, palette: p, flipped: true)
+        for well in keyWells { Retro.drawWell(well, radius: 8, palette: p, flipped: true) }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -109,24 +241,32 @@ import ImageIO
         needsDisplay = true
     }
 
-    /// Called as the menu opens: the shortcuts as they are set now, and the newest captures.
+    /// Called as the menu opens: the shortcuts as they are set now, the newest captures, the update check's news, and
+    /// the trays of the mode chosen in Settings → Menu Bar.
     func refresh() {
         for (view, tile) in zip(tileViews, Self.tiles) {
             view.shortcut = ShortcutStore.combo(for: tile.action)?.displayString
             view.endHover()   // the menu closed under the pointer without a mouseExited
         }
+        lcd.resting = Self.resting(version: Updater.currentVersion, status: Updater.status)
         lcd.show(nil)
         thumbViews.forEach { $0.endHover() }
         showAll.endHover()
-        let gridBottom = trayRect.maxY
+        var bottom = layoutRecent(below: trayRect.maxY)
+        bottom = layoutKeys(below: bottom)
+        setFrameSize(NSSize(width: Self.width, height: bottom + Self.padding))
+        needsDisplay = true
+    }
+
+    /// The Recent row under `top` (hidden when Capture History is off); returns its bottom.
+    private func layoutRecent(below top: CGFloat) -> CGFloat {
         guard Preferences.keepHistory else {
             ([recentLabel, showAll, emptyHint] as [NSView]).forEach { $0.isHidden = true }
             thumbViews.forEach { $0.isHidden = true }
-            setFrameSize(NSSize(width: Self.width, height: gridBottom + Self.padding))
-            return
+            return top
         }
         let entries = Array(CaptureHistory.entries().prefix(Self.recentCount))
-        let headerY = gridBottom + Self.padding
+        let headerY = top + Self.padding
         recentLabel.isHidden = false
         recentLabel.sizeToFit()
         recentLabel.setFrameOrigin(NSPoint(x: Self.padding, y: headerY + (Self.headerHeight - recentLabel.frame.height) / 2))
@@ -145,8 +285,50 @@ import ImageIO
             if view.image == nil { loadThumbnail(entry.url, into: view) }
             view.onClick = { [weak self] in self?.runAfterMenuCloses { MenuLauncher.open(entry.url) } }
         }
-        let rowHeight = entries.isEmpty ? emptyHint.frame.height : RecentThumb.height
-        setFrameSize(NSSize(width: Self.width, height: rowY + rowHeight + Self.padding))
+        return rowY + (entries.isEmpty ? emptyHint.frame.height : RecentThumb.height)
+    }
+
+    /// The trays of small keys under `top`, built afresh (the mode and what is running may have changed since the
+    /// menu last opened); returns the bottom of the last.
+    private func layoutKeys(below top: CGFloat) -> CGFloat {
+        groupViews.forEach { $0.removeFromSuperview() }
+        groupViews = []
+        keyWells = []
+        let active = Set(Self.expandedGroups.flatMap(\.keys).map(\.command).filter { isActive?($0) == true })
+        var y = top
+        for group in Self.keyGroups(for: Preferences.menuBarMode, active: active) {
+            y += Self.groupGap
+            if let title = group.title {
+                let label = RetroLabel(caption: title, tone: .soft)
+                label.translatesAutoresizingMaskIntoConstraints = true
+                label.sizeToFit()
+                label.setFrameOrigin(NSPoint(x: Self.padding + 2, y: y + (Self.groupCaptionHeight - label.frame.height) / 2))
+                addSubview(label)
+                groupViews.append(label)
+                y += Self.groupCaptionHeight + 2
+            }
+            let well = NSRect(x: Self.padding, y: y, width: Self.width - Self.padding * 2,
+                              height: Self.trayPadding * 2 + LauncherKey.height)
+            keyWells.append(well)
+            let count = CGFloat(max(group.keys.count, 1))
+            let keyWidth = ((well.width - Self.trayPadding * 2 - Self.cellGap * (count - 1)) / count).rounded(.down)
+            // Centred, so a tray of four keys sits as evenly as one of five.
+            let used = keyWidth * count + Self.cellGap * (count - 1)
+            var x = well.minX + (well.width - used) / 2
+            for key in group.keys {
+                let view = LauncherKey(key, active: active.contains(key.command))
+                view.frame = NSRect(x: x, y: well.minY + Self.trayPadding, width: keyWidth, height: LauncherKey.height)
+                view.shortcut = key.command.menuShortcut ?? key.command.hotKey.flatMap { ShortcutStore.combo(for: $0)?.displayString }
+                let command = key.command
+                view.onClick = { [weak self] in self?.runAfterMenuCloses { self?.onCommand?(command) } }
+                view.onHover = { [weak self] key in self?.lcd.show(key.map { ($0.name, $0.shortcut ?? "") }) }
+                addSubview(view)
+                groupViews.append(view)
+                x += keyWidth + Self.cellGap
+            }
+            y = well.maxY
+        }
+        return y
     }
 
     private static func modified(_ url: URL) -> Date {
@@ -215,25 +397,38 @@ import ImageIO
     }
 }
 
-/// The strip of olive glass at the top: READY, or the name and shortcut of the key under the pointer.
+/// The strip of olive glass at the top: the version and the update check's news (`MenuLauncher.resting`), or the name
+/// and shortcut of the key under the pointer. With a newer release out its lamp is lit and a click shows the update.
 private final class LauncherLCD: NSView {
-    private var left = "Ready"
-    private var right = "Pick a mode"
+    var onClick: (() -> Void)?
+    var resting = MenuLauncher.Resting(left: "Skreener", right: "", update: false) {
+        didSet {
+            guard resting != oldValue else { return }
+            setAccessibilityElement(resting.update)
+            setAccessibilityLabel(resting.update ? "\(resting.right.capitalized) available" : nil)
+            setAccessibilityHelp(resting.update ? "Shows the update" : nil)
+            toolTip = resting.update ? "Show the update" : nil
+            needsDisplay = true
+        }
+    }
+    /// The key under the pointer: its name and shortcut.
+    private var hovered: (String, String)?
 
     override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Clicks go through to the plate unless there is an update to show.
+    override func hitTest(_ point: NSPoint) -> NSView? { resting.update ? super.hitTest(point) : nil }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
+        setAccessibilityRole(.button)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// The key under the pointer, or nil for the resting text.
-    func show(_ tile: LauncherTile?) {
-        let new = tile.map { ($0.title, $0.shortcut ?? "") } ?? ("Ready", "Pick a mode")
-        guard new.0 != left || new.1 != right else { return }
-        (left, right) = new
+    /// The name and shortcut of the key under the pointer, or nil for the resting text.
+    func show(_ key: (String, String)?) {
+        guard key?.0 != hovered?.0 || key?.1 != hovered?.1 else { return }
+        hovered = key
         needsDisplay = true
     }
 
@@ -241,16 +436,36 @@ private final class LauncherLCD: NSView {
         let p = Retro.palette(for: self)
         Retro.drawGlass(bounds, radius: 6, brightness: p.lcdBrightness, shadowBlur: 3, flipped: true)
         let ink = Retro.color(Retro.lcdInk)
+        let (left, right) = hovered ?? (resting.left, resting.right)
         let title = Retro.caption(left, color: ink, font: .systemFont(ofSize: 9.5, weight: .heavy), kern: 1.1)
         title.draw(at: NSPoint(x: 10, y: (bounds.height - title.size().height) / 2))
-        let detail = NSAttributedString(string: right, attributes: [.font: Retro.mono(10), .foregroundColor: ink.withAlphaComponent(0.8)])
+        let update = hovered == nil && resting.update
+        let detail = NSAttributedString(string: right, attributes: [
+            .font: Retro.mono(10, weight: update ? .bold : .semibold), .foregroundColor: ink.withAlphaComponent(update ? 1 : 0.8),
+        ])
         let size = detail.size()
-        detail.draw(at: NSPoint(x: bounds.maxX - 10 - size.width, y: (bounds.height - size.height) / 2))
+        let x = bounds.maxX - 10 - size.width
+        detail.draw(at: NSPoint(x: x, y: (bounds.height - size.height) / 2))
+        if update {
+            // No glow on the glass, as on the other LCDs' lamps.
+            Retro.drawLamp(in: NSRect(x: x - 11, y: bounds.midY - 3, width: 6, height: 6), color: Retro.color(Retro.orange),
+                           lit: true, glow: 0)
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard resting.update, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        onClick?()
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard resting.update else { return false }
+        onClick?()
+        return true
     }
 }
 
@@ -345,6 +560,118 @@ private final class LauncherTile: NSView {
     }
 
     func endHover() { hovering = false }
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        onHover?(self)
+    }
+    override func mouseExited(with event: NSEvent) {
+        hovering = false
+        onHover?(nil)
+    }
+    // A press that started on the menu-bar icon and was let go here counts too, as for any menu item.
+    override func mouseUp(with event: NSEvent) {
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        hovering = false
+        onClick?()
+    }
+    override func accessibilityPerformPress() -> Bool { onClick?(); return true }
+}
+
+/// A small key in one of the trays under the recent captures: its symbol on it, a short caption under it, and a lamp
+/// on keys that turn something on and off, lit while it is on. The LCD shows its full name and shortcut.
+private final class LauncherKey: NSView {
+    static let keyHeight: CGFloat = 26
+    static let height: CGFloat = keyHeight + 14
+
+    var onClick: (() -> Void)?
+    /// The pointer came onto the key, or (nil) left it.
+    var onHover: ((LauncherKey?) -> Void)?
+    let name: String
+    var shortcut: String? {
+        didSet { setAccessibilityHelp(shortcut.map { "Shortcut: \($0)" }) }
+    }
+
+    private let caption: String
+    private let variant: Retro.KeyVariant
+    /// Whether the key has a lamp, and whether it is lit.
+    private let hasLamp: Bool
+    private let active: Bool
+    private let icon = NSImageView()
+    private var hovering = false {
+        didSet {
+            guard hovering != oldValue else { return }
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    init(_ key: MenuLauncher.Key, active: Bool) {
+        let on = active ? key.active : nil
+        name = on?.name ?? key.name
+        caption = on?.caption ?? key.caption
+        variant = key.variant
+        hasLamp = key.active != nil
+        self.active = active
+        super.init(frame: .zero)
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        icon.image = NSImage(systemSymbolName: key.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        icon.imageScaling = .scaleNone
+        addSubview(icon)
+        applyColors()
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(name)
+        toolTip = name
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    private func applyColors() {
+        icon.contentTintColor = Retro.keyColors(variant, Retro.palette(for: self)).ink
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        // The middle of the key's face, which sinks onto the skirt while the pointer is over it.
+        let face = Retro.keyFace(in: NSRect(x: 0, y: 0, width: bounds.width, height: Self.keyHeight), down: hovering, flipped: true)
+        icon.frame = face
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Retro.palette(for: self)
+        let colors = Retro.keyColors(variant, p)
+        let face = Retro.drawKey(in: NSRect(x: 0, y: 0, width: bounds.width, height: Self.keyHeight),
+                                 radius: PillButton.keycapRadius, colors: colors, down: hovering, flipped: true)
+        if hasLamp {
+            Retro.drawLamp(in: NSRect(x: face.maxX - 8, y: face.minY + 4, width: 4, height: 4),
+                           color: Retro.color(Retro.recRed), lit: active)
+        }
+        // The caption, made smaller until it fits the key's width.
+        var size: CGFloat = 8
+        var text = Retro.caption(caption, color: Retro.color(p.ink), font: .systemFont(ofSize: size, weight: .semibold), kern: 0.4)
+        while text.size().width > bounds.width - 2, size > 6 {
+            size -= 0.5
+            text = Retro.caption(caption, color: Retro.color(p.ink), font: .systemFont(ofSize: size, weight: .semibold), kern: 0.3)
+        }
+        let extent = text.size()
+        text.draw(at: NSPoint(x: (bounds.width - extent.width) / 2, y: Self.keyHeight + 2))
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+        needsDisplay = true
+    }
+
     override func mouseEntered(with event: NSEvent) {
         hovering = true
         onHover?(self)
