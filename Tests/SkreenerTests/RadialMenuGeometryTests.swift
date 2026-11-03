@@ -57,7 +57,7 @@ final class RadialMenuGeometryTests: XCTestCase {
         XCTAssertEqual(G.slices[1].options.map(\.action), [.captureActiveWindow, .livePinWindow])
         XCTAssertEqual(G.slices[2].options.map(\.action), [.timedArea, .timedWindow, .timedFullscreen])
         XCTAssertTrue(G.slices[3].options.isEmpty)
-        XCTAssertEqual(G.slices[4].options.map(\.action), [.captureCode, .scanQRCode])
+        XCTAssertEqual(G.slices[4].options.map(\.action), [.captureCode, .captureTable, .scanQRCode])
         XCTAssertEqual(G.slices[5].options.map(\.action), [.stepRecorder, .presenter])
         XCTAssertEqual(G.slices.filter(\.hasDelay).map(\.title), ["Self-Timer"])
         XCTAssertEqual(G.action(for: .slice(2)), .timedArea)
