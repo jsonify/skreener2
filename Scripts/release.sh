@@ -213,8 +213,12 @@ notarize() {
 # ---- Build ----
 step "Building"
 # Ad-hoc here (no keychain prompt for the dev cert); the Developer ID signature below replaces it.
-SKREENER_SIGN_IDENTITY="-" SKREENER_VERSION="$VERSION" Scripts/build_app.sh
+# Universal (Intel and Apple Silicon), so one download runs on every supported Mac.
+SKREENER_UNIVERSAL=1 SKREENER_SIGN_IDENTITY="-" SKREENER_VERSION="$VERSION" Scripts/build_app.sh
 [ -d "$APP" ] || die "build_app.sh did not produce $APP."
+# A tag built before Universal builds existed ignores SKREENER_UNIVERSAL; say so rather than ship it silently.
+ARCHS=$(lipo -archs "$APP/Contents/MacOS/Skreener")
+case " $ARCHS " in *" arm64 "*" x86_64 "*|*" x86_64 "*" arm64 "*) ;; *) echo "warning: $APP is not Universal (only $ARCHS)." >&2 ;; esac
 VERSION=$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")
 BUILD=$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")
 if [ "$NOTARIZE" = 1 ] || [ "$SELF_SIGNED" = 1 ]; then NAME="Skreener-$VERSION"; else NAME="Skreener-$VERSION-unnotarized"; fi

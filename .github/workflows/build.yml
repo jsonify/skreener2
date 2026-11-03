@@ -38,10 +38,11 @@ jobs:
           swift --version
       - name: Unit tests (warnings are errors)
         run: swift test -Xswiftc -warnings-as-errors
-      - name: Build app (warnings are errors)
+      - name: Build Universal app (warnings are errors)
         run: ./Scripts/build_app.sh
         env:
           SKREENER_STRICT: "1"
+          SKREENER_UNIVERSAL: "1"   # as releases are, so the Intel build is compile-checked too
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
