@@ -5,9 +5,19 @@ import ImageIO
 
 /// Makes a finished MP4 from a recording's clean video (#380): every frame is drawn over with `draw` (the effects
 /// at that moment, see `EffectsOverlay`), at a constant frame rate, since the effects move while the screen may not.
-/// Audio is copied as is. The recording editor (#24) builds on this with its background, padding and zoom.
+/// Audio is copied as is. The recording editor (#24) composes each frame instead (`StudioCompositor`): a background,
+/// the recording in its rounded rect, and the effects, on a canvas that may be bigger than the video.
 enum RecordingRenderer {
     enum RenderError: Error { case noVideo, cannotRead, cannotWrite }
+
+    /// How each output frame is made.
+    enum Painting: Sendable {
+        /// On a copy of the source frame (the output is the video's size): a context on it (bottom-left origin, in
+        /// pixels) and the frame's time.
+        case over(@Sendable (CGContext, Double) -> Void)
+        /// On a blank frame of `size`: a context on it, the source frame showing at that time, and the time.
+        case composed(size: CGSize, @Sendable (CGContext, CGImage, Double) -> Void)
+    }
 
     /// Draws `project`'s effects from `events` over its clean video into a new MP4 at `out`.
     static func render(project: RecordingProject, events: RecordingEvents, folder: URL, to out: URL) async throws {
@@ -17,17 +27,49 @@ enum RecordingRenderer {
         }
     }
 
+    /// The recording editor's export: `compositor`'s frames from the project's clean video into `out` (replaced only
+    /// once it is all written). Without a background this is the plain render above with the editor's effects, so the
+    /// result is the same as the finished MP4 made after recording. Cancelling the task stops it and throws
+    /// `CancellationError`; `progress` gets 0…1 now and then, on the renderer's queue.
+    static func render(folder: URL, fps: Int, compositor: StudioCompositor, to out: URL,
+                       progress: (@Sendable (Double) -> Void)? = nil) async throws {
+        let video = folder.appendingPathComponent(RecordingProject.videoFile)
+        let painting: Painting
+        if compositor.settings.backgroundOn {
+            painting = .composed(size: compositor.size) { ctx, source, t in compositor.draw(in: ctx, source: source, at: t) }
+        } else {
+            let overlay = compositor.overlay
+            painting = .over { ctx, t in overlay.draw(in: ctx, at: t) }
+        }
+        try await render(video: video, fps: fps, painting: painting, to: out, progress: progress)
+    }
+
     /// Re-encodes `video` as H.264 at `fps` into `out` (replacing it), calling `draw` for each frame with a context
     /// on the frame (bottom-left origin, in pixels) and the frame's time from the first frame. Each output frame
     /// shows the latest source frame at or before its time. On failure `out` is left alone.
     static func render(video: URL, fps: Int, to out: URL,
                        draw: @escaping @Sendable (CGContext, Double) -> Void) async throws {
+        try await render(video: video, fps: fps, painting: .over(draw), to: out, progress: nil)
+    }
+
+    /// Re-encodes `video` as H.264 at `fps` into `out` (replacing it), each frame made as `painting` says. Each output
+    /// frame is made from the latest source frame at or before its time, up to the end of the recording. On failure
+    /// or cancellation `out` is left alone.
+    static func render(video: URL, fps: Int, painting: Painting, to out: URL,
+                       progress: (@Sendable (Double) -> Void)?) async throws {
         let asset = AVURLAsset(url: video)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw RenderError.noVideo }
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         let size = try await track.load(.naturalSize)
         let range = try await track.load(.timeRange)
-        let width = Int(size.width), height = Int(size.height)
+        // To the end of the recording: a video whose screen stopped changing holds its last frame to there (#380).
+        let end = CMTimeMaximum(range.end, try await asset.load(.duration))
+        let outSize: CGSize
+        switch painting {
+        case .over: outSize = size
+        case .composed(let s, _): outSize = s
+        }
+        let width = Int(outSize.width), height = Int(outSize.height)
         let rate = max(1, fps)
 
         // A temporary folder on the same volume, so the finished file can be moved into place.
@@ -76,6 +118,7 @@ enum RecordingRenderer {
             pumps.append(AudioMixer.Pump(output: output, input: audio))
         }
 
+        try Task.checkCancellation()
         guard reader.startReading() else { throw reader.error ?? RenderError.cannotRead }
         guard writer.startWriting() else {
             reader.cancelReading()
@@ -88,17 +131,26 @@ enum RecordingRenderer {
         }
         let start = CMSampleBufferGetPresentationTimeStamp(first)
         writer.startSession(atSourceTime: start)
-        let painter = FramePainter(output: frames, adaptor: adaptor, first: first, start: start, end: range.end,
-                                   fps: Int32(rate), draw: draw)
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            let group = DispatchGroup()
-            group.enter()
-            painter.run { group.leave() }
-            for pump in pumps {
+        let painter = FramePainter(output: frames, adaptor: adaptor, first: first, start: start, end: end,
+                                   fps: Int32(rate), painting: painting, progress: progress)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                let group = DispatchGroup()
                 group.enter()
-                pump.run { group.leave() }
+                painter.run { group.leave() }
+                for pump in pumps {
+                    group.enter()
+                    pump.run { group.leave() }
+                }
+                group.notify(queue: .global()) { done.resume() }
             }
-            group.notify(queue: .global()) { done.resume() }
+        } onCancel: {
+            painter.cancel()
+        }
+        if painter.cancelled {
+            reader.cancelReading()
+            writer.cancelWriting()
+            throw CancellationError()
         }
         guard !painter.failed, reader.status == .completed else {
             reader.cancelReading()
@@ -107,10 +159,11 @@ enum RecordingRenderer {
         }
         await writer.finishWriting()
         guard writer.status == .completed else { throw writer.error ?? RenderError.cannotWrite }
+        try Task.checkCancellation()
         if fm.fileExists(atPath: out.path) { _ = try fm.replaceItemAt(out, withItemAt: tmp) } else { try fm.moveItem(at: tmp, to: out) }
     }
 
-    /// Writes the output frames on its own queue: copies the source frame showing at each output time, draws on it
+    /// Writes the output frames on its own queue: makes each output frame from the source frame showing at its time
     /// and appends it.
     private final class FramePainter: @unchecked Sendable {
         private let output: AVAssetReaderOutput
@@ -118,49 +171,71 @@ enum RecordingRenderer {
         private let start: CMTime
         private let end: CMTime
         private let fps: Int32
-        private let draw: @Sendable (CGContext, Double) -> Void
+        private let painting: Painting
+        private let progress: (@Sendable (Double) -> Void)?
         private let queue = DispatchQueue(label: "com.skreener.renderer")
         private var next: CMSampleBuffer?
         private var current: CVPixelBuffer?
+        /// `current` as an image, for composing; made once per source frame.
+        private var currentImage: CGImage?
         private var frame: Int64 = 0
+        private let frameCount: Int64
         private var done = false
         private(set) var failed = false
+        private let cancelLock = NSLock()
+        private var cancelFlag = false
+
+        var cancelled: Bool {
+            cancelLock.lock()
+            defer { cancelLock.unlock() }
+            return cancelFlag
+        }
 
         init(output: AVAssetReaderOutput, adaptor: AVAssetWriterInputPixelBufferAdaptor, first: CMSampleBuffer,
-             start: CMTime, end: CMTime, fps: Int32, draw: @escaping @Sendable (CGContext, Double) -> Void) {
+             start: CMTime, end: CMTime, fps: Int32, painting: Painting, progress: (@Sendable (Double) -> Void)?) {
             self.output = output
             self.adaptor = adaptor
             self.start = start
             self.end = end
             self.fps = fps
-            self.draw = draw
+            self.painting = painting
+            self.progress = progress
+            frameCount = max(1, Int64((CMTimeSubtract(end, start).seconds * Double(fps)).rounded(.up)))
             next = first
         }
 
-        /// Calls `finished` once, when every frame is written or writing failed.
+        /// Stops at the next frame (any thread).
+        func cancel() {
+            cancelLock.lock()
+            cancelFlag = true
+            cancelLock.unlock()
+        }
+
+        /// Calls `finished` once, when every frame is written or writing failed or was cancelled.
         func run(_ finished: @escaping @Sendable () -> Void) {
             adaptor.assetWriterInput.requestMediaDataWhenReady(on: queue) { [self] in
                 while adaptor.assetWriterInput.isReadyForMoreMediaData, !done {
-                    let time = CMTimeAdd(start, CMTime(value: frame, timescale: fps))
-                    // Always at least one frame, even for a video shorter than a frame.
-                    guard frame == 0 || CMTimeCompare(time, end) < 0 else { complete(finished); return }
-                    while let n = next, CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(n), time) <= 0 {
-                        if let image = CMSampleBufferGetImageBuffer(n) { current = image }
-                        next = output.copyNextSampleBuffer()
-                    }
-                    guard let source = current else { frame += 1; continue }
-                    guard let pool = adaptor.pixelBufferPool, let out = Self.copy(source, from: pool) else {
+                    if cancelled {
                         failed = true
                         complete(finished)
                         return
                     }
-                    paint(out, at: CMTimeSubtract(time, start).seconds)
-                    guard adaptor.append(out, withPresentationTime: time) else {
+                    let time = CMTimeAdd(start, CMTime(value: frame, timescale: fps))
+                    // Always at least one frame, even for a video shorter than a frame.
+                    guard frame == 0 || CMTimeCompare(time, end) < 0 else { complete(finished); return }
+                    while let n = next, CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(n), time) <= 0 {
+                        if let image = CMSampleBufferGetImageBuffer(n) { current = image; currentImage = nil }
+                        next = output.copyNextSampleBuffer()
+                    }
+                    guard let source = current else { frame += 1; continue }
+                    guard let pool = adaptor.pixelBufferPool, let out = make(from: source, pool: pool, at: CMTimeSubtract(time, start).seconds),
+                          adaptor.append(out, withPresentationTime: time) else {
                         failed = true
                         complete(finished)
                         return
                     }
                     frame += 1
+                    if let progress, frame % Int64(max(fps, 1)) == 0 { progress(min(1, Double(frame) / Double(frameCount))) }
                 }
             }
         }
@@ -172,10 +247,29 @@ enum RecordingRenderer {
             // Reads what is left (less than a frame's time), so the reader completes.
             next = nil
             while !failed, output.copyNextSampleBuffer() != nil {}
+            if !failed { progress?(1) }
             finished()
         }
 
-        private func paint(_ buffer: CVPixelBuffer, at t: Double) {
+        /// The output frame at `t`, made from `source`.
+        private func make(from source: CVPixelBuffer, pool: CVPixelBufferPool, at t: Double) -> CVPixelBuffer? {
+            switch painting {
+            case .over(let draw):
+                guard let out = Self.copy(source, from: pool) else { return nil }
+                paint(out) { draw($0, t) }
+                return out
+            case .composed(_, let draw):
+                var made: CVPixelBuffer?
+                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made)
+                guard let out = made else { return nil }
+                if currentImage == nil { currentImage = StudioCompositor.image(of: source) }
+                guard let image = currentImage else { return nil }
+                paint(out) { draw($0, image, t) }
+                return out
+            }
+        }
+
+        private func paint(_ buffer: CVPixelBuffer, _ body: (CGContext) -> Void) {
             CVPixelBufferLockBaseAddress(buffer, [])
             defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
             guard let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: CVPixelBufferGetWidth(buffer),
@@ -184,7 +278,7 @@ enum RecordingRenderer {
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
             else { return }
-            draw(ctx, t)
+            body(ctx)
         }
 
         /// A copy of `source` (32BGRA) in a buffer from `pool`.
@@ -214,6 +308,8 @@ enum RecordingRenderer {
 final class EffectsOverlay: @unchecked Sendable {
     let events: RecordingEvents
     let style: EffectsStyle
+    /// Whether the spotlight is drawn where it was on while recording (the recording editor can leave it out).
+    let spotlight: Bool
     let videoSize: CGSize
     /// Video pixels per screen point: the overlay's sizes are in points.
     let scale: CGFloat
@@ -221,12 +317,19 @@ final class EffectsOverlay: @unchecked Sendable {
     private let cursors: [CGImage?]
     private let font: NSFont
 
-    /// `folder` holds the cursor images (none drawn without it).
-    init(project: RecordingProject, events: RecordingEvents, folder: URL?) {
+    /// The effects as the recording was made. `folder` holds the cursor images (none drawn without it).
+    convenience init(project: RecordingProject, events: RecordingEvents, folder: URL?) {
+        self.init(style: project.style, spotlight: true, videoSize: project.videoSize, scale: project.pixelScale,
+                  events: events, folder: folder)
+    }
+
+    /// The effects in `style` (the recording editor's), for a video of `videoSize` pixels at `scale` pixels per point.
+    init(style: EffectsStyle, spotlight: Bool, videoSize: CGSize, scale: CGFloat, events: RecordingEvents, folder: URL?) {
         self.events = events
-        style = project.style
-        videoSize = project.videoSize
-        scale = project.pixelScale
+        self.style = style
+        self.spotlight = spotlight
+        self.videoSize = videoSize
+        self.scale = scale
         pills = events.keystrokePills()
         cursors = events.cursorImages.map { image in
             guard let folder else { return nil }
@@ -234,7 +337,7 @@ final class EffectsOverlay: @unchecked Sendable {
             guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
             return CGImageSourceCreateImageAtIndex(src, 0, nil)
         }
-        font = .systemFont(ofSize: CGFloat(project.style.keystrokeSize) * project.pixelScale, weight: .semibold)
+        font = .systemFont(ofSize: CGFloat(style.keystrokeSize) * scale, weight: .semibold)
     }
 
     /// Whether any effect would be drawn at all; if not, the clean video is the finished one.
@@ -242,15 +345,15 @@ final class EffectsOverlay: @unchecked Sendable {
         let cursor = style.cursor && !events.cursor.isEmpty && !events.cursorImages.isEmpty
         let clicks = style.clicks && events.clicks.contains { $0.down }
         let keys = style.keystrokes && !events.keys.isEmpty
-        let spotlight = !events.cursor.isEmpty && (events.spotlightAtStart || events.spotlight.contains { $0.on })
-        return cursor || clicks || keys || spotlight
+        let spot = self.spotlight && !events.cursor.isEmpty && (events.spotlightAtStart || events.spotlight.contains { $0.on })
+        return cursor || clicks || keys || spot
     }
 
     /// Draws the effects at video time `t` into `ctx`, which covers the video with a bottom-left origin, in pixels.
     func draw(in ctx: CGContext, at t: Double) {
         let bounds = CGRect(origin: .zero, size: videoSize)
         let cursor = events.cursorState(at: t)
-        if let cursor, events.isSpotlightOn(at: t) { drawSpotlight(in: ctx, at: flip(cursor.point), bounds: bounds) }
+        if spotlight, let cursor, events.isSpotlightOn(at: t) { drawSpotlight(in: ctx, at: flip(cursor.point), bounds: bounds) }
         if style.keystrokes, let text = events.keystroke(at: t, pills: pills) { drawPill(text, in: ctx, bounds: bounds) }
         if style.clicks { events.rings(at: t, videoSize: videoSize).forEach { drawRing($0, in: ctx) } }
         if style.cursor, let cursor, cursor.visible, let i = cursor.image, cursors.indices.contains(i), let image = cursors[i] {
