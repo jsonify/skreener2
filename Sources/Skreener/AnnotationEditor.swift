@@ -2147,12 +2147,15 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
             r = framed
         }
         contentRect = content
-        needsDisplay = true
-        guard r != extent else { return }
+        guard r != extent else { needsDisplay = true; return }
         let old = extent
         extent = r
         setFrameSize(r.size)
         setBoundsOrigin(r.origin)
+        // Marked only now, so the dirty area is the whole new bounds: marked before the resize it was the old bounds in
+        // the old coordinates, and the layer-backed canvas never drew the strip it grew into, so whatever was dragged
+        // past the screenshot's edge looked clipped (#372).
+        needsDisplay = true
         onExtentChange?(old)
     }
 
