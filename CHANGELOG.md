@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.15.0](https://github.com/jsonify/skreener2/compare/v1.14.0...v1.15.0) (2026-11-03)
+
+
+### Features
+
+* **capture:** round SK-1 loupe with an LCD glass for the area magnifier ([#394](https://github.com/jsonify/skreener2/issues/394)) ([c5be19b](https://github.com/jsonify/skreener2/commit/c5be19b5ddd554a58b5258914f6deddb7942a045))
+
+
+### Bug Fixes
+
+* **recording:** easier-to-grab orange handles and a reliable cancel in the record picker ([#393](https://github.com/jsonify/skreener2/issues/393)) ([e14dfa6](https://github.com/jsonify/skreener2/commit/e14dfa698c6aca8cd706b7b02e40ce4f19513469))
+
 ## [1.14.0](https://github.com/jsonify/skreener2/compare/v1.13.0...v1.14.0) (2026-11-03)
 
 
