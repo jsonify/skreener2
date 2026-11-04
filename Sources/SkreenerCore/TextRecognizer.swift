@@ -118,11 +118,12 @@ public enum TextRecognizer {
     }
 
     /// A normalized Vision box (bottom-left origin, like the editor's image coordinates) in image points.
-    fileprivate static func points(_ b: CGRect, in size: CGSize) -> CGRect {
+    static func points(_ b: CGRect, in size: CGSize) -> CGRect {
         CGRect(x: b.minX * size.width, y: b.minY * size.height, width: b.width * size.width, height: b.height * size.height)
     }
 
-    private static func matches(_ kind: Sensitive, in text: String) -> [Range<String.Index>] {
+    /// The ranges of `text` that `kind` matches. Redact and Safe Check (`LeakScan`) share these rules.
+    static func matches(_ kind: Sensitive, in text: String) -> [Range<String.Index>] {
         let ns = NSRange(text.startIndex..., in: text)
         let found: [NSTextCheckingResult]
         switch kind {
