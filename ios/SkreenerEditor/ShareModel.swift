@@ -4,7 +4,9 @@ import UIKit
 
 /// What the share sheet shows and the choices made in it.
 @MainActor
-final class ShareModel: ObservableObject {
+public final class ShareModel: ObservableObject {
+    public init() {}
+
     enum FrameChoice: Hashable {
         case plain, iPhone, browser, macWindow
 
@@ -19,7 +21,7 @@ final class ShareModel: ObservableObject {
     }
 
     /// What the controls edit.
-    enum Mode: Hashable {
+    public enum Mode: Hashable {
         case style, redact, draw
     }
 
@@ -67,7 +69,7 @@ final class ShareModel: ObservableObject {
     @Published var shadow = 0.5 { didSet { scheduleRedraw() } }
     /// Redact and Draw show the bare screenshot, so a touch maps straight to it. Redrawn at once on a switch: their
     /// canvases map touches with the preview's size.
-    @Published var mode = Mode.style {
+    @Published public var mode = Mode.style {
         didSet {
             guard mode != oldValue else { return }
             if mode != .draw { cancelText() }
@@ -106,7 +108,7 @@ final class ShareModel: ObservableObject {
     private var redrawPending = false
 
     /// Loads the image from `items` and shows it.
-    func load(items: [NSExtensionItem]) {
+    public func load(items: [NSExtensionItem]) {
         self.items = items
         Task { [weak self] in
             do {
