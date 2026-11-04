@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.17.0](https://github.com/jsonify/skreener2/compare/v1.16.0...v1.17.0) (2026-11-04)
+
+
+### Features
+
+* **ios:** draw arrows, rectangles, text and highlights ([#396](https://github.com/jsonify/skreener2/issues/396)) ([#404](https://github.com/jsonify/skreener2/issues/404)) ([8142867](https://github.com/jsonify/skreener2/commit/8142867e6e2d04730fa3bab988817f467df0c5ae))
+* **ios:** redact a dragged area or found text ([#396](https://github.com/jsonify/skreener2/issues/396)) ([#402](https://github.com/jsonify/skreener2/issues/402)) ([7081381](https://github.com/jsonify/skreener2/commit/7081381b6dcd15c2524d701fe2df8032a156d5c0))
+
 ## [1.16.0](https://github.com/jsonify/skreener2/compare/v1.15.0...v1.16.0) (2026-11-04)
 
 
