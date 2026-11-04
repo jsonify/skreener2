@@ -9,9 +9,6 @@ struct RedactCanvas: View {
     @ObservedObject var finder: TextFinder
     let preview: UIImage
 
-    /// Smaller drags are taps.
-    private static let minDrag: CGFloat = 8
-
     @State private var dragStart: CGPoint?
     @State private var dragEnd: CGPoint?
 
@@ -20,11 +17,7 @@ struct RedactCanvas: View {
             let view = geo.size
             let fit = PreviewMapping.fitted(preview.size, in: view)
             ZStack(alignment: .topLeading) {
-                Image(uiImage: preview)
-                    .resizable()
-                    .frame(width: fit.width, height: fit.height)
-                    .offset(x: fit.minX, y: fit.minY)
-                    .accessibilityLabel(Text("Preview. Drag to cover an area."))
+                PreviewImage(preview: preview, fit: fit, label: "Preview. Drag to cover an area.")
                 matches(view: view, selected: true)
                     .stroke(orange, lineWidth: 2)
                 matches(view: view, selected: false)
@@ -44,12 +37,8 @@ struct RedactCanvas: View {
 
     /// The rubber band while dragging, once the drag is long enough to count.
     private var band: CGRect? {
-        guard let a = dragStart, let b = dragEnd, Self.isDrag(from: a, to: b) else { return nil }
+        guard let a = dragStart, let b = dragEnd, PreviewMapping.isDrag(from: a, to: b) else { return nil }
         return CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
-    }
-
-    private static func isDrag(from a: CGPoint, to b: CGPoint) -> Bool {
-        abs(a.x - b.x) >= minDrag || abs(a.y - b.y) >= minDrag
     }
 
     private func matches(view: CGSize, selected: Bool) -> Path {
@@ -72,7 +61,7 @@ struct RedactCanvas: View {
                 dragStart = nil
                 dragEnd = nil
                 let size = preview.size, full = model.fullSize
-                if Self.isDrag(from: value.startLocation, to: value.location) {
+                if PreviewMapping.isDrag(from: value.startLocation, to: value.location) {
                     model.redact([PreviewMapping.imageRect(from: value.startLocation, to: value.location, view: view,
                                                            preview: size, full: full)])
                 } else {

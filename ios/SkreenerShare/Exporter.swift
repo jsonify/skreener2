@@ -17,6 +17,8 @@ enum Exporter {
         let background: Background?
         /// In full-image pixels.
         let redactions: [Redaction]
+        /// In full-image pixels, drawn over the redactions.
+        let markups: [Markup]
     }
 
     /// Reloads the full image (up to `ImageLoader.maxPixels`), draws it and encodes a PNG. It runs off the main actor
@@ -26,7 +28,7 @@ enum Exporter {
             let image = try await ImageLoader.load(from: job.items)
             let frame: DeviceFrame? = job.frame
             guard let data = Renderer.render(image: image, frame: frame, background: job.background,
-                                             redactions: job.redactions).pngData() else {
+                                             redactions: job.redactions, markups: job.markups).pngData() else {
                 throw ExportError.renderFailed
             }
             return data
