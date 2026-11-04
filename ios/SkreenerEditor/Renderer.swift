@@ -15,9 +15,14 @@ enum Renderer {
 
     /// One image pixel is one point, and the renderer's scale is 1, so the result has the canvas's size in pixels.
     /// `redactions` and `markups` are in `image`'s pixels and go over the screenshot, markups over redactions, both
-    /// under nothing else and kept inside the screenshot.
-    static func render(image: CGImage, frame: DeviceFrame?, background: Background?,
-                       redactions: [Redaction] = [], markups: [Markup] = []) -> UIImage {
+    /// under nothing else and kept inside the screenshot. `statusBar`, if any, is the layout of `image`'s status bar,
+    /// to repaint clean before anything else.
+    static func render(image original: CGImage, frame: DeviceFrame?, background: Background?,
+                       redactions: [Redaction] = [], markups: [Markup] = [],
+                       statusBar: StatusBar.Layout? = nil) -> UIImage {
+        // The clean bar is part of the screenshot: repainted first, so everything else goes over it. If it can't be
+        // drawn, the image stays as it was.
+        let image = statusBar.flatMap { StatusBar.clean(original, layout: $0) } ?? original
         let content = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         // A frame of kind .none means no frame.
         let frame = frame?.isNone == true ? nil : frame

@@ -67,6 +67,8 @@ public final class ShareModel: ObservableObject {
     @Published var padding = 48.0 { didSet { scheduleRedraw() } }
     @Published var cornerRadius = 10.0 { didSet { scheduleRedraw() } }
     @Published var shadow = 0.5 { didSet { scheduleRedraw() } }
+    /// Repaint an iPhone screenshot's status bar clean: 9:41, full signal, Wi-Fi and battery (#408).
+    @Published var cleanBar = false { didSet { scheduleRedraw() } }
     /// Redact and Draw show the bare screenshot, so a touch maps straight to it. Redrawn at once on a switch: their
     /// canvases map touches with the preview's size.
     @Published public var mode = Mode.style {
@@ -93,6 +95,18 @@ public final class ShareModel: ObservableObject {
     @Published private(set) var textSpot: CGPoint?
     /// The label being typed.
     @Published var draftText = ""
+
+    /// True when the full image is an iPhone screenshot whose status bar size is known.
+    var canCleanBar: Bool {
+        StatusBar.layout(forPixelWidth: Int(fullSize.width), height: Int(fullSize.height)) != nil
+    }
+
+    /// The clean bar's layout for the preview, or nil when it is off or not available. The preview is a downscaled
+    /// copy that the size table doesn't list, so the full size's layout is scaled down to it.
+    private func previewStatusBar(scale: CGFloat) -> StatusBar.Layout? {
+        guard cleanBar else { return nil }
+        return StatusBar.layout(forPixelWidth: Int(fullSize.width), height: Int(fullSize.height))?.scaled(by: scale)
+    }
 
     var canExport: Bool { phase == .ready && !busy }
 
@@ -151,12 +165,14 @@ public final class ShareModel: ObservableObject {
         let scale = CGFloat(source.width) / fullSize.width
         let shown = redactions.map { $0.scaled(by: scale) }
         let marks = markups.map { $0.scaled(by: scale) }
+        let bar = previewStatusBar(scale: scale)
         switch mode {
         case .style:
             preview = Renderer.render(image: source, frame: makeFrame(), background: makeBackground(scale: scale),
-                                      redactions: shown, markups: marks)
+                                      redactions: shown, markups: marks, statusBar: bar)
         case .redact, .draw:
-            preview = Renderer.render(image: source, frame: nil, background: nil, redactions: shown, markups: marks)
+            preview = Renderer.render(image: source, frame: nil, background: nil, redactions: shown, markups: marks,
+                                      statusBar: bar)
         }
     }
 
@@ -279,7 +295,8 @@ public final class ShareModel: ObservableObject {
         busy = true
         status = Status(text: output == .save ? "Saving…" : "Rendering…")
         let job = Exporter.Job(items: items, frame: makeFrame(), background: makeBackground(scale: 1),
-                               redactions: redactions, markups: markups)
+                               redactions: redactions, markups: markups,
+                               cleanBar: cleanBar && canCleanBar)
         Task { [weak self] in
             await self?.perform(output, job: job, share: share)
         }

@@ -43,6 +43,19 @@ final class StatusBarTests: XCTestCase {
         XCTAssertEqual(StatusBar.table.count, sizes.count)
     }
 
+    func testScaledLayout() throws {
+        let l = try XCTUnwrap(StatusBar.layout(forPixelWidth: 1179, height: 2556))
+        let half = l.scaled(by: 0.5)
+        XCTAssertEqual(half.bar, CGRect(x: 0, y: 0, width: 589.5, height: 81))
+        XCTAssertEqual(half.scale, 1.5)
+        XCTAssertEqual(half.midY, l.midY / 2)
+        XCTAssertEqual(half.style, l.style)
+        let c = try XCTUnwrap(l.cutout), hc = try XCTUnwrap(half.cutout)
+        XCTAssertEqual(hc, CGRect(x: c.minX / 2, y: c.minY / 2, width: c.width / 2, height: c.height / 2))
+        XCTAssertEqual(l.scaled(by: 1), l)
+        XCTAssertNil(try XCTUnwrap(StatusBar.layout(forPixelWidth: 750, height: 1334)).scaled(by: 0.5).cutout)
+    }
+
     func testOtherSizesHaveNone() {
         XCTAssertNil(StatusBar.layout(forPixelWidth: 2556, height: 1179), "landscape")
         XCTAssertNil(StatusBar.layout(forPixelWidth: 2048, height: 2732), "iPad")

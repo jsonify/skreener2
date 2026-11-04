@@ -19,6 +19,8 @@ enum Exporter {
         let redactions: [Redaction]
         /// In full-image pixels, drawn over the redactions.
         let markups: [Markup]
+        /// Repaint the status bar clean (#408), if the full image's size has a layout.
+        let cleanBar: Bool
     }
 
     /// Reloads the full image (up to `ImageLoader.maxPixels`), draws it and encodes a PNG. It runs off the main actor
@@ -27,8 +29,10 @@ enum Exporter {
         try await Task.detached(priority: .userInitiated) { () -> Data in
             let image = try await ImageLoader.load(from: job.items)
             let frame: DeviceFrame? = job.frame
+            let bar = job.cleanBar ? StatusBar.layout(forPixelWidth: image.width, height: image.height) : nil
             guard let data = Renderer.render(image: image, frame: frame, background: job.background,
-                                             redactions: job.redactions, markups: job.markups).pngData() else {
+                                             redactions: job.redactions, markups: job.markups,
+                                             statusBar: bar).pngData() else {
                 throw ExportError.renderFailed
             }
             return data

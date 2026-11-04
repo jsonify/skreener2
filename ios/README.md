@@ -67,11 +67,16 @@ open Skreener.xcodeproj
    only areas.
 10. Switch back to **Style**: the frame and background return, with the redactions and drawings on the screenshot
     (drawings over redactions). They are in every export too, at full size.
-11. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
+11. With a full iPhone screenshot, a **Status bar** group with a **Clean bar** switch sits under the frame choices
+    (it is absent for a photo, an iPad or a cropped screenshot). Turn it on: the bar at the top repaints with the
+    time reading 9:41, full signal bars, full Wi-Fi and a full battery, and no carrier, notification icons or real
+    time. It stays on in Redact and Draw, and in Save, Copy and Share at full size. Turn it off to get the
+    original bar back.
+12. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
     full-resolution PNG is in the Photos library. If you deny, the sheet says to allow "Add Photos Only" for Skreener
     in Settings > Privacy & Security > Photos.
-12. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
-13. **Close** (top left) ends the sheet.
+13. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
+14. **Close** (top left) ends the sheet.
 
 ## Privacy manifest
 
