@@ -4,7 +4,9 @@ import UIKit
 
 /// Finds text to redact with on-device OCR, like the Mac's Redact and Redact Text: emails, phone numbers and links,
 /// or the terms typed in the search box (comma-separated). Matches are boxes in full-image pixels (bottom-left
-/// origin, as Vision's own boxes are), shown on the preview; tapping one takes it out or back in.
+/// origin, as Vision's own boxes are), shown on the preview; tapping one takes it out or back in. It also runs Safe
+/// Check's scan (#408) and shows its findings the same way (`SafeCheck.swift`). One OCR pass at a time, so the full
+/// image is loaded only once at a time.
 @MainActor
 final class TextFinder: ObservableObject {
     enum Kind: Hashable, CaseIterable, Sendable {
@@ -31,7 +33,7 @@ final class TextFinder: ObservableObject {
     @Published var query = "" {
         didSet {
             guard query != oldValue else { return }
-            if !terms.isEmpty { kind = nil }
+            if !terms.isEmpty { kind = nil; reviewing = false }
             refresh()
         }
     }
@@ -40,6 +42,16 @@ final class TextFinder: ObservableObject {
     @Published private(set) var kind: Kind?
     /// OCR is running.
     @Published private(set) var reading = false
+    /// Safe Check: what the scan on open found (boxes padded), in reading order; nil until it has read the image.
+    @Published private(set) var leaks: [LeakScan.Finding]?
+    /// Safe Check's findings are the matches shown (its Review key), in `reviewed`'s order.
+    @Published private(set) var reviewing = false
+    /// Each Redact N of Safe Check's findings, oldest first.
+    @Published private(set) var leakCovers: [SafeCheck.Cover] = []
+    /// The findings `hits` stand for while reviewing.
+    private var reviewed: [LeakScan.Finding] = []
+    /// The scan was asked for while another OCR pass was running.
+    private var scanPending = false
 
     private var source: ImageSource?
     private var size = CGSize.zero
@@ -55,7 +67,9 @@ final class TextFinder: ObservableObject {
     }
 
     var status: String {
-        RedactText.status(hits, reading: reading, invalidPattern: false, searching: kind != nil || !terms.isEmpty)
+        // The Safe Check scan reads too, but says so on its own line.
+        let searching = kind != nil || reviewing || !terms.isEmpty
+        return RedactText.status(hits, reading: reading && searching, invalidPattern: false, searching: searching)
     }
 
     var selectedCount: Int { hits.filter(\.selected).count }
@@ -66,6 +80,7 @@ final class TextFinder: ObservableObject {
     /// Shows the matches of a kind key, reading the image first if need be.
     func find(_ kind: Kind) {
         self.kind = kind
+        reviewing = false
         query = ""
         refresh()
     }
@@ -80,6 +95,7 @@ final class TextFinder: ObservableObject {
 
     func clear() {
         kind = nil
+        reviewing = false
         query = ""
         hits = []
     }
@@ -89,6 +105,8 @@ final class TextFinder: ObservableObject {
     }
 
     private func refresh() {
+        // Safe Check's findings stay as reviewed (and ticked) until another search replaces them.
+        if reviewing { return }
         if let kind {
             guard let boxes = found[kind] else { read(.kind(kind)); return }
             // Padded like the Mac's Redact.
@@ -108,11 +126,13 @@ final class TextFinder: ObservableObject {
     private enum Request: Sendable {
         case index
         case kind(Kind)
+        case leaks
     }
 
     private enum Reading: Sendable {
         case index(TextRecognizer.TextIndex)
         case boxes(Kind, [CGRect])
+        case leaks([LeakScan.Finding])
     }
 
     /// One OCR pass at a time; `refresh` afterwards starts the next if the search moved on meanwhile.
@@ -126,9 +146,11 @@ final class TextFinder: ObservableObject {
             switch result {
             case .index(let index): self.index = index
             case .boxes(let kind, let boxes): self.found[kind] = boxes
+            case .leaks(let findings): self.leaks = findings
             }
             self.reading = false
             self.refresh()
+            if self.scanPending { self.scanForLeaks() }
         }
     }
 
@@ -145,6 +167,43 @@ final class TextFinder: ObservableObject {
         case .kind(let kind):
             guard let image else { return .boxes(kind, []) }
             return .boxes(kind, await TextRecognizer.boxes(in: image, size: full, matching: kind.sensitive))
+        case .leaks:
+            guard let image else { return .leaks([]) }
+            let findings = await LeakScan.scan(image, size: full)
+            // Padded like the Mac's Redact.
+            return .leaks(findings.map { LeakScan.Finding(kind: $0.kind, box: $0.box.insetBy(dx: -3, dy: -2)) })
         }
+    }
+
+    // MARK: Safe Check
+
+    /// Starts Safe Check's scan, once: after the OCR pass running now, if any.
+    func scanForLeaks() {
+        guard leaks == nil else { scanPending = false; return }
+        guard source != nil else { leaks = []; return }
+        guard !reading else { scanPending = true; return }
+        scanPending = false
+        read(.leaks)
+    }
+
+    /// Shows `findings` as the matches, all ticked, for Redact N or a tap to leave one out.
+    func review(_ findings: [LeakScan.Finding]) {
+        kind = nil
+        reviewing = true
+        query = ""
+        reviewed = findings
+        hits = findings.map { RedactText.Hit(boxes: [$0.box]) }
+    }
+
+    /// While reviewing: the findings left unticked.
+    var unticked: [LeakScan.Finding] {
+        guard reviewing else { return [] }
+        return zip(reviewed, hits).filter { !$0.1.selected }.map { $0.0 }
+    }
+
+    /// Notes that Redact N covered the ticked findings with `redactions`.
+    func noteLeaksCovered(by redactions: [Redaction]) {
+        guard reviewing, !redactions.isEmpty else { return }
+        leakCovers.append(SafeCheck.Cover(redactions: redactions, left: unticked))
     }
 }
