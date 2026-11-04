@@ -18,6 +18,11 @@ final class ShareModel: ObservableObject {
         }
     }
 
+    /// What the controls edit. Step 5 adds Draw.
+    enum Mode: Hashable {
+        case style, redact
+    }
+
     enum Phase {
         case loading, ready, failed
     }
@@ -46,6 +51,15 @@ final class ShareModel: ObservableObject {
     @Published var padding = 48.0 { didSet { scheduleRedraw() } }
     @Published var cornerRadius = 10.0 { didSet { scheduleRedraw() } }
     @Published var shadow = 0.5 { didSet { scheduleRedraw() } }
+    /// Redact shows the bare screenshot, so a touch maps straight to it. Redrawn at once on a switch: the Redact
+    /// canvas maps touches with the preview's size.
+    @Published var mode = Mode.style { didSet { if mode != oldValue { redraw() } } }
+    /// How new redactions cover: pixelate, blur or solid.
+    @Published var redactStyle = RedactText.Cover.pixelate
+    /// In full-image pixels (bottom-left origin); drawn over the screenshot in the preview and every export.
+    @Published private(set) var redactions: [Redaction] = [] { didSet { scheduleRedraw() } }
+    /// Finds text to redact.
+    let finder = TextFinder()
 
     var canExport: Bool { phase == .ready && !busy }
 
@@ -54,8 +68,10 @@ final class ShareModel: ObservableObject {
     private var items: [NSExtensionItem] = []
     /// The screenshot at preview size.
     private var source: CGImage?
-    /// The width of the full image, to scale padding and corners down for the preview.
-    private var fullWidth: CGFloat = 1
+    /// The full image's size in pixels, to scale padding, corners and redactions down for the preview.
+    private(set) var fullSize = CGSize(width: 1, height: 1)
+    /// How many redactions each step added, so Undo takes back a whole Redact N at once.
+    private var redactionSteps: [Int] = []
     private var redrawPending = false
 
     /// Loads the image from `items` and shows it.
@@ -72,7 +88,8 @@ final class ShareModel: ObservableObject {
     }
 
     private func show(_ image: CGImage) {
-        fullWidth = CGFloat(max(image.width, 1))
+        fullSize = CGSize(width: max(image.width, 1), height: max(image.height, 1))
+        finder.prepare(items: items, size: fullSize)
         source = ImageLoader.preview(of: image)
         phase = .ready
         redraw()
@@ -98,8 +115,41 @@ final class ShareModel: ObservableObject {
     private func redraw() {
         guard let source else { return }
         // Padding and corners are in full-image pixels; the preview is smaller by this much.
-        let scale = CGFloat(source.width) / fullWidth
-        preview = Renderer.render(image: source, frame: makeFrame(), background: makeBackground(scale: scale))
+        let scale = CGFloat(source.width) / fullSize.width
+        let shown = redactions.map { $0.scaled(by: scale) }
+        switch mode {
+        case .style:
+            preview = Renderer.render(image: source, frame: makeFrame(), background: makeBackground(scale: scale),
+                                      redactions: shown)
+        case .redact:
+            preview = Renderer.render(image: source, frame: nil, background: nil, redactions: shown)
+        }
+    }
+
+    // MARK: Redact
+
+    var canUndoRedaction: Bool { !redactionSteps.isEmpty }
+
+    /// Covers `rects` (full-image pixels) with the current style, as one step. Parts outside the image are dropped.
+    func redact(_ rects: [CGRect]) {
+        let bounds = CGRect(origin: .zero, size: fullSize)
+        let added = rects.map { $0.standardized.intersection(bounds) }
+            .filter { !$0.isNull && $0.width >= 1 && $0.height >= 1 }
+            .map { Redaction(rect: $0, style: redactStyle) }
+        guard !added.isEmpty else { return }
+        redactionSteps.append(added.count)
+        redactions += added
+    }
+
+    /// Takes back the last step: one dragged area, or all the matches one Redact N covered.
+    func undoRedaction() {
+        guard let n = redactionSteps.popLast() else { return }
+        redactions.removeLast(min(n, redactions.count))
+    }
+
+    func clearRedactions() {
+        redactionSteps = []
+        redactions = []
     }
 
     private func makeFrame() -> DeviceFrame {
@@ -127,7 +177,8 @@ final class ShareModel: ObservableObject {
         guard canExport else { return }
         busy = true
         status = Status(text: output == .save ? "Saving…" : "Rendering…")
-        let job = Exporter.Job(items: items, frame: makeFrame(), background: makeBackground(scale: 1))
+        let job = Exporter.Job(items: items, frame: makeFrame(), background: makeBackground(scale: 1),
+                               redactions: redactions)
         Task { [weak self] in
             await self?.perform(output, job: job, share: share)
         }

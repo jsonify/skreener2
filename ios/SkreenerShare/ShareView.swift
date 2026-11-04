@@ -2,8 +2,8 @@ import SkreenerCore
 import SK1UI
 import SwiftUI
 
-/// The share sheet: a Close key on top, the preview, a status readout, the controls (which scroll when they do not
-/// fit) and the Save, Copy and Share keys at the bottom.
+/// The share sheet: a Close key on top, the preview, a status readout, the Style / Redact switch, that mode's
+/// controls (which scroll when they do not fit) and the Save, Copy and Share keys at the bottom.
 struct ShareView: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
@@ -25,12 +25,21 @@ struct ShareView: View {
                 .frame(minHeight: 200, maxHeight: .infinity)
                 .layoutPriority(1)
             statusArea
+            SKSegmented(selection: $model.mode, options: [
+                .init(.style, "Style"),
+                .init(.redact, "Redact"),
+            ], caption: "Mode")
             ScrollView {
                 VStack(spacing: 12) {
-                    frameAndBackground
-                    FrameOptions(model: model)
-                    if model.backgroundChoice != nil {
-                        BackgroundControls(model: model)
+                    switch model.mode {
+                    case .style:
+                        frameAndBackground
+                        FrameOptions(model: model)
+                        if model.backgroundChoice != nil {
+                            BackgroundControls(model: model)
+                        }
+                    case .redact:
+                        RedactControls(model: model, finder: model.finder)
                     }
                 }
             }
@@ -86,7 +95,9 @@ struct ShareView: View {
         case .failed:
             SKReadout("Could not read the image.").frame(maxHeight: .infinity, alignment: .center)
         case .ready:
-            if let preview = model.preview {
+            if let preview = model.preview, model.mode == .redact {
+                RedactCanvas(model: model, finder: model.finder, preview: preview)
+            } else if let preview = model.preview {
                 Image(uiImage: preview)
                     .resizable()
                     .scaledToFit()
