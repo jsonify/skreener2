@@ -88,4 +88,27 @@ tracks. Add one, to the target that makes the call, if that changes.
 3. In Xcode, run destination **Any iOS Device (arm64)**, **Product > Archive**, then in the Organizer **Distribute App >
    App Store Connect > Upload**. The build appears under TestFlight in App Store Connect after processing.
 
-CI builds the project for the iOS Simulator in `.github/workflows/ios.yml`, with warnings as errors.
+## Upload from GitHub Actions
+
+`.github/workflows/testflight.yml` archives and uploads without a Mac: Actions tab > **TestFlight** > **Run workflow**,
+pick the branch, **Run workflow**. It stamps its own build number and signs with Xcode's cloud-managed certificates
+through an App Store Connect API key, so no certificate or profile is kept in the repository. The run's summary names the
+uploaded version and build; it appears under TestFlight after processing.
+
+Setup, once:
+
+1. In App Store Connect, **Users and Access > Integrations > App Store Connect API > Team Keys** (the first time, request
+   access and accept the terms). Click **+** (Generate API Key), name it "GitHub Actions" and give it **Admin** access:
+   cloud-managed signing needs it. **Download** the `AuthKey_<Key ID>.p8` file (Apple offers it only once) and note
+   the **Key ID** next to the key and the **Issuer ID** above the list.
+2. In GitHub, the repository's **Settings > Secrets and variables > Actions > New repository secret**, four times:
+   - `ASC_KEY_ID`: the Key ID
+   - `ASC_ISSUER_ID`: the Issuer ID
+   - `ASC_KEY_P8`: the whole text of the `.p8` file, from `-----BEGIN PRIVATE KEY-----` to `-----END PRIVATE KEY-----`
+   - `APPLE_TEAM_ID`: the Team ID from `Local.xcconfig`
+
+   Then delete the downloaded `.p8` or keep it somewhere private: whoever has it can upload builds for the team.
+
+To revoke CI's access, revoke the key on the same App Store Connect page.
+
+CI builds the project for the iOS Simulator in `.github/workflows/ios.yml` on every change, with warnings as errors.

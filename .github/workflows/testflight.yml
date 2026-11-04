@@ -1,0 +1,99 @@
+name: TestFlight
+
+# Archives the iOS app and uploads it to App Store Connect, where the build shows up under TestFlight. Run it from the
+# Actions tab (Run workflow) on any branch. Signing is Xcode's automatic, cloud-managed signing through an App Store
+# Connect API key, so no certificate or profile is stored here; see ios/README.md ("Upload from GitHub Actions") for the
+# one-time setup of the key and these repository secrets:
+#   ASC_KEY_ID         the API key's Key ID
+#   ASC_ISSUER_ID      the Issuer ID shown above the keys list
+#   ASC_KEY_P8         the whole contents of the downloaded AuthKey_<Key ID>.p8
+#   APPLE_TEAM_ID      the 10-character Team ID (the same one as in ios/Local.xcconfig)
+# The build number is stamped by `xcodegen generate` (UTC time, see ios/stamp_build_number.sh), so it never collides
+# with a build uploaded from a Mac.
+on:
+  workflow_dispatch:
+
+# One upload at a time; a second run waits instead of cancelling one that is mid-upload.
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Check the secrets
+        run: |
+          missing=0
+          for name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then echo "::error::Repository secret $name is not set (see ios/README.md)."; missing=1; fi
+          done
+          exit "$missing"
+      - uses: actions/checkout@v4
+      # The same Xcode as ios.yml builds with.
+      - name: Select newest Xcode
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$NEWEST"
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      # Local.xcconfig carries the Team, as on the owner's Mac; xcodegen stamps the build number.
+      - name: Generate the project
+        run: |
+          cd ios
+          printf 'DEVELOPMENT_TEAM = %s\n' "$APPLE_TEAM_ID" > Local.xcconfig
+          xcodegen generate
+          version=$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"/\1/p' project.yml)
+          build=$(sed -n 's/^CURRENT_PROJECT_VERSION = //p' BuildNumber.xcconfig)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD=$build" >> "$GITHUB_ENV"
+      - name: Install the API key
+        run: |
+          key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+      # Archived unsigned: the export below signs the app and the extension with a cloud-managed distribution
+      # certificate, so the runner needs no development certificate. Warnings are errors here too (project.yml).
+      - name: Archive
+        run: |
+          xcodebuild archive -project ios/Skreener.xcodeproj -scheme Skreener -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Skreener.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO
+      # manageAppVersionAndBuildNumber off: keep the stamped build number instead of letting Xcode pick one.
+      - name: Sign and upload to App Store Connect
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Skreener.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+      - name: Summary
+        run: |
+          {
+            echo "### Uploaded Skreener $VERSION ($BUILD)"
+            echo "It appears under TestFlight in App Store Connect once Apple has processed it (usually 5–30 minutes)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove the API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8 ios/Local.xcconfig
