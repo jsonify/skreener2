@@ -1,5 +1,6 @@
 import AppKit
 import Vision
+import SkreenerCore
 
 extension TextRecognizer {
     /// Each recognized line of `image` with its box (image points, bottom-left origin), for Capture Code (#249).

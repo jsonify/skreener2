@@ -2,6 +2,7 @@ import AppKit
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 import UserNotifications
+import SkreenerCore
 
 /// Watch This Area (#240): checks an area of the screen, or one window, every few seconds with a single-frame grab
 /// (no stream stays open in between) and notifies when it changes or a text appears or disappears. One watch at a time.
