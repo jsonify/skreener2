@@ -6,10 +6,14 @@ on:
     paths-ignore:
       - 'windows/**'
       - '.github/workflows/windows.yml'
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
   pull_request:
     paths-ignore:
       - 'windows/**'
       - '.github/workflows/windows.yml'
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
   workflow_dispatch:
 
 # A newer run for the same branch replaces any older one still queued or running.

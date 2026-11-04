@@ -12,7 +12,9 @@
       "exclude-paths": [
         "windows",
         "docs/windows-port",
-        ".github/workflows/windows.yml"
+        ".github/workflows/windows.yml",
+        "ios",
+        ".github/workflows/ios.yml"
       ]
     }
   }
