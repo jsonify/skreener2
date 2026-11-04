@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.0](https://github.com/jsonify/skreener2/compare/v1.15.0...v1.16.0) (2026-11-04)
+
+
+### Features
+
+* **ios:** Share Extension scaffold with a frame and background preview ([#396](https://github.com/jsonify/skreener2/issues/396)) ([#398](https://github.com/jsonify/skreener2/issues/398)) ([e0b61ec](https://github.com/jsonify/skreener2/commit/e0b61ecc739e100d58d00fd008269b2b6dbbe900))
+
 ## [1.15.0](https://github.com/jsonify/skreener2/compare/v1.14.0...v1.15.0) (2026-11-03)
 
 
