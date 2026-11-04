@@ -7,6 +7,8 @@ then save it to Photos, copy it or share it at full size. The container app, als
 use it.
 
 - `Skreener/`: the container app (SwiftUI, the SK-1 look from [SK1Kit](https://github.com/jsonify/SK1Kit)).
+  Its icon, `Skreener/Assets.xcassets/AppIcon.appiconset/AppIcon.png`, is the Mac app's icon as an opaque
+  full-bleed square (iOS rounds the corners), drawn by `Scripts/make_icons.py` with the Mac one: change it there.
 - `SkreenerShare/`: the Share Extension. It draws with `SkreenerCore`, the library shared with the Mac app.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios` and
   `com.skreener.ios.share`; iOS 17 or later, iPhone only.
@@ -68,6 +70,12 @@ open Skreener.xcodeproj
     in Settings > Privacy & Security > Photos.
 12. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
 13. **Close** (top left) ends the sheet.
+
+## Privacy manifest
+
+There is no `PrivacyInfo.xcprivacy`: neither target, `SkreenerCore` nor SK1Kit uses any of Apple's required-reason
+APIs (`UserDefaults`, file timestamps, system boot time, disk space, active keyboards), and nothing collects data or
+tracks. Add one, to the target that makes the call, if that changes.
 
 ## Upload to TestFlight
 
