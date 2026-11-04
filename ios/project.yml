@@ -45,6 +45,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.skreener.ios
         PRODUCT_NAME: Skreener
+        # Skreener/Assets.xcassets/AppIcon.appiconset, drawn by Scripts/make_icons.py.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: Skreener/Info.plist
       properties:

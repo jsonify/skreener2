@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Draws Resources/AppIcon.icns and the MenuBarIcon template PNGs in the SK-1 look (#353): a cream device with an olive
+# Draws Resources/AppIcon.icns, the iOS app's AppIcon.png and the MenuBarIcon template PNGs in the SK-1 look (#353): a cream device with an olive
 # LCD showing crop corners over a cream knob, a speaker grille and an orange key. The colours are Retro.swift's.
 # Needs Pillow. Usage: Scripts/make_icons.py
 import math
@@ -111,21 +111,26 @@ def knob(canvas, cx, cy, r):
         d.ellipse((x - w, y - w, x + w, y + w), fill=rgb(0x2b2a27) + (255,))
 
 
-def app_icon():
-    S, T = 1024 * R, 824 * R  # the macOS grid: an 824 pt tile in a 1024 pt canvas
+def app_icon(ios=False):
+    """The macOS icon: an 824 pt tile with its shadow in a 1024 pt canvas. With `ios`, the same tile as an opaque
+    full-bleed square: iOS rounds the corners itself, with about the radius the macOS tile has."""
+    T = 824 * R
+    S = T if ios else 1024 * R
     o = (S - T) // 2
     icon = Image.new('RGBA', (S, S), (0, 0, 0, 0))
     tile_box = (o, o, o + T - 1, o + T - 1)
-    icon.alpha_composite(shadow(icon.size, tile_box, 185 * R, 95, 16 * R, 12 * R))
-    tile_mask = rounded_mask((T, T), (0, 0, T - 1, T - 1), 185 * R)
+    if not ios:
+        icon.alpha_composite(shadow(icon.size, tile_box, 185 * R, 95, 16 * R, 12 * R))
+    tile_mask = rounded_mask((T, T), (0, 0, T - 1, T - 1), 0 if ios else 185 * R)
     icon.alpha_composite(layer(gradient(T, T, [0xf6f4ee, 0xebe8e1, 0xdcd7cc]), icon.size, (o, o), tile_mask))
     glow = gradient(T, T, [0xffffff, 0xffffff])
     glow.putalpha(gradient(T, T, [0x8c8c8c, 0x000000, 0x000000]).getchannel('R'))
     icon.alpha_composite(layer(glow, icon.size, (o, o), tile_mask))
-    edge = Image.new('RGBA', (T, T), (0, 0, 0, 0))
-    ImageDraw.Draw(edge).rounded_rectangle((0, 0, T - 1, T - 1), radius=185 * R, outline=(0x9e, 0x98, 0x8b, 120),
-                                           width=3 * R)
-    icon.alpha_composite(edge, (o, o))
+    if not ios:
+        edge = Image.new('RGBA', (T, T), (0, 0, 0, 0))
+        ImageDraw.Draw(edge).rounded_rectangle((0, 0, T - 1, T - 1), radius=185 * R, outline=(0x9e, 0x98, 0x8b, 120),
+                                               width=3 * R)
+        icon.alpha_composite(edge, (o, o))
 
     def at(x0, y0, x1, y1):  # tile coordinates (824 grid) to canvas pixels
         return o + x0 * R, o + y0 * R, o + x1 * R, o + y1 * R
@@ -193,5 +198,8 @@ def menu_bar_glyph(scale):
 icon = app_icon()
 icon.save(os.path.join(res, 'AppIcon.icns'),
           sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)])
+# App Store Connect rejects an iOS icon with an alpha channel.
+app_icon(ios=True).convert('RGB').save(os.path.join(res, '..', 'ios', 'Skreener', 'Assets.xcassets',
+                                                    'AppIcon.appiconset', 'AppIcon.png'))
 for scale, name in ((1, 'MenuBarIcon.png'), (2, 'MenuBarIcon@2x.png')):
     menu_bar_glyph(scale).save(os.path.join(res, name))
