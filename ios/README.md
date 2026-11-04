@@ -90,8 +90,9 @@ tracks. Add one, to the target that makes the call, if that changes.
 
 ## Upload from GitHub Actions
 
-`.github/workflows/testflight.yml` archives and uploads without a Mac: Actions tab > **TestFlight** > **Run workflow**,
-pick the branch, **Run workflow**. It stamps its own build number and signs with Xcode's cloud-managed certificates
+`.github/workflows/testflight.yml` archives and uploads without a Mac. It runs by itself on every merge to `main` that
+changes `ios/`, `Sources/SkreenerCore/` or `Package.swift` (a Mac-only or docs-only merge uploads nothing). To upload
+another branch, or `main` again: Actions tab > **TestFlight** > **Run workflow**, pick the branch, **Run workflow**. It stamps its own build number and signs with Xcode's cloud-managed certificates
 through an App Store Connect API key, so no certificate or profile is kept in the repository. The run's summary names the
 uploaded version and build; it appears under TestFlight after processing.
 
