@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import XCTest
 @testable import Skreener
+@testable import SkreenerCore
 
 final class RecordingStudioTests: XCTestCase {
     private var dir: URL!
@@ -162,7 +163,7 @@ final class RecordingStudioTests: XCTestCase {
     func testTheBackgroundRoundTripsThroughTheEditorsBackground() {
         var b = Background()
         b.fill = Background.customFill
-        b.colors = [NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)]
+        b.colors = [RGBColor(r: 1, g: 0, b: 0), RGBColor(r: 0, g: 0, b: 1)]
         b.direction = .radial
         b.aspect = Background.Aspect(width: 4, height: 3)
         b.padding = 64; b.cornerRadius = 16; b.shadow = 0.8; b.imageBlur = 15

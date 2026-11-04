@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import SkreenerCore
 
 extension Notification.Name {
     /// Posted by the Settings window when an option that affects open windows changes.

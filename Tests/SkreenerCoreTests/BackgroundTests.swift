@@ -1,9 +1,9 @@
-import AppKit
+import CoreGraphics
 import XCTest
-@testable import Skreener
+@testable import SkreenerCore
 
 final class BackgroundTests: XCTestCase {
-    private let shot = NSRect(x: 0, y: 0, width: 801, height: 517)
+    private let shot = CGRect(x: 0, y: 0, width: 801, height: 517)
 
     func testNoAspectKeepsThePaddingOnEverySide() {
         XCTAssertEqual(Background.canvas(around: shot, margin: 48, aspect: nil), shot.insetBy(dx: -48, dy: -48))
@@ -35,7 +35,7 @@ final class BackgroundTests: XCTestCase {
     func testTheLastBackgroundIsSavedAndReadBack() {
         var b = Background()
         b.fill = Background.customFill
-        b.colors = [NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)]
+        b.colors = [RGBColor(r: 1, g: 0, b: 0), RGBColor(r: 0, g: 0, b: 1)]
         b.direction = .radial
         b.aspect = Background.Aspect(width: 4, height: 3)
         b.padding = 64; b.inset = 8; b.cornerRadius = 16; b.outerRadius = 24; b.shadow = 0.8; b.imageBlur = 15

@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import VideoToolbox
+import SkreenerCore
 
 // Studio Mode (#24): the recording editor's look for a Record for editing recording — a background with padding,
 // rounded corners and a shadow around the video, and the effects from the event track switched on/off and restyled.
@@ -92,7 +93,7 @@ struct StudioSettings: Codable, Equatable {
 struct StudioBackground: Codable, Equatable {
     var fill = 0
     /// The custom gradient's two colors, sRGB components with alpha.
-    var colors: [[Double]] = Background().colors.map(Background.components)
+    var colors: [[Double]] = Background().colors.map(\.components)
     var direction = Background.GradientDirection.diagonal.rawValue
     var imagePath: String?
     var imageBlur: Double = 0
@@ -107,7 +108,7 @@ struct StudioBackground: Codable, Equatable {
 
     init(_ b: Background) {
         fill = b.fill
-        colors = b.colors.map(Background.components)
+        colors = b.colors.map(\.components)
         direction = b.direction.rawValue
         imagePath = b.imageURL?.path
         imageBlur = Double(b.imageBlur)
@@ -121,7 +122,7 @@ struct StudioBackground: Codable, Equatable {
     var background: Background {
         var b = Background()
         if fill >= 0, fill <= Background.imageFill { b.fill = fill }
-        let parsed = colors.compactMap(Background.color(from:))
+        let parsed = colors.compactMap(RGBColor.init(components:))
         if parsed.count == 2 { b.colors = parsed }
         b.direction = Background.GradientDirection(rawValue: direction) ?? .diagonal
         b.imageURL = imagePath.map { URL(fileURLWithPath: $0) }

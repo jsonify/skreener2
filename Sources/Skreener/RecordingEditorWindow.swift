@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
+import SkreenerCore
 
 /// The recording editor (#24), opened from a Record for editing recording's Quick Access preview (Edit, or a double
 /// click): a preview with play/pause and a scrubber, and an inspector for Studio Mode's background (fill, padding,
@@ -476,7 +477,7 @@ import UniformTypeIdentifiers
         pictureRow.isHidden = !picture
         chooseImageButton.isHidden = b.fill != Background.imageFill
         directionPopup.selectItem(withTag: b.direction.rawValue)
-        if b.colors.count == 2 { gradientFrom.color = b.colors[0]; gradientTo.color = b.colors[1] }
+        if b.colors.count == 2 { gradientFrom.color = b.colors[0].nsColor; gradientTo.color = b.colors[1].nsColor }
         blurPopup.selectItem(withTag: Int(b.imageBlur))
         paddingPopup.selectItem(withTag: Int(b.padding))
         cornerPopup.selectItem(withTag: Int(b.cornerRadius))
@@ -629,7 +630,7 @@ import UniformTypeIdentifiers
     }
 
     @objc private func gradientColorChanged() {
-        let colors = [gradientFrom.color, gradientTo.color]
+        let colors = [RGBColor(gradientFrom.color), RGBColor(gradientTo.color)]
         changeBackground { b in
             b.fill = Background.customFill
             b.colors = colors

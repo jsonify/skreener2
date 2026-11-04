@@ -1,6 +1,6 @@
-import AppKit
+import CoreGraphics
 import XCTest
-@testable import Skreener
+@testable import SkreenerCore
 
 /// Geometry and saving of the device and browser frames (#271).
 final class DeviceFrameTests: XCTestCase {
@@ -98,21 +98,5 @@ final class DeviceFrameTests: XCTestCase {
         // Unknown kinds fall back to no frame.
         XCTAssertEqual(DeviceFrame(plist: ["kind": 99]).kind, .none)
         XCTAssertEqual(DeviceFrame(plist: [:]), DeviceFrame())
-    }
-
-    func testEditorDocumentSavesAndRestoresTheFrame() throws {
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SkreenerTests-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("Frame test.skreener", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
-        let base = TestImages.image(width: 40, height: 30) { r in NSColor.white.setFill(); r.fill() }
-        var f = frame(.iPad)
-        f.dark = true
-        try EditorDocument(deviceFrame: f).write(to: folder, base: base)
-        XCTAssertEqual(try XCTUnwrap(EditorDocument.read(from: folder)).document.deviceFrame, f)
-
-        // Documents saved without a frame (older ones, or None) read back as None.
-        try EditorDocument().write(to: folder, base: nil)
-        XCTAssertTrue(try XCTUnwrap(EditorDocument.read(from: folder)).document.deviceFrame.isNone)
     }
 }

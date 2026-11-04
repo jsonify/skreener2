@@ -2,23 +2,23 @@ import CoreGraphics
 import Foundation
 
 /// An sRGB color with components from 0 to 1, as the editor's color picker, ruler and contrast checker read them.
-struct RGBColor: Equatable {
-    var r: Double, g: Double, b: Double, a: Double = 1
+public struct RGBColor: Equatable, Sendable {
+    public var r: Double, g: Double, b: Double, a: Double = 1
 
     /// 8-bit channel values (0–255).
-    init(r8: Int, g8: Int, b8: Int, a8: Int = 255) {
+    public init(r8: Int, g8: Int, b8: Int, a8: Int = 255) {
         self.init(r: Double(r8) / 255, g: Double(g8) / 255, b: Double(b8) / 255, a: Double(a8) / 255)
     }
 
-    init(r: Double, g: Double, b: Double, a: Double = 1) {
+    public init(r: Double, g: Double, b: Double, a: Double = 1) {
         self.r = r; self.g = g; self.b = b; self.a = a
     }
 
     /// A channel as 0–255.
-    static func byte(_ v: Double) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
+    public static func byte(_ v: Double) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
 
     /// WCAG 2 relative luminance (linear-light, 0 for black, 1 for white).
-    var luminance: Double {
+    public var luminance: Double {
         func lin(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
         return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
     }
@@ -26,13 +26,13 @@ struct RGBColor: Equatable {
 
 /// A screenshot's pixels as 8-bit sRGB RGBA, row 0 at the top, read once so the editor can look at single pixels as
 /// the pointer moves (the color picker, the ruler) or at an area (average color, contrast).
-struct PixelBuffer: Sendable {
-    let width: Int
-    let height: Int
+public struct PixelBuffer: Sendable {
+    public let width: Int
+    public let height: Int
     /// Premultiplied RGBA, four bytes per pixel.
     private let data: [UInt8]
 
-    init?(_ image: CGImage) {
+    public init?(_ image: CGImage) {
         let w = image.width, h = image.height
         guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         var buf = [UInt8](repeating: 0, count: w * h * 4)
@@ -46,16 +46,16 @@ struct PixelBuffer: Sendable {
         width = w; height = h; data = buf
     }
 
-    func contains(x: Int, y: Int) -> Bool { x >= 0 && y >= 0 && x < width && y < height }
+    public func contains(x: Int, y: Int) -> Bool { x >= 0 && y >= 0 && x < width && y < height }
 
     /// The raw (premultiplied) bytes of a pixel, for quick comparisons.
-    func rgba(x: Int, y: Int) -> (r: Int, g: Int, b: Int, a: Int) {
+    public func rgba(x: Int, y: Int) -> (r: Int, g: Int, b: Int, a: Int) {
         let i = (y * width + x) * 4
         return (Int(data[i]), Int(data[i + 1]), Int(data[i + 2]), Int(data[i + 3]))
     }
 
     /// The color of one pixel (top-left origin), or nil outside the image.
-    func color(x: Int, y: Int) -> RGBColor? {
+    public func color(x: Int, y: Int) -> RGBColor? {
         guard contains(x: x, y: y) else { return nil }
         let p = rgba(x: x, y: y)
         return Self.unpremultiplied(r: Double(p.r), g: Double(p.g), b: Double(p.b), a: Double(p.a))
@@ -63,7 +63,7 @@ struct PixelBuffer: Sendable {
 
     /// The darkest pixel (lowest luminance) within `radius` pixels of (x, y) each way, e.g. the text color under the
     /// pointer even when it sits between two strokes.
-    func darkest(x: Int, y: Int, radius: Int = 10) -> RGBColor? {
+    public func darkest(x: Int, y: Int, radius: Int = 10) -> RGBColor? {
         guard contains(x: x, y: y), radius >= 0 else { return nil }
         var best: RGBColor?, bestLum = Double.infinity
         for yy in max(y - radius, 0)...min(y + radius, height - 1) {
@@ -84,7 +84,7 @@ struct PixelBuffer: Sendable {
     }
 
     /// The mean of the sRGB values in `rect` (pixels, top-left origin): half black, half white gives #808080.
-    func average(in rect: CGRect) -> RGBColor? {
+    public func average(in rect: CGRect) -> RGBColor? {
         guard let c = clipped(rect) else { return nil }
         var r = 0, g = 0, b = 0, a = 0
         for y in c.y0..<c.y1 {
@@ -100,7 +100,7 @@ struct PixelBuffer: Sendable {
     /// the one that stands out most against it among the others that cover a fair share of the area (text, an icon).
     /// Colors are grouped at 4 bits per channel, so anti-aliasing counts as its color; each is the mean of its group.
     /// With a single color, both are that color.
-    func dominantColors(in rect: CGRect) -> (background: RGBColor, foreground: RGBColor)? {
+    public func dominantColors(in rect: CGRect) -> (background: RGBColor, foreground: RGBColor)? {
         guard let c = clipped(rect) else { return nil }
         var groups: [Int: (count: Int, r: Int, g: Int, b: Int, a: Int)] = [:]
         for y in c.y0..<c.y1 {

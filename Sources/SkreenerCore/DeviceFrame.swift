@@ -1,4 +1,6 @@
-import AppKit
+import CoreGraphics
+import CoreText
+import Foundation
 
 /// A frame around the screenshot (#271): a macOS window, a browser with an address bar, a MacBook, an iPhone or an
 /// iPad, light or dark, drawn as vector paths. It sits inside the Background's padding and shadow.
@@ -6,11 +8,11 @@ import AppKit
 /// The screenshot is never scaled, so annotations keep their coordinates. Window and browser chrome simply wraps the
 /// screenshot's size; a device's screen has a fixed shape, so the screenshot is letterboxed inside the smallest screen
 /// that holds it. `layout(around:)` is the pure geometry; drawing is further down.
-struct DeviceFrame: Equatable {
-    enum Kind: Int, CaseIterable {
+public struct DeviceFrame: Equatable, Sendable {
+    public enum Kind: Int, CaseIterable, Sendable {
         case none, macWindow, browser, macBook, iPhone, iPad
 
-        var name: String {
+        public var name: String {
             switch self {
             case .none: return "None"
             case .macWindow: return "macOS Window"
@@ -22,7 +24,7 @@ struct DeviceFrame: Equatable {
         }
 
         /// Width over height of the screen in portrait, for devices; nil for window chrome.
-        var portraitAspect: CGFloat? {
+        public var portraitAspect: CGFloat? {
             switch self {
             case .iPhone: return 9 / 19.5
             case .iPad: return 3 / 4
@@ -31,42 +33,42 @@ struct DeviceFrame: Equatable {
         }
     }
 
-    static let defaultURL = "example.com"
+    public static let defaultURL = "example.com"
 
-    var kind = Kind.none
-    var dark = false
+    public var kind = Kind.none
+    public var dark = false
     /// The address shown in the browser frame's bar.
-    var url = DeviceFrame.defaultURL
+    public var url = DeviceFrame.defaultURL
 
-    var isNone: Bool { kind == .none }
+    public var isNone: Bool { kind == .none }
 
     /// Where everything goes for one screenshot area. Rects are in the canvas's coordinates (y up).
-    struct Layout: Equatable {
+    public struct Layout: Equatable, Sendable {
         /// Everything the frame covers, including a MacBook's base.
-        var outer: CGRect
+        public var outer: CGRect
         /// Where the screenshot shows; it contains the screenshot area.
-        var screen: CGRect
+        public var screen: CGRect
         /// The main chrome shape: `outer`, or a MacBook's lid without its base.
-        var body: CGRect
+        public var body: CGRect
         /// A MacBook's base under the lid.
-        var base: CGRect?
+        public var base: CGRect?
         /// Corners of `outer`'s body, and of the screen (square for window chrome, which only rounds the outside).
-        var outerRadius: CGFloat
-        var screenRadius: CGFloat
+        public var outerRadius: CGFloat
+        public var screenRadius: CGFloat
         /// The title or tool bar above the screen of a window or browser; zero height for devices.
-        var bar: CGRect
+        public var bar: CGRect
         /// The address field inside a browser's bar; nil when the image is too narrow for one.
-        var urlField: CGRect?
+        public var urlField: CGRect?
         /// The black margin between a device's body and its screen.
-        var bezel: CGFloat
+        public var bezel: CGFloat
         /// How much the chrome is enlarged for big screenshots.
-        var unit: CGFloat
+        public var unit: CGFloat
     }
 
     /// Chrome sizes are in points for a normal window, and grow with very wide screenshots so they keep their look.
-    static func unit(forWidth width: CGFloat) -> CGFloat { min(max(width / 1200, 1), 3) }
+    public static func unit(forWidth width: CGFloat) -> CGFloat { min(max(width / 1200, 1), 3) }
 
-    func layout(around content: CGRect) -> Layout {
+    public func layout(around content: CGRect) -> Layout {
         let u = Self.unit(forWidth: content.width)
         var l = Layout(outer: content, screen: content, body: content, base: nil, outerRadius: 0, screenRadius: 0,
                        bar: .zero, urlField: nil, bezel: 0, unit: u)
@@ -119,7 +121,7 @@ struct DeviceFrame: Equatable {
     }
 
     /// The smallest rect of width over height `ratio` that holds `content`, with the same center, in whole points.
-    static func screen(holding content: CGRect, ratio: CGFloat) -> CGRect {
+    public static func screen(holding content: CGRect, ratio: CGFloat) -> CGRect {
         guard content.width > 0, content.height > 0, ratio > 0 else { return content }
         var w = content.width, h = content.height
         if w / h > ratio { h = w / ratio } else { w = h * ratio }
@@ -131,12 +133,12 @@ struct DeviceFrame: Equatable {
 
     // MARK: Saving (with the editor document)
 
-    var plist: [String: Any] { ["kind": kind.rawValue, "dark": dark, "url": url] }
+    public var plist: [String: Any] { ["kind": kind.rawValue, "dark": dark, "url": url] }
 
-    init() {}
+    public init() {}
 
     /// A frame read back from `plist`; unknown or missing values keep their defaults.
-    init(plist d: [String: Any]) {
+    public init(plist d: [String: Any]) {
         if let k = d["kind"] as? Int, let kind = Kind(rawValue: k) { self.kind = kind }
         dark = d["dark"] as? Bool ?? dark
         url = d["url"] as? String ?? url
@@ -144,10 +146,12 @@ struct DeviceFrame: Equatable {
 
     // MARK: Drawing
 
-    private func hex(_ v: Int) -> NSColor { Background.hex(v) }
+    // Contexts are y-up, like the Mac canvas: an iOS caller must flip its context (UIKit's are y-down) first.
+
+    private func hex(_ v: Int) -> CGColor { Draw.srgb(v) }
 
     /// The color of the frame's body, which the canvas also uses under the Background's shadow and inset.
-    var bodyColor: NSColor {
+    public var bodyColor: CGColor {
         switch kind {
         case .macWindow: return dark ? hex(0x323234) : hex(0xE9E9EB)
         case .browser: return dark ? hex(0x2B2B2D) : hex(0xF2F2F4)
@@ -156,89 +160,91 @@ struct DeviceFrame: Equatable {
     }
 
     /// The outline the canvas clips the screenshot to, along with `screenPath`.
-    func outerPath(_ l: Layout) -> NSBezierPath {
-        NSBezierPath(roundedRect: l.outer, xRadius: l.outerRadius, yRadius: l.outerRadius)
-    }
+    public func outerPath(_ l: Layout) -> CGPath { Draw.roundedRect(l.outer, radius: l.outerRadius) }
 
-    func screenPath(_ l: Layout) -> NSBezierPath {
-        l.screenRadius > 0 ? NSBezierPath(roundedRect: l.screen, xRadius: l.screenRadius, yRadius: l.screenRadius)
-                           : NSBezierPath(rect: l.screen)
+    public func screenPath(_ l: Layout) -> CGPath {
+        l.screenRadius > 0 ? Draw.roundedRect(l.screen, radius: l.screenRadius) : CGPath(rect: l.screen, transform: nil)
     }
 
     /// Draws the frame's body, bar and details; the screenshot goes on top of its screen afterwards.
-    func drawChrome(_ l: Layout) {
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
+    public func drawChrome(_ l: Layout, in ctx: CGContext) {
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
         let u = l.unit
-        let edge = (dark ? NSColor.white : NSColor.black).withAlphaComponent(dark ? 0.16 : 0.2)
+        let edge = CGColor(gray: dark ? 1 : 0, alpha: dark ? 0.16 : 0.2)
         switch kind {
         case .none:
             return
         case .macWindow, .browser:
             let shape = outerPath(l)
-            bodyColor.setFill(); shape.fill()
-            NSGraphicsContext.saveGraphicsState()
-            shape.addClip()
+            Draw.fill(shape, bodyColor, in: ctx)
+            ctx.saveGState()
+            Draw.clip(to: shape, in: ctx)
             // A hairline between the bar and the screenshot.
-            edge.setFill(); NSRect(x: l.bar.minX, y: l.bar.minY, width: l.bar.width, height: 1).fill()
-            NSGraphicsContext.restoreGraphicsState()
+            ctx.setFillColor(edge); ctx.fill(CGRect(x: l.bar.minX, y: l.bar.minY, width: l.bar.width, height: 1))
+            ctx.restoreGState()
             for (i, color) in [0xFF5F57, 0xFEBC2E, 0x28C840].enumerated() {
                 let d = 12 * u
                 let cx = l.bar.minX + (20 + 20 * CGFloat(i)) * u
-                let dot = NSBezierPath(ovalIn: NSRect(x: cx - d / 2, y: l.bar.midY - d / 2, width: d, height: d))
-                hex(color).setFill(); dot.fill()
-                NSColor.black.withAlphaComponent(0.12).setStroke(); dot.lineWidth = 0.5; dot.stroke()
+                let dot = Draw.oval(in: CGRect(x: cx - d / 2, y: l.bar.midY - d / 2, width: d, height: d))
+                Draw.fill(dot, hex(color), in: ctx)
+                Draw.stroke(dot, CGColor(gray: 0, alpha: 0.12), width: 0.5, in: ctx)
             }
-            if let field = l.urlField { drawURLField(field, unit: u) }
-            let border = NSBezierPath(roundedRect: l.outer.insetBy(dx: 0.5, dy: 0.5),
-                                      xRadius: l.outerRadius, yRadius: l.outerRadius)
-            edge.setStroke(); border.lineWidth = 1; border.stroke()
+            if let field = l.urlField { drawURLField(field, unit: u, in: ctx) }
+            let border = Draw.roundedRect(l.outer.insetBy(dx: 0.5, dy: 0.5), radius: l.outerRadius)
+            Draw.stroke(border, edge, width: 1, in: ctx)
         case .iPhone, .iPad, .macBook:
             // A MacBook's lid reaches down under its base, which covers the lid's bottom corners.
             let body = l.base == nil ? outerPath(l)
-                : NSBezierPath(roundedRect: CGRect(x: l.body.minX, y: l.body.minY - l.outerRadius, width: l.body.width,
-                                                   height: l.body.height + l.outerRadius),
-                               xRadius: l.outerRadius, yRadius: l.outerRadius)
-            bodyColor.setFill(); body.fill()
+                : Draw.roundedRect(CGRect(x: l.body.minX, y: l.body.minY - l.outerRadius, width: l.body.width,
+                                          height: l.body.height + l.outerRadius), radius: l.outerRadius)
+            Draw.fill(body, bodyColor, in: ctx)
             // The black glass around the screen.
             let glass = l.screen.insetBy(dx: -l.bezel * 0.8, dy: -l.bezel * 0.8)
-            NSColor.black.setFill()
+            let black = CGColor(gray: 0, alpha: 1)
             if let base = l.base {
-                let r = 0.01 * l.screen.width
-                NSBezierPath(roundedRect: glass, xRadius: r, yRadius: r).fill()
+                Draw.fill(Draw.roundedRect(glass, radius: 0.01 * l.screen.width), black, in: ctx)
                 // Camera.
                 let c = 0.004 * l.screen.width
-                hex(0x2A2A2E).setFill()
-                NSBezierPath(ovalIn: NSRect(x: l.screen.midX - c, y: (l.body.maxY + l.screen.maxY) / 2 - c,
-                                            width: 2 * c, height: 2 * c)).fill()
+                Draw.fill(Draw.oval(in: CGRect(x: l.screen.midX - c, y: (l.body.maxY + l.screen.maxY) / 2 - c,
+                                               width: 2 * c, height: 2 * c)), hex(0x2A2A2E), in: ctx)
                 // The base, a little darker than the lid, with the notch for lifting it.
-                let baseShape = NSBezierPath(roundedRect: base, xRadius: base.height * 0.45, yRadius: base.height * 0.45)
-                (dark ? hex(0x2A2A2D) : hex(0xC6C7CB)).setFill(); baseShape.fill()
-                edge.setStroke(); baseShape.lineWidth = 1; baseShape.stroke()
+                let baseShape = Draw.roundedRect(base, radius: base.height * 0.45)
+                Draw.fill(baseShape, dark ? hex(0x2A2A2D) : hex(0xC6C7CB), in: ctx)
+                Draw.stroke(baseShape, edge, width: 1, in: ctx)
                 let nw = 0.14 * l.screen.width, nh = base.height * 0.4
-                (dark ? hex(0x1D1D1F) : hex(0xAEAFB3)).setFill()
-                NSBezierPath(roundedRect: NSRect(x: base.midX - nw / 2, y: base.maxY - nh, width: nw, height: nh),
-                             xRadius: nh / 2, yRadius: nh / 2).fill()
+                Draw.fill(Draw.roundedRect(CGRect(x: base.midX - nw / 2, y: base.maxY - nh, width: nw, height: nh), radius: nh / 2),
+                          dark ? hex(0x1D1D1F) : hex(0xAEAFB3), in: ctx)
             } else {
-                let r = l.screenRadius + l.bezel * 0.8
-                NSBezierPath(roundedRect: glass, xRadius: r, yRadius: r).fill()
-                edge.setStroke(); body.lineWidth = 1; body.stroke()
+                Draw.fill(Draw.roundedRect(glass, radius: l.screenRadius + l.bezel * 0.8), black, in: ctx)
+                Draw.stroke(body, edge, width: 1, in: ctx)
             }
         }
     }
 
-    private func drawURLField(_ field: CGRect, unit u: CGFloat) {
-        let pill = NSBezierPath(roundedRect: field, xRadius: 6 * u, yRadius: 6 * u)
-        (dark ? hex(0x1B1B1D) : hex(0xE3E3E6)).setFill(); pill.fill()
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
-        style.lineBreakMode = .byTruncatingTail
-        let text = NSAttributedString(string: url, attributes: [
-            .font: NSFont.systemFont(ofSize: 12.5 * u),
-            .foregroundColor: dark ? hex(0xB4B4B8) : hex(0x5C5C60),
-            .paragraphStyle: style,
-        ])
-        let h = text.size().height
-        text.draw(in: NSRect(x: field.minX + 8 * u, y: field.midY - h / 2, width: max(field.width - 16 * u, 0), height: h))
+    /// The address pill and its text: the system font, centered, cut off with an ellipsis when it doesn't fit.
+    private func drawURLField(_ field: CGRect, unit u: CGFloat, in ctx: CGContext) {
+        Draw.fill(Draw.roundedRect(field, radius: 6 * u), dark ? hex(0x1B1B1D) : hex(0xE3E3E6), in: ctx)
+        let font = CTFontCreateUIFontForLanguage(.system, 12.5 * u, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 12.5 * u, nil)
+        let attrs: [CFString: Any] = [kCTFontAttributeName: font,
+                                      kCTForegroundColorAttributeName: dark ? hex(0xB4B4B8) : hex(0x5C5C60)]
+        func line(_ s: String) -> CTLine {
+            CTLineCreateWithAttributedString(CFAttributedStringCreate(nil, s as CFString, attrs as CFDictionary))
+        }
+        let width = max(field.width - 16 * u, 0)
+        var text = line(url)
+        if CTLineGetTypographicBounds(text, nil, nil, nil) > Double(width) {
+            text = CTLineCreateTruncatedLine(text, Double(width), .end, line("\u{2026}")) ?? text
+        }
+        // One line's height centered on the field, the baseline an ascent below its top (as AppKit lays it out).
+        let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font), leading = CTFontGetLeading(font)
+        let h = ascent + descent + leading
+        let textWidth = CGFloat(CTLineGetTypographicBounds(text, nil, nil, nil))
+        ctx.saveGState()
+        ctx.textMatrix = .identity
+        ctx.textPosition = CGPoint(x: field.minX + 8 * u + (width - textWidth) / 2, y: field.midY + h / 2 - ascent)
+        CTLineDraw(text, ctx)
+        ctx.restoreGState()
     }
 }

@@ -1,12 +1,12 @@
 import CoreGraphics
 
 /// Smart Erase: fills a box with the background around it, so the content looks as if it was never there.
-enum SmartErase {
+public enum SmartErase {
     /// The most common color in the one-pixel ring just outside `rect` (pixels, top-left origin, like
     /// `CGImage.cropping`), averaged over the pixels of that color. Colors are grouped at 5 bits per channel, so
     /// anti-aliasing and compression noise still count as the same color. Parts of the ring outside the image are
     /// skipped; nil when none of it is inside.
-    static func fillColor(around rect: CGRect, in image: CGImage) -> CGColor? {
+    public static func fillColor(around rect: CGRect, in image: CGImage) -> CGColor? {
         let ring = rect.integral.insetBy(dx: -1, dy: -1)
         let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         // Top and bottom rows, then the left and right columns between them.
