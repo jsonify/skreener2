@@ -40,6 +40,7 @@ targets:
       - Skreener
     dependencies:
       - target: SkreenerShare       # embedded in the app
+      - target: SkreenerEditor      # embedded in the app's Frameworks, where the extension finds it at runtime
       - package: SK1Kit
         product: SK1Tokens
       - package: SK1Kit
@@ -74,18 +75,16 @@ targets:
     sources:
       - SkreenerShare
     dependencies:
-      - package: SkreenerCore
-        product: SkreenerCore
-      - package: SK1Kit
-        product: SK1Tokens
-      - package: SK1Kit
-        product: SK1UI
+      - target: SkreenerEditor
+        embed: false                # the app embeds it
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.skreener.ios.share
         PRODUCT_NAME: SkreenerShare
         # Not an app: only extension-safe APIs.
         APPLICATION_EXTENSION_API_ONLY: YES
+        # The appex finds the framework in the app's Frameworks folder.
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
     info:
       path: SkreenerShare/Info.plist
       properties:
@@ -101,12 +100,36 @@ targets:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsImageWithMaxCount: 1
 
+  # The editor (the Share Extension's screens, drawing and export), as a framework so the app can use it too (#408).
+  # The extension links it without embedding; the app embeds it. Xcode generates its Info.plist (no gitignored file
+  # to add) from the same MARKETING_VERSION and CURRENT_PROJECT_VERSION as the app's, as App Store Connect requires.
+  SkreenerEditor:
+    type: framework
+    platform: iOS
+    sources:
+      - SkreenerEditor
+    dependencies:
+      - package: SkreenerCore
+        product: SkreenerCore
+      - package: SK1Kit
+        product: SK1Tokens
+      - package: SK1Kit
+        product: SK1UI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.skreener.ios.editor
+        PRODUCT_NAME: SkreenerEditor
+        # The extension links it, so only extension-safe APIs.
+        APPLICATION_EXTENSION_API_ONLY: YES
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Skreener:
     build:
       targets:
         Skreener: all
         SkreenerShare: all
+        SkreenerEditor: all
     run:
       config: Debug
     archive:

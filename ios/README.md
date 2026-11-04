@@ -9,9 +9,11 @@ use it.
 - `Skreener/`: the container app (SwiftUI, the SK-1 look from [SK1Kit](https://github.com/jsonify/SK1Kit)).
   Its icon, `Skreener/Assets.xcassets/AppIcon.appiconset/AppIcon.png`, is the Mac app's icon as an opaque
   full-bleed square (iOS rounds the corners), drawn by `Scripts/make_icons.py` with the Mac one: change it there.
-- `SkreenerShare/`: the Share Extension. It draws with `SkreenerCore`, the library shared with the Mac app.
+- `SkreenerEditor/`: the editor as a framework: the screens, redact and draw canvases, rendering and export. It draws
+  with `SkreenerCore`, the library shared with the Mac app. The app embeds it; the extension uses it.
+- `SkreenerShare/`: the Share Extension. Only its view controller, which hosts the editor.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios` and
-  `com.skreener.ios.share`; iOS 17 or later, iPhone only.
+  `com.skreener.ios.share` (the framework is `com.skreener.ios.editor`); iOS 17 or later, iPhone only.
 
 The `.xcodeproj` is generated and not committed (it is in `.gitignore`). The Info.plists are
 generated from `project.yml`'s `info:` sections and ignored too: change them there.

@@ -5,13 +5,19 @@ import SwiftUI
 /// The share sheet: a Close key on top, the preview, a status readout, the Style / Redact / Draw switch, that mode's
 /// controls (which scroll when they do not fit) and the Save, Copy and Share keys at the bottom. While a text label is
 /// typed, the switch and the output keys step aside and the preview shrinks, so the field stays above the keyboard.
-struct ShareView: View {
+public struct ShareView: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
     /// Shows the system share sheet for the PNG file; the hosting view controller does it.
     let onShare: (URL) -> Void
 
-    var body: some View {
+    public init(model: ShareModel, onClose: @escaping () -> Void, onShare: @escaping (URL) -> Void) {
+        self.model = model
+        self.onClose = onClose
+        self.onShare = onShare
+    }
+
+    public var body: some View {
         VStack(spacing: 12) {
             SKPlate {
                 HStack {
