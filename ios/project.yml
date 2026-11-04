@@ -74,6 +74,7 @@ targets:
       path: SkreenerShare/Info.plist
       properties:
         CFBundleDisplayName: Skreener
+        NSPhotoLibraryAddUsageDescription: Skreener saves your edited screenshot to Photos.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
