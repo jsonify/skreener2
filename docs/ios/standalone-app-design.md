@@ -2,7 +2,8 @@
 
 A proposal for what the standalone app should be, beyond "the Share Extension with a picker in front". It keeps
 #408's v1 scope (shared editor framework, picker, Latest screenshot, full-screen editor) and adds a few product
-decisions on top. Each idea below says what it reuses and what it costs. The owner picks; nothing here is built yet.
+decisions on top. Each idea below says what it reuses and what it costs. The owner's decisions and the build order
+are at the end.
 
 ## What the research says
 
@@ -132,11 +133,26 @@ fallback.
 
 App Intents, the Control Center control, Toss, Remind me, Guide and Describe become their own issues after v1.
 
-## Decisions for the owner
+## Decisions (owner, 2026-11-04)
 
-1. Which of the recommended v1 additions to take (inbox, Safe Check, clean status bar, last look).
-2. Read access: with the inbox, ask on the first tap of **Show my screenshots** (recommended), or keep v1
-   picker-only and ship the inbox later.
-3. Safe Check: run automatically on open (recommended, it's on-device and quick) or only when a key is tapped.
-4. Should Safe Check and the clean status bar also come to the Share Extension in the same release, or app only?
-   They live in the shared editor framework either way.
+1. All four recommended additions are in v1: inbox home, Safe Check, clean status bar, last look.
+2. Photos read access is asked for on the first tap of **Show my screenshots** (or **Latest screenshot**), never at
+   launch. Limited and denied access fall back to the picker, with the LCD saying why.
+3. Safe Check runs automatically when a screenshot opens.
+4. Safe Check, the clean status bar and last look come to the Share Extension too. They live in the shared editor
+   framework.
+
+## Build order
+
+Each step is its own branch from `main` and its own PR. Steps in the same wave don't touch the same files.
+
+| Wave | PR | Needs |
+|---|---|---|
+| 1 | `refactor(ios)`: move the editor into a `SkreenerEditor` framework; the extension is unchanged (#408 step 1) | - |
+| 1 | `feat(core)`: leak-scan matchers for Safe Check (codes, card numbers, keys, faces), with tests | - |
+| 1 | `feat(core)`: clean status bar drawing, with tests | - |
+| 2 | `feat(ios)`: image source entry point, inbox home, picker, Latest screenshot, full-screen editor (#408 steps 2-4) | framework |
+| 2 | `feat(ios)`: Safe Check in the editor | framework, matchers |
+| 2 | `feat(ios)`: Clean bar switch in Style | framework, status bar |
+| 2 | `feat(ios)`: last look, shared by the app and the extension through an App Group | framework |
+| 3 | `docs(ios)`: README "Try" steps for the app and the extension (#408 step 5) | all of the above |
