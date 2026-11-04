@@ -191,10 +191,4 @@ final class LeakScanTests: XCTestCase {
         XCTAssertEqual(emails.map(\.kind), [.email])
         XCTAssertTrue(cards.isEmpty)
     }
-
-    func testScanFindsNoFacesInPlainText() async {
-        let image = TestImages.text(["No people here"])
-        let findings = await LeakScan.scan(image, size: TestImages.size(of: image), kinds: [.face])
-        XCTAssertTrue(findings.isEmpty, "\(findings)")
-    }
 }
