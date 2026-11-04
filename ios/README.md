@@ -2,7 +2,8 @@
 
 An app and a Share Extension for iPhone (#396, #408). The editor puts a screenshot in a device frame on a background,
 covers private parts (a dragged area, or emails, phone numbers, links and typed text found by on-device OCR) with
-pixelate, blur or solid black, marks it up with arrows, rectangles, text and highlights, then saves it to Photos,
+pixelate, blur or solid black, checks each screenshot as it opens for things not to share (Safe Check: emails,
+phone numbers, links, one-time codes, card numbers, API keys and faces, all on the device), marks it up with arrows, rectangles, text and highlights, then saves it to Photos,
 copies it or shares it at full size.
 
 There are two ways in. Open the **Skreener** app: its home screen shows the screenshots taken since you last left it,
@@ -71,53 +72,68 @@ open Skreener.xcodeproj
    SCREENSHOTS". A screenshot taken while Skreener is open shows up straight away.
 5. Tap a screenshot in the grid. The LCD reads "OPENING…" (longer if it is in iCloud only), then the editor fills the
    screen with that screenshot.
-6. In the editor, pick a frame (say Browser, Dark on) and a background, move the Padding slider, cover an area in **Redact** and draw an arrow in **Draw**, as in
+6. Safe Check: under the preview, the readout first says "SAFE CHECK…", then what it found, as in the extension's
+   step 4 below. Try it here with a screenshot of a message that has a 6-digit code and a phone number: "SAFE CHECK ·
+   2 FOUND", the lamp beside it lit orange, "1 phone number · 1 code" under it. **Review 2**, untick one, **Redact 1**:
+   "SAFE CHECK · 1 LEFT". A screenshot with nothing private reads "SAFE CHECK · CLEAR".
+7. In the editor, pick a frame (say Browser, Dark on) and a background, move the Padding slider, cover an area in **Redact** and draw an arrow in **Draw**, as in
    the extension steps below.
-7. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
+8. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
    edited PNG is in Photos. **Copy** and **Share** work as in the extension; Share shows the system share sheet with
    `Skreener.png`.
-8. Tap **Close**: the home screen is back.
-9. Tap **Latest screenshot**: the newest screenshot opens in the editor. (If Photos access was never asked, this key
-   asks first, like Show my screenshots.) Close.
-10. Tap **Choose screenshot**: the system photo picker opens, showing only images, without asking for any access.
+9. Tap **Close**: the home screen is back.
+10. Tap **Latest screenshot**: the newest screenshot opens in the editor. (If Photos access was never asked, this key
+    asks first, like Show my screenshots.) Close.
+11. Tap **Choose screenshot**: the system photo picker opens, showing only images, without asking for any access.
     Pick one: it opens in the editor. Close.
-11. The editor starts with the style you used last: open any screenshot again and the frame, Dark, background and
+12. The editor starts with the style you used last: open any screenshot again and the frame, Dark, background and
     sliders are as you left them (redactions and drawings start empty). Now set a different frame and background,
     Close, and share a screenshot from Photos to Skreener (see below): the extension starts with that same look.
 
 ## Try the extension
 
-1. Take a screenshot on the phone and open it in Photos.
+1. Take a screenshot on the phone and open it in Photos. For Safe Check, use a message that shows a 6-digit code
+   and a phone number (e.g. a sign-in text); also have a screenshot with nothing private on it.
 2. Tap Share. If Skreener is not in the app row, scroll to its end, tap More, and turn Skreener on (or use
    Edit Actions... in the share sheet).
 3. Choose Skreener. Switch the frame and background. The Dark switch is there for every frame but None; Browser also
    has an address field. With a background chosen, the Padding, Corners and Shadow sliders appear (scroll the controls
    if they do not fit; the preview stays put).
-4. Switch **Mode** to **Redact**. The preview shows the screenshot alone. Drag across some text: an orange dashed band
+4. Safe Check: under the preview, the readout says "SAFE CHECK…" for a moment, then "SAFE CHECK · 2 FOUND", the
+   small lamp to its left lit orange and "1 phone number · 1 code" under it (it also finds emails, links, card
+   numbers, API keys and faces). Nothing is sent anywhere. Tap **Review 2**: the editor switches to Redact and both
+   have an orange outline; the key beside the readout is now **Redact 2**. Tap the phone number's outline: it turns
+   dashed and the key reads **Redact 1**. Tap **Redact 1**: the code is covered with the current Cover style
+   (Pixelate unless changed) and the readout says "SAFE CHECK · 1 LEFT", lamp still lit, with **Review 1**. Review
+   it and Redact 1 again: "SAFE CHECK · COVERED", lamp off. **Undo** takes back that last cover (the readout says
+   1 left again). A face in the screenshot is found and covered the same way. Open a screenshot with nothing
+   private: the readout says "SAFE CHECK · CLEAR" with the lamp off and no Review key. After Save or Copy (step 12),
+   the readout shows "Saved to Photos" or "Copied" for a few seconds, then the Safe Check line again.
+5. Switch **Mode** to **Redact**. The preview shows the screenshot alone. Drag across some text: an orange dashed band
    follows your finger, and on release the area is pixelated. Pick **Blur** or **Solid** under Cover and drag again;
    that area is blurred or black. **Undo** takes back the last area, **Clear** all of them.
-5. Tap **Emails** (or **Phones**, **Links**): the readout says "Reading text…", then "N matches · N selected" and each
+6. Tap **Emails** (or **Phones**, **Links**): the readout says "Reading text…", then "N matches · N selected" and each
    match has an orange outline. Tap one: its outline turns dashed and the count drops. Or type a word into the Text
    field (several separated by commas). **Redact N** covers the selected matches with the current Cover style.
-6. Switch **Mode** to **Draw**. The preview shows the screenshot with its redactions. With **Arrow** (and the red
+7. Switch **Mode** to **Draw**. The preview shows the screenshot with its redactions. With **Arrow** (and the red
    swatch on), drag from a spot to what it points at: a red arrow follows your finger, its head at the finger, and stays
    on release. A very short drag draws nothing.
-7. Pick **Rect** and drag: a red rounded outline. Pick **Highlight**, pick the yellow swatch and drag across a line of
+8. Pick **Rect** and drag: a red rounded outline. Pick **Highlight**, pick the yellow swatch and drag across a line of
    text: a translucent yellow band, the text still readable through it.
-8. Pick **Text** and tap the picture: a small orange ring marks the spot, a Text field appears at the top of the
+9. Pick **Text** and tap the picture: a small orange ring marks the spot, a Text field appears at the top of the
    controls with the keyboard up (the Mode switch and the output keys step aside meanwhile). Type a word: it shows on
    the picture as you type, its left end at the ring. **Done** (or the keyboard's Done) keeps it; **Cancel**, or Done
    with nothing typed, adds nothing. Tapping elsewhere on the picture while typing moves the label.
-9. **Undo** takes back the last drawing, **Clear** all of them; the redactions stay. Undo in Redact still takes back
-   only areas.
-10. Switch back to **Style**: the frame and background return, with the redactions and drawings on the screenshot
+10. **Undo** takes back the last drawing, **Clear** all of them; the redactions stay. Undo in Redact still takes back
+    only areas.
+11. Switch back to **Style**: the frame and background return, with the redactions and drawings on the screenshot
     (drawings over redactions). They are in every export too, at full size.
-11. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
+12. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
     full-resolution PNG is in the Photos library. If you deny, the sheet says to allow "Add Photos Only" for Skreener
     in Settings > Privacy & Security > Photos.
-12. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
-13. **Close** (top left) ends the sheet.
-14. Open the share sheet again: the frame, Dark, background and sliders are as you left them. Change them, Close,
+13. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
+14. **Close** (top left) ends the sheet.
+15. Open the share sheet again: the frame, Dark, background and sliders are as you left them. Change them, Close,
     and open the Skreener app and a screenshot: the app's editor shows the look you just set in the extension. A fresh
     install starts with iPhone frame, Dark off, the first background and Padding 48, Corners 10, Shadow 50%.
 

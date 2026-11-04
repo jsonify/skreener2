@@ -159,6 +159,8 @@ public final class ShareModel: ObservableObject {
         source = ImageLoader.preview(of: image)
         phase = .ready
         redraw()
+        // Safe Check runs on every screenshot as it opens (SafeCheck.swift).
+        finder.scanForLeaks()
     }
 
     private func fail() {
