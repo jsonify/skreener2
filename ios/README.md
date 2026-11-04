@@ -28,9 +28,11 @@ xcodegen generate
 open Skreener.xcodeproj
 ```
 
-1. No signing team is in the repo. In Xcode select the project, then for **both** targets (`Skreener` and
-   `SkreenerShare`) open Signing & Capabilities and pick your Team. Run `xcodegen generate` again after pulling
-   changes; set the Team again if Xcode forgets it (or set `DEVELOPMENT_TEAM` locally, without committing it).
+1. Signing, once: copy `Local.xcconfig.example` to `Local.xcconfig` and put your Team ID in it
+   (`cp Local.xcconfig.example Local.xcconfig`, then edit). The Team ID is the 10-character code under Membership
+   details at developer.apple.com/account, or in Xcode under Settings > Accounts > your Apple ID > the team.
+   `Local.xcconfig` is gitignored and both targets read it through `Signing.xcconfig`, so the Team survives every
+   `xcodegen generate`. Run `xcodegen generate` again after pulling changes.
 2. Connect an iPhone (iOS 17 or later), choose it as the run destination and press Run with the `Skreener` scheme.
    On first install the phone may ask you to trust the developer under Settings > General > VPN & Device Management.
 

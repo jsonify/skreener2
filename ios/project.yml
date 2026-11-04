@@ -7,6 +7,11 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
 
+# Signing.xcconfig optionally includes the gitignored Local.xcconfig, where the owner sets DEVELOPMENT_TEAM once.
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
+
 settings:
   base:
     SWIFT_VERSION: "5.0"            # same language mode as the root package
@@ -15,7 +20,6 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"     # iPhone only
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ""            # the owner picks a Team in Xcode (Signing & Capabilities); never committed
     CODE_SIGN_STYLE: Automatic
 
 packages:
@@ -49,8 +53,12 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        # All four: Xcode warns otherwise ("All interface orientations must be supported...").
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
 
   SkreenerShare:
     type: app-extension

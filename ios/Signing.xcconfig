@@ -1,0 +1,4 @@
+// Signing for both targets. The Team ID is not committed: it comes from the gitignored Local.xcconfig
+// (copy Local.xcconfig.example). `#include?` skips the file when it is missing, as in CI, which builds unsigned.
+DEVELOPMENT_TEAM =
+#include? "Local.xcconfig"
