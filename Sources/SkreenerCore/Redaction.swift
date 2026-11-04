@@ -2,9 +2,6 @@ import CoreGraphics
 import CoreImage
 import Foundation
 
-// A plain enum of cases; Redaction carries it across actors (iOS exports run off the main actor).
-extension RedactText.Cover: @unchecked Sendable {}
-
 /// A covered area of a screenshot, for the iOS Share Extension (#396): a rect in image pixels (bottom-left origin,
 /// like the canvas) and how it is covered. The Mac editor still draws its own pixelate and blur annotations.
 public struct Redaction: Equatable, Sendable {
