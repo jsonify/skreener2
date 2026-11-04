@@ -1,7 +1,8 @@
 name: TestFlight
 
-# Archives the iOS app and uploads it to App Store Connect, where the build shows up under TestFlight. Run it from the
-# Actions tab (Run workflow) on any branch. Signing is Xcode's automatic, cloud-managed signing through an App Store
+# Archives the iOS app and uploads it to App Store Connect, where the build shows up under TestFlight. It runs on every
+# push to main (a merged PR) that changes what goes into the iOS app, the same paths as ios.yml; run it by hand from the
+# Actions tab (Run workflow) for any other branch or to upload again. Signing is Xcode's automatic, cloud-managed signing through an App Store
 # Connect API key, so no certificate or profile is stored here; see ios/README.md ("Upload from GitHub Actions") for the
 # one-time setup of the key and these repository secrets:
 #   ASC_KEY_ID         the API key's Key ID
@@ -11,9 +12,17 @@ name: TestFlight
 # The build number is stamped by `xcodegen generate` (UTC time, see ios/stamp_build_number.sh), so it never collides
 # with a build uploaded from a Mac.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'Sources/SkreenerCore/**'
+      - 'Package.swift'
+      - '.github/workflows/testflight.yml'
   workflow_dispatch:
 
-# One upload at a time; a second run waits instead of cancelling one that is mid-upload.
+# One upload at a time; a second run waits instead of cancelling one that is mid-upload. If several merges land while
+# one uploads, only the newest waiting run is kept, and it builds the latest main.
 concurrency:
   group: testflight
   cancel-in-progress: false
