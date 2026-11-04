@@ -90,18 +90,9 @@ public struct ShareView: View {
     /// A text label is being typed in Draw.
     private var typing: Bool { model.mode == .draw && model.textSpot != nil }
 
-    @ViewBuilder private var statusArea: some View {
-        let status = model.status
-        VStack(spacing: 4) {
-            SKReadout(status?.text ?? "Ready")
-            if let detail = status?.detail {
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+    /// Safe Check's line, or an export's status while it is shown (SafeCheck.swift).
+    private var statusArea: some View {
+        EditorReadout(model: model, finder: model.finder)
     }
 
     @ViewBuilder private var frameAndBackground: some View {
