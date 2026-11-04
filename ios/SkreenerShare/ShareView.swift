@@ -54,7 +54,9 @@ struct ShareView: View {
                     if typing { withAnimation { proxy.scrollTo(DrawControls.textID, anchor: .top) } }
                 }
             }
-            .frame(maxHeight: 300)
+            // A floor, or the preview (which has layout priority) takes every point and a tall screenshot leaves the
+            // controls at zero height.
+            .frame(minHeight: 140, maxHeight: 300)
             if !typing {
                 SKKeyTray {
                     Button("Save") { model.export(.save, share: onShare) }
