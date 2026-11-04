@@ -34,6 +34,16 @@ public enum StatusBar {
             self.cutout = cutout
             self.midY = midY
         }
+
+        /// The same bar on an image `factor` times as big (or small): the bar, cutout, midY and scale all multiplied.
+        /// For a downscaled preview, whose size the table doesn't list.
+        public func scaled(by factor: CGFloat) -> Layout {
+            func rect(_ r: CGRect) -> CGRect {
+                CGRect(x: r.minX * factor, y: r.minY * factor, width: r.width * factor, height: r.height * factor)
+            }
+            return Layout(bar: rect(bar), scale: scale * factor, style: style, cutout: cutout.map(rect),
+                          midY: midY * factor)
+        }
     }
 
     /// Where each item goes, in pixels (top-left origin). `time` is the box the digits' outlines are centred in.

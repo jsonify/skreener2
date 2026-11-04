@@ -107,7 +107,7 @@ open Skreener.xcodeproj
    (Pixelate unless changed) and the readout says "SAFE CHECK · 1 LEFT", lamp still lit, with **Review 1**. Review
    it and Redact 1 again: "SAFE CHECK · COVERED", lamp off. **Undo** takes back that last cover (the readout says
    1 left again). A face in the screenshot is found and covered the same way. Open a screenshot with nothing
-   private: the readout says "SAFE CHECK · CLEAR" with the lamp off and no Review key. After Save or Copy (step 12),
+   private: the readout says "SAFE CHECK · CLEAR" with the lamp off and no Review key. After Save or Copy (step 13),
    the readout shows "Saved to Photos" or "Copied" for a few seconds, then the Safe Check line again.
 5. Switch **Mode** to **Redact**. The preview shows the screenshot alone. Drag across some text: an orange dashed band
    follows your finger, and on release the area is pixelated. Pick **Blur** or **Solid** under Cover and drag again;
@@ -128,14 +128,20 @@ open Skreener.xcodeproj
     only areas.
 11. Switch back to **Style**: the frame and background return, with the redactions and drawings on the screenshot
     (drawings over redactions). They are in every export too, at full size.
-12. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
+12. With a full iPhone screenshot, a **Status bar** group with a **Clean bar** switch sits under the frame choices
+    (it is absent for a photo, an iPad or a cropped screenshot). Turn it on: the bar at the top repaints with the
+    time reading 9:41, full signal bars, full Wi-Fi and a full battery, and no carrier, notification icons or real
+    time. It stays on in Redact and Draw, and in Save, Copy and Share at full size. Turn it off to get the
+    original bar back. The app's own editor has the same switch.
+13. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
     full-resolution PNG is in the Photos library. If you deny, the sheet says to allow "Add Photos Only" for Skreener
     in Settings > Privacy & Security > Photos.
-13. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
-14. **Close** (top left) ends the sheet.
-15. Open the share sheet again: the frame, Dark, background and sliders are as you left them. Change them, Close,
-    and open the Skreener app and a screenshot: the app's editor shows the look you just set in the extension. A fresh
-    install starts with iPhone frame, Dark off, the first background and Padding 48, Corners 10, Shadow 50%.
+14. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
+15. **Close** (top left) ends the sheet.
+16. Open the share sheet again: the frame, Dark, background, sliders and Clean bar are as you left them. Change
+    them, Close, and open the Skreener app and a screenshot: the app's editor shows the look you just set in the
+    extension. A fresh install starts with iPhone frame, Dark off, the first background, Padding 48, Corners 10,
+    Shadow 50% and Clean bar off.
 
 ## Privacy manifest
 

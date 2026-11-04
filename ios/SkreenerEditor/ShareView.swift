@@ -45,6 +45,14 @@ public struct ShareView: View {
                         switch model.mode {
                         case .style:
                             frameAndBackground
+                            if model.canCleanBar {
+                                SKGroup(caption: "Status bar") {
+                                    SKRow(title: "Clean bar") {
+                                        Toggle("Clean bar", isOn: $model.cleanBar)
+                                            .toggleStyle(.sk1Switch)
+                                    }
+                                }
+                            }
                             FrameOptions(model: model)
                             if model.backgroundChoice != nil {
                                 BackgroundControls(model: model)
