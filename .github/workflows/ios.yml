@@ -48,3 +48,16 @@ jobs:
           cd ios
           xcodebuild build -project Skreener.xcodeproj -scheme Skreener \
             -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+      # xcodegen generate ran stamp_build_number.sh (project.yml's preGenCommand): both targets must resolve to its number.
+      - name: Check the build number
+        run: |
+          cd ios
+          want=$(sed -n 's/^CURRENT_PROJECT_VERSION = //p' BuildNumber.xcconfig)
+          echo "Stamped: $want"
+          test -n "$want"
+          for target in Skreener SkreenerShare; do
+            got=$(xcodebuild -showBuildSettings -project Skreener.xcodeproj -target "$target" -configuration Release \
+              | sed -n 's/^ *CURRENT_PROJECT_VERSION = //p')
+            echo "$target: $got"
+            test "$got" = "$want"
+          done

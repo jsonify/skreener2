@@ -10,3 +10,5 @@ ios/Skreener/Info.plist
 ios/SkreenerShare/Info.plist
 # Local signing (DEVELOPMENT_TEAM); see ios/README.md.
 ios/Local.xcconfig
+# Build number stamped by ios/stamp_build_number.sh on each `xcodegen generate`.
+ios/BuildNumber.xcconfig

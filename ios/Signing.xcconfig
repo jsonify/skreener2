@@ -2,3 +2,8 @@
 // (copy Local.xcconfig.example). `#include?` skips the file when it is missing, as in CI, which builds unsigned.
 DEVELOPMENT_TEAM =
 #include? "Local.xcconfig"
+
+// The build number, which App Store Connect needs higher on every upload: BuildNumber.xcconfig (gitignored) sets it to
+// the UTC time of the last `xcodegen generate` (stamp_build_number.sh). 1 only if that file is missing.
+CURRENT_PROJECT_VERSION = 1
+#include? "BuildNumber.xcconfig"
