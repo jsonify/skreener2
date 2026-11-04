@@ -10,9 +10,9 @@ enum Exporter {
         case renderFailed
     }
 
-    /// What an export needs. The extension items are only read, once, by the loader, so this is safe to pass on.
+    /// What an export needs. Nothing in it changes once made, so this is safe to pass on.
     struct Job: @unchecked Sendable {
-        let items: [NSExtensionItem]
+        let source: ImageSource
         let frame: DeviceFrame
         let background: Background?
         /// In full-image pixels.
@@ -27,7 +27,7 @@ enum Exporter {
     /// and lets go of the image when it returns, so only the PNG bytes stay in memory.
     static func png(_ job: Job) async throws -> Data {
         try await Task.detached(priority: .userInitiated) { () -> Data in
-            let image = try await ImageLoader.load(from: job.items)
+            let image = try await job.source.load()
             let frame: DeviceFrame? = job.frame
             let bar = job.cleanBar ? StatusBar.layout(forPixelWidth: image.width, height: image.height) : nil
             guard let data = Renderer.render(image: image, frame: frame, background: job.background,

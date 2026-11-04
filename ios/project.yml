@@ -37,7 +37,12 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Skreener
+      - path: Skreener
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # The privacy manifest (UserDefaults, for "last sent to the background") is a resource, copied into the app.
+      - path: Skreener/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - target: SkreenerShare       # embedded in the app
       - target: SkreenerEditor      # embedded in the app's Frameworks, where the extension finds it at runtime
@@ -59,6 +64,11 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # Read access: asked on the first tap of Show my screenshots or Latest screenshot, never at launch.
+        NSPhotoLibraryUsageDescription: Skreener shows your recent screenshots so you can edit them.
+        NSPhotoLibraryAddUsageDescription: Skreener saves your edited screenshot to Photos.
+        # The home screen has a Select more key for limited access, so iOS needn't ask on each launch.
+        PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

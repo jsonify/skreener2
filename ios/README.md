@@ -1,16 +1,21 @@
 # Skreener for iOS
 
-A Share Extension for iPhone (#396). Take a screenshot, open it in Photos, tap Share and choose **Skreener** to put it
-in a device frame on a background, cover private parts (a dragged area, or emails, phone numbers, links and typed text
-found by on-device OCR) with pixelate, blur or solid black, mark it up with arrows, rectangles, text and highlights,
-then save it to Photos, copy it or share it at full size. The container app, also called Skreener, only says how to
-use it.
+An app and a Share Extension for iPhone (#396, #408). The editor puts a screenshot in a device frame on a background,
+covers private parts (a dragged area, or emails, phone numbers, links and typed text found by on-device OCR) with
+pixelate, blur or solid black, marks it up with arrows, rectangles, text and highlights, then saves it to Photos,
+copies it or shares it at full size.
 
-- `Skreener/`: the container app (SwiftUI, the SK-1 look from [SK1Kit](https://github.com/jsonify/SK1Kit)).
-  Its icon, `Skreener/Assets.xcassets/AppIcon.appiconset/AppIcon.png`, is the Mac app's icon as an opaque
+There are two ways in. Open the **Skreener** app: its home screen shows the screenshots taken since you last left it,
+and has keys for the latest screenshot and for choosing any image. Or, in Photos (or any app), tap Share and choose
+**Skreener**. Both open the same editor.
+
+- `Skreener/`: the app (SwiftUI, the SK-1 look from [SK1Kit](https://github.com/jsonify/SK1Kit)): the home screen
+  with the inbox of new screenshots, which opens the editor full screen. It reads the Photos Screenshots album and
+  asks for that access only when you tap Show my screenshots or Latest screenshot. Its icon, `Skreener/Assets.xcassets/AppIcon.appiconset/AppIcon.png`, is the Mac app's icon as an opaque
   full-bleed square (iOS rounds the corners), drawn by `Scripts/make_icons.py` with the Mac one: change it there.
 - `SkreenerEditor/`: the editor as a framework: the screens, redact and draw canvases, rendering and export. It draws
-  with `SkreenerCore`, the library shared with the Mac app. The app embeds it; the extension uses it.
+  with `SkreenerCore`, the library shared with the Mac app. The app embeds it; the extension uses it. Both hand it an
+  `ImageSource` (the extension's items, or image bytes), which it loads again for each export.
 - `SkreenerShare/`: the Share Extension. Only its view controller, which hosts the editor.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios` and
   `com.skreener.ios.share` (the framework is `com.skreener.ios.editor`); iOS 17 or later, iPhone only.
@@ -39,6 +44,37 @@ open Skreener.xcodeproj
    `xcodegen generate`. Run `xcodegen generate` again after pulling changes.
 2. Connect an iPhone (iOS 17 or later), choose it as the run destination and press Run with the `Skreener` scheme.
    On first install the phone may ask you to trust the developer under Settings > General > VPN & Device Management.
+
+## Try the app
+
+1. Take two or three screenshots on the phone first (side button and volume up).
+2. Open **Skreener** from the Home Screen. Nothing asks for Photos access. The LCD reads "TAP SHOW MY SCREENSHOTS",
+   the tray says "Your new screenshots show here", and there are **Show my screenshots** (orange), **Latest
+   screenshot** and **Choose screenshot** keys. The hint at the bottom says Skreener is in the share sheet too.
+3. Tap **Show my screenshots**. iOS asks for Photos access, with "Skreener shows your recent screenshots so you can
+   edit them."
+   - **Allow Full Access**: the newest 12 screenshots appear as a grid, newest first, and the LCD reads "12 NEW" (or
+     fewer if you have fewer). The Show my screenshots key goes away.
+   - **Limit Access...**: pick one or two screenshots and tap Done. Only those appear; the LCD reads "N SELECTED"
+     and a **Select more** key appears. Tap it, add another screenshot, tap Done: it joins the grid. With none
+     selected, the LCD reads "NO SCREENSHOTS SELECTED" and the hint points to Select more and Choose screenshot.
+   - **Don't Allow**: the LCD reads "PHOTOS ACCESS IS OFF" and the hint says to allow Skreener in Settings > Privacy &
+     Security > Photos. Choose screenshot still works. Turning access on in Settings and coming back shows the grid.
+4. With full access, go to the Home Screen, take two new screenshots, and open Skreener again: the grid shows only
+   those two and the LCD reads "2 NEW". Go to the Home Screen and come back without taking any: "NO NEW
+   SCREENSHOTS". A screenshot taken while Skreener is open shows up straight away.
+5. Tap a screenshot in the grid. The LCD reads "OPENING…" (longer if it is in iCloud only), then the editor fills the
+   screen with that screenshot.
+6. In the editor, pick a frame and a background, cover an area in **Redact** and draw an arrow in **Draw**, as in
+   the extension steps below.
+7. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
+   edited PNG is in Photos. **Copy** and **Share** work as in the extension; Share shows the system share sheet with
+   `Skreener.png`.
+8. Tap **Close**: the home screen is back.
+9. Tap **Latest screenshot**: the newest screenshot opens in the editor. (If Photos access was never asked, this key
+   asks first, like Show my screenshots.) Close.
+10. Tap **Choose screenshot**: the system photo picker opens, showing only images, without asking for any access.
+    Pick one: it opens in the editor. Close.
 
 ## Try the extension
 
@@ -71,7 +107,7 @@ open Skreener.xcodeproj
     (it is absent for a photo, an iPad or a cropped screenshot). Turn it on: the bar at the top repaints with the
     time reading 9:41, full signal bars, full Wi-Fi and a full battery, and no carrier, notification icons or real
     time. It stays on in Redact and Draw, and in Save, Copy and Share at full size. Turn it off to get the
-    original bar back.
+    original bar back. The app's own editor has the same switch.
 12. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
     full-resolution PNG is in the Photos library. If you deny, the sheet says to allow "Add Photos Only" for Skreener
     in Settings > Privacy & Security > Photos.
@@ -80,9 +116,11 @@ open Skreener.xcodeproj
 
 ## Privacy manifest
 
-There is no `PrivacyInfo.xcprivacy`: neither target, `SkreenerCore` nor SK1Kit uses any of Apple's required-reason
-APIs (`UserDefaults`, file timestamps, system boot time, disk space, active keyboards), and nothing collects data or
-tracks. Add one, to the target that makes the call, if that changes.
+The app has `Skreener/PrivacyInfo.xcprivacy`: it stores when it was last sent to the background in `UserDefaults`,
+to know which screenshots are new, so the manifest declares `NSPrivacyAccessedAPICategoryUserDefaults` with reason
+`CA92.1` (the app's own defaults). It declares no tracking and no collected data. The extension, the framework,
+`SkreenerCore` and SK1Kit use none of Apple's required-reason APIs (`UserDefaults`, file timestamps, system boot time,
+disk space, active keyboards). Add an entry, to the target that makes the call, if that changes.
 
 ## Upload to TestFlight
 

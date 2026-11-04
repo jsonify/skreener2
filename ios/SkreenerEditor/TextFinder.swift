@@ -41,12 +41,7 @@ final class TextFinder: ObservableObject {
     /// OCR is running.
     @Published private(set) var reading = false
 
-    /// The extension's items, handed to the reading task (only read, by the loader).
-    private struct Items: @unchecked Sendable {
-        let items: [NSExtensionItem]
-    }
-
-    private var items: Items?
+    private var source: ImageSource?
     private var size = CGSize.zero
     /// All the text, read the first time the search box is used. Only this is kept, never the image.
     private var index: TextRecognizer.TextIndex?
@@ -54,8 +49,8 @@ final class TextFinder: ObservableObject {
     private var found: [Kind: [CGRect]] = [:]
 
     /// Where to read from; `size` is the full image's size in pixels.
-    func prepare(items: [NSExtensionItem], size: CGSize) {
-        self.items = Items(items: items)
+    func prepare(source: ImageSource, size: CGSize) {
+        self.source = source
         self.size = size
     }
 
@@ -122,11 +117,11 @@ final class TextFinder: ObservableObject {
 
     /// One OCR pass at a time; `refresh` afterwards starts the next if the search moved on meanwhile.
     private func read(_ request: Request) {
-        guard !reading, let items else { return }
+        guard !reading, let source else { return }
         reading = true
         let size = self.size
         Task { [weak self] in
-            let result = await Self.recognize(request, items: items, size: size)
+            let result = await Self.recognize(request, source: source, size: size)
             guard let self else { return }
             switch result {
             case .index(let index): self.index = index
@@ -140,8 +135,8 @@ final class TextFinder: ObservableObject {
     /// Reloads the full image, reads it and lets it go, so only the text or boxes stay in memory. Vision's boxes
     /// come back bottom-left origin, scaled to `size`: full-image pixels, as Redaction takes them. An image that
     /// can't be loaded reads as no text, so it isn't retried over and over.
-    private nonisolated static func recognize(_ request: Request, items: Items, size: CGSize) async -> Reading {
-        let image = try? await ImageLoader.load(from: items.items)
+    private nonisolated static func recognize(_ request: Request, source: ImageSource, size: CGSize) async -> Reading {
+        let image = try? await source.load()
         let full = image.map { CGSize(width: $0.width, height: $0.height) } ?? size
         switch request {
         case .index:

@@ -110,9 +110,9 @@ public final class ShareModel: ObservableObject {
 
     var canExport: Bool { phase == .ready && !busy }
 
-    /// The extension's input items. Kept so an export can reload the full image: the decoded one (up to 4096 px) is
+    /// Where the image comes from. Kept so an export can reload the full image: the decoded one (up to 4096 px) is
     /// dropped after the preview is made, since holding both would cost memory the extension may not have.
-    private var items: [NSExtensionItem] = []
+    private var imageSource: ImageSource?
     /// The screenshot at preview size.
     private var source: CGImage?
     /// The full image's size in pixels, to scale padding, corners and redactions down for the preview.
@@ -121,12 +121,17 @@ public final class ShareModel: ObservableObject {
     private var redactionSteps: [Int] = []
     private var redrawPending = false
 
-    /// Loads the image from `items` and shows it.
+    /// Loads the image from the extension's `items` and shows it.
     public func load(items: [NSExtensionItem]) {
-        self.items = items
+        load(source: .items(items))
+    }
+
+    /// Loads the image from `source` and shows it. Call it once, on a fresh model.
+    public func load(source: ImageSource) {
+        imageSource = source
         Task { [weak self] in
             do {
-                let image = try await ImageLoader.load(from: items)
+                let image = try await source.load()
                 self?.show(image)
             } catch {
                 self?.fail()
@@ -136,7 +141,7 @@ public final class ShareModel: ObservableObject {
 
     private func show(_ image: CGImage) {
         fullSize = CGSize(width: max(image.width, 1), height: max(image.height, 1))
-        finder.prepare(items: items, size: fullSize)
+        if let imageSource { finder.prepare(source: imageSource, size: fullSize) }
         source = ImageLoader.preview(of: image)
         phase = .ready
         redraw()
@@ -291,10 +296,10 @@ public final class ShareModel: ObservableObject {
 
     /// Renders at full size, then saves, copies or hands the file to `share`. The output keys are off meanwhile.
     func export(_ output: Output, share: @escaping (URL) -> Void) {
-        guard canExport else { return }
+        guard canExport, let imageSource else { return }
         busy = true
         status = Status(text: output == .save ? "Saving…" : "Rendering…")
-        let job = Exporter.Job(items: items, frame: makeFrame(), background: makeBackground(scale: 1),
+        let job = Exporter.Job(source: imageSource, frame: makeFrame(), background: makeBackground(scale: 1),
                                redactions: redactions, markups: markups,
                                cleanBar: cleanBar && canCleanBar)
         Task { [weak self] in

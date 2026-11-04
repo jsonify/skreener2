@@ -2,8 +2,36 @@ import ImageIO
 import UIKit
 import UniformTypeIdentifiers
 
-/// Gets the one shared image out of the extension's items, already small enough for the extension's memory limit
-/// (about 120 MB).
+/// Where the editor's image comes from: the Share Extension's items, or image bytes (a Photos asset or a picked
+/// image in the app). The editor keeps the source, not the decoded image, and loads it again for each export and OCR
+/// pass, so the full image is only in memory while it is used. Every load is downscaled to `ImageLoader.maxPixels`
+/// with the EXIF orientation applied.
+public struct ImageSource: Sendable {
+    private let loader: @Sendable () async throws -> CGImage
+
+    /// A source that loads with `load`. It may be called several times and must give the same image each time.
+    public init(_ load: @escaping @Sendable () async throws -> CGImage) {
+        loader = load
+    }
+
+    /// Loads the image. Not main-actor: it decodes on the caller's task.
+    public func load() async throws -> CGImage {
+        try await loader()
+    }
+
+    /// The first image in the extension's input items.
+    public static func items(_ items: [NSExtensionItem]) -> ImageSource {
+        let items = ImageLoader.Items(items: items)
+        return ImageSource { try await ImageLoader.load(from: items.items) }
+    }
+
+    /// An encoded image (PNG, JPEG, HEIC...). The bytes stay in memory for as long as the source does.
+    public static func data(_ data: Data) -> ImageSource {
+        ImageSource { try ImageLoader.load(data: data) }
+    }
+}
+
+/// Decodes the image, already small enough for the extension's memory limit (about 120 MB).
 enum ImageLoader {
     /// The longest side, in pixels, that any drawing starts from.
     static let maxPixels = 4096
@@ -15,6 +43,19 @@ enum ImageLoader {
     /// A CGImage handed from the item provider's queue to the main actor. It is immutable once made.
     struct Loaded: @unchecked Sendable {
         let image: CGImage
+    }
+
+    /// The extension's items, handed to a loading task. They are only read, by `load(from:)`.
+    struct Items: @unchecked Sendable {
+        let items: [NSExtensionItem]
+    }
+
+    /// Decodes encoded image bytes. Not main-actor work: call it off the main actor.
+    static func load(data: Data) throws -> CGImage {
+        guard let image = CGImageSourceCreateWithData(data as CFData, nil).flatMap(thumbnail) else {
+            throw LoadError.noImage
+        }
+        return image
     }
 
     /// The first image in `items`. Not main-actor: it waits on the provider's callback.
