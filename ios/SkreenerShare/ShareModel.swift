@@ -18,9 +18,14 @@ final class ShareModel: ObservableObject {
         }
     }
 
-    /// What the controls edit. Step 5 adds Draw.
+    /// What the controls edit.
     enum Mode: Hashable {
-        case style, redact
+        case style, redact, draw
+    }
+
+    /// What a drag (or, for text, a tap) on the Draw preview makes.
+    enum Tool: Hashable {
+        case arrow, rect, text, highlight
     }
 
     enum Phase {
@@ -40,6 +45,15 @@ final class ShareModel: ObservableObject {
     /// Background presets on offer, as indexes into `Background.presets`; nil is no background.
     static let backgroundChoices: [Int?] = [nil, 0, 1, 4, 3, 5]
 
+    /// Colors on offer in Draw: the Mac's default red first, then some of its other presets (system colors).
+    static let markupColors: [(name: String, color: RGBColor)] = [
+        ("Red", Markup.defaultColor),
+        ("Yellow", .hex(0xFFCC00)),
+        ("Green", .hex(0x28CD41)),
+        ("Blue", .hex(0x007AFF)),
+        ("Black", .hex(0x000000)),
+    ]
+
     @Published private(set) var phase = Phase.loading
     @Published private(set) var preview: UIImage?
     @Published private(set) var status: Status?
@@ -51,15 +65,32 @@ final class ShareModel: ObservableObject {
     @Published var padding = 48.0 { didSet { scheduleRedraw() } }
     @Published var cornerRadius = 10.0 { didSet { scheduleRedraw() } }
     @Published var shadow = 0.5 { didSet { scheduleRedraw() } }
-    /// Redact shows the bare screenshot, so a touch maps straight to it. Redrawn at once on a switch: the Redact
-    /// canvas maps touches with the preview's size.
-    @Published var mode = Mode.style { didSet { if mode != oldValue { redraw() } } }
+    /// Redact and Draw show the bare screenshot, so a touch maps straight to it. Redrawn at once on a switch: their
+    /// canvases map touches with the preview's size.
+    @Published var mode = Mode.style {
+        didSet {
+            guard mode != oldValue else { return }
+            if mode != .draw { cancelText() }
+            redraw()
+        }
+    }
     /// How new redactions cover: pixelate, blur or solid.
     @Published var redactStyle = RedactText.Cover.pixelate
     /// In full-image pixels (bottom-left origin); drawn over the screenshot in the preview and every export.
     @Published private(set) var redactions: [Redaction] = [] { didSet { scheduleRedraw() } }
     /// Finds text to redact.
     let finder = TextFinder()
+    /// The Draw tool. Leaving Text drops the label being typed.
+    @Published var tool = Tool.arrow { didSet { if tool != .text { cancelText() } } }
+    /// The color of new arrows, rectangles, text and highlights.
+    @Published var markupColor = Markup.defaultColor
+    /// In full-image pixels; drawn over the redactions in the preview and every export. Each is its own undo step.
+    /// Redrawn at once, so a finished shape doesn't blink between the live one and the preview.
+    @Published private(set) var markups: [Markup] = [] { didSet { redraw() } }
+    /// Where a tap with the Text tool put the label being typed (full-image pixels); nil when none is.
+    @Published private(set) var textSpot: CGPoint?
+    /// The label being typed.
+    @Published var draftText = ""
 
     var canExport: Bool { phase == .ready && !busy }
 
@@ -117,12 +148,13 @@ final class ShareModel: ObservableObject {
         // Padding and corners are in full-image pixels; the preview is smaller by this much.
         let scale = CGFloat(source.width) / fullSize.width
         let shown = redactions.map { $0.scaled(by: scale) }
+        let marks = markups.map { $0.scaled(by: scale) }
         switch mode {
         case .style:
             preview = Renderer.render(image: source, frame: makeFrame(), background: makeBackground(scale: scale),
-                                      redactions: shown)
-        case .redact:
-            preview = Renderer.render(image: source, frame: nil, background: nil, redactions: shown)
+                                      redactions: shown, markups: marks)
+        case .redact, .draw:
+            preview = Renderer.render(image: source, frame: nil, background: nil, redactions: shown, markups: marks)
         }
     }
 
@@ -152,6 +184,73 @@ final class ShareModel: ObservableObject {
         redactions = []
     }
 
+    // MARK: Draw
+
+    /// The full image's rect, in its pixels.
+    private var imageBounds: CGRect { CGRect(origin: .zero, size: fullSize) }
+
+    /// What the current tool makes from a drag between two full-image points (kept inside the image), in the current
+    /// color; nil for the Text tool or when too little is left. Also the live shape while dragging.
+    func shape(from a: CGPoint, to b: CGPoint) -> Markup? {
+        let bounds = imageBounds
+        func clamped(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: min(max(p.x, bounds.minX), bounds.maxX), y: min(max(p.y, bounds.minY), bounds.maxY))
+        }
+        let p = clamped(a), q = clamped(b)
+        let rect = CGRect(x: min(p.x, q.x), y: min(p.y, q.y), width: abs(p.x - q.x), height: abs(p.y - q.y))
+        switch tool {
+        case .arrow:
+            guard hypot(q.x - p.x, q.y - p.y) >= 1 else { return nil }
+            return Markup(.arrow(from: p, to: q), color: markupColor)
+        case .rect, .highlight:
+            guard rect.width >= 1, rect.height >= 1 else { return nil }
+            return Markup(tool == .rect ? .rectangle(rect) : .highlight(rect), color: markupColor)
+        case .text:
+            return nil
+        }
+    }
+
+    /// Adds what a finished drag made.
+    func draw(from a: CGPoint, to b: CGPoint) {
+        guard let markup = shape(from: a, to: b) else { return }
+        markups.append(markup)
+    }
+
+    /// Puts the label being typed at `p` (full-image pixels); a tap beside the picture is ignored.
+    func placeText(at p: CGPoint) {
+        guard imageBounds.contains(p) else { return }
+        textSpot = p
+    }
+
+    /// The label being typed, to show it on the preview as it will be drawn.
+    var draftMarkup: Markup? {
+        guard let spot = textSpot else { return nil }
+        return Markup(.text(draftText, at: spot), color: markupColor)
+    }
+
+    /// Adds the typed label at its spot; empty text adds nothing.
+    func commitText() {
+        let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let spot = textSpot, !text.isEmpty {
+            markups.append(Markup(.text(text, at: spot), color: markupColor))
+        }
+        cancelText()
+    }
+
+    func cancelText() {
+        textSpot = nil
+        draftText = ""
+    }
+
+    /// Takes back the last arrow, rectangle, text or highlight.
+    func undoMarkup() {
+        _ = markups.popLast()
+    }
+
+    func clearMarkups() {
+        markups = []
+    }
+
     private func makeFrame() -> DeviceFrame {
         var frame = DeviceFrame()
         frame.kind = frameChoice.kind
@@ -178,7 +277,7 @@ final class ShareModel: ObservableObject {
         busy = true
         status = Status(text: output == .save ? "Saving…" : "Rendering…")
         let job = Exporter.Job(items: items, frame: makeFrame(), background: makeBackground(scale: 1),
-                               redactions: redactions)
+                               redactions: redactions, markups: markups)
         Task { [weak self] in
             await self?.perform(output, job: job, share: share)
         }

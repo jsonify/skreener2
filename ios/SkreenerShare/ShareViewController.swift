@@ -19,8 +19,9 @@ final class ShareViewController: UIViewController {
         view.addSubview(host.view)
         host.didMove(toParent: self)
 
-        // In Redact a downward drag on the preview covers an area; it must not pull the sheet down. Close still works.
-        modeWatch = model.$mode.sink { [weak self] mode in self?.isModalInPresentation = mode == .redact }
+        // In Redact and Draw a downward drag on the preview covers an area or draws; it must not pull the sheet down.
+        // Close still works.
+        modeWatch = model.$mode.sink { [weak self] mode in self?.isModalInPresentation = mode != .style }
 
         model.load(items: extensionContext?.inputItems as? [NSExtensionItem] ?? [])
     }

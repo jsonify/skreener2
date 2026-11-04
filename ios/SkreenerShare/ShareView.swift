@@ -2,8 +2,9 @@ import SkreenerCore
 import SK1UI
 import SwiftUI
 
-/// The share sheet: a Close key on top, the preview, a status readout, the Style / Redact switch, that mode's
-/// controls (which scroll when they do not fit) and the Save, Copy and Share keys at the bottom.
+/// The share sheet: a Close key on top, the preview, a status readout, the Style / Redact / Draw switch, that mode's
+/// controls (which scroll when they do not fit) and the Save, Copy and Share keys at the bottom. While a text label is
+/// typed, the switch and the output keys step aside and the preview shrinks, so the field stays above the keyboard.
 struct ShareView: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
@@ -22,41 +23,56 @@ struct ShareView: View {
                 .padding(8)
             }
             SKWell { previewArea.padding(10) }
-                .frame(minHeight: 200, maxHeight: .infinity)
+                .frame(minHeight: typing ? 120 : 200, maxHeight: .infinity)
                 .layoutPriority(1)
             statusArea
-            SKSegmented(selection: $model.mode, options: [
-                .init(.style, "Style"),
-                .init(.redact, "Redact"),
-            ], caption: "Mode")
-            ScrollView {
-                VStack(spacing: 12) {
-                    switch model.mode {
-                    case .style:
-                        frameAndBackground
-                        FrameOptions(model: model)
-                        if model.backgroundChoice != nil {
-                            BackgroundControls(model: model)
+            if !typing {
+                SKSegmented(selection: $model.mode, options: [
+                    .init(.style, "Style"),
+                    .init(.redact, "Redact"),
+                    .init(.draw, "Draw"),
+                ], caption: "Mode")
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 12) {
+                        switch model.mode {
+                        case .style:
+                            frameAndBackground
+                            FrameOptions(model: model)
+                            if model.backgroundChoice != nil {
+                                BackgroundControls(model: model)
+                            }
+                        case .redact:
+                            RedactControls(model: model, finder: model.finder)
+                        case .draw:
+                            DrawControls(model: model)
                         }
-                    case .redact:
-                        RedactControls(model: model, finder: model.finder)
                     }
+                }
+                .onChange(of: typing) {
+                    if typing { withAnimation { proxy.scrollTo(DrawControls.textID, anchor: .top) } }
                 }
             }
             .frame(maxHeight: 300)
-            SKKeyTray {
-                Button("Save") { model.export(.save, share: onShare) }
-                    .buttonStyle(.sk1Key(.orange))
-                Button("Copy") { model.export(.copy, share: onShare) }
-                    .buttonStyle(.sk1Key())
-                Button("Share") { model.export(.share, share: onShare) }
-                    .buttonStyle(.sk1Key())
+            if !typing {
+                SKKeyTray {
+                    Button("Save") { model.export(.save, share: onShare) }
+                        .buttonStyle(.sk1Key(.orange))
+                    Button("Copy") { model.export(.copy, share: onShare) }
+                        .buttonStyle(.sk1Key())
+                    Button("Share") { model.export(.share, share: onShare) }
+                        .buttonStyle(.sk1Key())
+                }
+                .disabled(!model.canExport)
             }
-            .disabled(!model.canExport)
         }
         .padding(16)
         .sk1Chassis()
     }
+
+    /// A text label is being typed in Draw.
+    private var typing: Bool { model.mode == .draw && model.textSpot != nil }
 
     @ViewBuilder private var statusArea: some View {
         let status = model.status
@@ -97,6 +113,8 @@ struct ShareView: View {
         case .ready:
             if let preview = model.preview, model.mode == .redact {
                 RedactCanvas(model: model, finder: model.finder, preview: preview)
+            } else if let preview = model.preview, model.mode == .draw {
+                DrawCanvas(model: model, preview: preview)
             } else if let preview = model.preview {
                 Image(uiImage: preview)
                     .resizable()

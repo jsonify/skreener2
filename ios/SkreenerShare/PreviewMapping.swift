@@ -1,9 +1,16 @@
 import CoreGraphics
 
-/// Where the Redact preview sits in its view, and how a touch on it maps to the full image. The view is in points
-/// with a top-left origin; `preview` and `full` are the two images' sizes in pixels (the same shape), and full-image
-/// pixels have a bottom-left origin, as Redaction and Vision's boxes do.
+/// Where the Redact and Draw previews sit in their view, and how a touch on them maps to the full image. The view is
+/// in points with a top-left origin; `preview` and `full` are the two images' sizes in pixels (the same shape), and
+/// full-image pixels have a bottom-left origin, as Redaction and Vision's boxes do.
 enum PreviewMapping {
+    /// Smaller drags are taps.
+    static let minDrag: CGFloat = 8
+
+    static func isDrag(from a: CGPoint, to b: CGPoint) -> Bool {
+        abs(a.x - b.x) >= minDrag || abs(a.y - b.y) >= minDrag
+    }
+
     /// The preview's rect in the view when aspect-fitted and centred.
     static func fitted(_ preview: CGSize, in view: CGSize) -> CGRect {
         guard preview.width > 0, preview.height > 0 else { return .zero }
@@ -37,5 +44,13 @@ enum PreviewMapping {
         let sx = fit.width / full.width, sy = fit.height / full.height
         return CGRect(x: fit.minX + r.minX * sx, y: fit.minY + (full.height - r.maxY) * sy,
                       width: r.width * sx, height: r.height * sy)
+    }
+
+    /// Full-image pixels (bottom-left origin) to view points, to draw full-size shapes over the preview.
+    static func imageToView(view: CGSize, preview: CGSize, full: CGSize) -> CGAffineTransform {
+        let fit = fitted(preview, in: view)
+        guard full.width > 0, full.height > 0 else { return .identity }
+        return CGAffineTransform(a: fit.width / full.width, b: 0, c: 0, d: -fit.height / full.height,
+                                 tx: fit.minX, ty: fit.maxY)
     }
 }

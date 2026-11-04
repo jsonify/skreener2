@@ -14,9 +14,10 @@ enum Renderer {
     }
 
     /// One image pixel is one point, and the renderer's scale is 1, so the result has the canvas's size in pixels.
-    /// `redactions` are in `image`'s pixels and go over the screenshot, under nothing else.
+    /// `redactions` and `markups` are in `image`'s pixels and go over the screenshot, markups over redactions, both
+    /// under nothing else and kept inside the screenshot.
     static func render(image: CGImage, frame: DeviceFrame?, background: Background?,
-                       redactions: [Redaction] = []) -> UIImage {
+                       redactions: [Redaction] = [], markups: [Markup] = []) -> UIImage {
         let content = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         // A frame of kind .none means no frame.
         let frame = frame?.isNone == true ? nil : frame
@@ -42,6 +43,12 @@ enum Renderer {
             }
             ctx.draw(image, in: content)
             Redaction.draw(redactions, over: image, in: ctx)
+            if !markups.isEmpty {
+                ctx.saveGState()
+                ctx.clip(to: content)
+                Markup.draw(markups, imageWidth: image.width, in: ctx)
+                ctx.restoreGState()
+            }
             ctx.restoreGState()
         }
     }
