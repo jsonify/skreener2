@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.1](https://github.com/jsonify/skreener2/compare/v1.17.0...v1.17.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **ios:** keep the signing Team in a gitignored Local.xcconfig ([#396](https://github.com/jsonify/skreener2/issues/396)) ([#405](https://github.com/jsonify/skreener2/issues/405)) ([c3ee8ba](https://github.com/jsonify/skreener2/commit/c3ee8ba907bfe61b28114018a5c548e5b9cf56b2))
+
 ## [1.17.0](https://github.com/jsonify/skreener2/compare/v1.16.0...v1.17.0) (2026-11-04)
 
 
