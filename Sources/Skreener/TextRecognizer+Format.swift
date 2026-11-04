@@ -1,5 +1,6 @@
 import AppKit
 import Vision
+import SkreenerCore
 
 extension TextRecognizer {
     /// Capture Text with formatting: the text in `image` as Markdown (headings, lists, bold, `code`), with its colored

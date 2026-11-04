@@ -1,4 +1,5 @@
 import AppKit
+import SkreenerCore
 
 /// Capture Text's scratch pad (#134): a small floating window with the recognized text, to fix it up before copying.
 /// Copy to Clipboard (⌘Return) copies the whole text and closes it; Esc or the close button closes it without copying.

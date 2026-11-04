@@ -1,14 +1,14 @@
-import AppKit
+import CoreGraphics
+import Foundation
 import Vision
 
-/// On-device OCR via Vision.
-enum TextRecognizer {
-    /// The text in `image`, one recognized line per line. `region` limits it to part of the image (normalized,
+/// On-device OCR via Vision. The Mac app adds NSImage versions and the clipboard in `TextRecognizer+AppKit.swift`.
+/// `size` below is the image's size in points (an NSImage's, which can differ from the pixel size on Retina).
+public enum TextRecognizer {
+    /// The text in `cg`, one recognized line per line. `region` limits it to part of the image (normalized,
     /// bottom-left origin, like Vision's own coordinates).
-    static func recognize(_ image: NSImage, region: CGRect? = nil) async -> String {
-        var rect = CGRect(origin: .zero, size: image.size)
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return "" }
-        return await Task.detached(priority: .userInitiated) {
+    public static func recognize(_ cg: CGImage, region: CGRect? = nil) async -> String {
+        await Task.detached(priority: .userInitiated) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
@@ -21,30 +21,23 @@ enum TextRecognizer {
     }
 
     /// What Redact looks for.
-    enum Sensitive { case allText, emails, phoneNumbers, links }
+    public enum Sensitive { case allText, emails, phoneNumbers, links }
 
     /// Boxes (image points, bottom-left origin) around recognized text: whole lines for `.allText`, otherwise just
     /// the matching words.
-    static func boxes(in image: NSImage, matching kind: Sensitive) async -> [CGRect] {
-        var rect = CGRect(origin: .zero, size: image.size)
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return [] }
-        let size = image.size
-        return await Task.detached(priority: .userInitiated) {
+    public static func boxes(in cg: CGImage, size: CGSize, matching kind: Sensitive) async -> [CGRect] {
+        await Task.detached(priority: .userInitiated) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = false   // keep addresses and numbers exactly as shown
             let handler = VNImageRequestHandler(cgImage: cg, options: [:])
             do { try handler.perform([request]) } catch { NSLog("OCR failed: \(error)"); return [] }
-            // Vision boxes are normalized with a bottom-left origin, like the editor's image coordinates.
-            func points(_ b: CGRect) -> CGRect {
-                CGRect(x: b.minX * size.width, y: b.minY * size.height, width: b.width * size.width, height: b.height * size.height)
-            }
             var out: [CGRect] = []
             for obs in request.results ?? [] {
                 guard let candidate = obs.topCandidates(1).first else { continue }
-                if kind == .allText { out.append(points(obs.boundingBox)); continue }
+                if kind == .allText { out.append(points(obs.boundingBox, in: size)); continue }
                 for range in matches(kind, in: candidate.string) {
-                    if let box = try? candidate.boundingBox(for: range) { out.append(points(box.boundingBox)) }
+                    if let box = try? candidate.boundingBox(for: range) { out.append(points(box.boundingBox, in: size)) }
                 }
             }
             return out
@@ -53,18 +46,16 @@ enum TextRecognizer {
 
     /// Boxes (image points, bottom-left origin) around each line of text inside `area` (image points), for the
     /// Text Only option of pixelate, blur and erase. Only that part of the image is read, so small text still counts.
-    static func lineBoxes(in image: NSImage, area: CGRect) async -> [CGRect] {
-        var rect = CGRect(origin: .zero, size: image.size)
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil),
-              image.size.width > 0, image.size.height > 0 else { return [] }
-        let area = area.intersection(CGRect(origin: .zero, size: image.size))
-        let sx = CGFloat(cg.width) / image.size.width, sy = CGFloat(cg.height) / image.size.height
+    public static func lineBoxes(in cg: CGImage, size: CGSize, area: CGRect) async -> [CGRect] {
+        guard size.width > 0, size.height > 0 else { return [] }
+        let area = area.intersection(CGRect(origin: .zero, size: size))
+        let sx = CGFloat(cg.width) / size.width, sy = CGFloat(cg.height) / size.height
         // CGImage crops in pixels from the top-left.
-        let pixels = CGRect(x: area.minX * sx, y: (image.size.height - area.maxY) * sy,
+        let pixels = CGRect(x: area.minX * sx, y: (size.height - area.maxY) * sy,
                             width: area.width * sx, height: area.height * sy).integral
         guard !area.isEmpty, let crop = cg.cropping(to: pixels) else { return [] }
         // The crop's own size and place in points (it may be a little larger than `area` after rounding).
-        let frame = CGRect(x: pixels.minX / sx, y: image.size.height - pixels.maxY / sy,
+        let frame = CGRect(x: pixels.minX / sx, y: size.height - pixels.maxY / sy,
                            width: CGFloat(crop.width) / sx, height: CGFloat(crop.height) / sy)
         return await Task.detached(priority: .userInitiated) {
             let request = VNRecognizeTextRequest()
@@ -83,11 +74,11 @@ enum TextRecognizer {
 
     /// Every line of text in a screenshot, and a way to box any part of one, for the Redact Text tool (#295).
     /// Vision's results are kept because only they can place a range of a line; nothing changes them after `init`.
-    final class TextIndex: @unchecked Sendable {
+    public final class TextIndex: @unchecked Sendable {
         /// Each line as read; the ranges `box(line:range:)` takes index these strings.
-        let lines: [String]
+        public let lines: [String]
         /// Each line's box (image points, bottom-left origin).
-        let lineBoxes: [CGRect]
+        public let lineBoxes: [CGRect]
         private let candidates: [VNRecognizedText]
         private let size: CGSize
 
@@ -99,9 +90,14 @@ enum TextRecognizer {
             self.size = size
         }
 
+        /// An index with no text, for an image that can't be read.
+        public convenience init(size: CGSize) {
+            self.init([], size: size)
+        }
+
         /// The box (image points, bottom-left origin) around `range` of line `line`. When Vision can't place the
         /// range, the whole line stands in if the range is most of it; otherwise nil, and that part is left out.
-        func box(line: Int, range: Range<String.Index>) -> CGRect? {
+        public func box(line: Int, range: Range<String.Index>) -> CGRect? {
             guard candidates.indices.contains(line) else { return nil }
             if let b = try? candidates[line].boundingBox(for: range) { return TextRecognizer.points(b.boundingBox, in: size) }
             let text = lines[line]
@@ -109,17 +105,14 @@ enum TextRecognizer {
         }
     }
 
-    /// Reads all the text in `image` once (language correction off, so names and numbers stay as shown).
-    static func index(of image: NSImage) async -> TextIndex {
-        var rect = CGRect(origin: .zero, size: image.size)
-        let size = image.size
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return TextIndex([], size: size) }
-        return await Task.detached(priority: .userInitiated) {
+    /// Reads all the text in `cg` once (language correction off, so names and numbers stay as shown).
+    public static func index(of cg: CGImage, size: CGSize) async -> TextIndex {
+        await Task.detached(priority: .userInitiated) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = false
             let handler = VNImageRequestHandler(cgImage: cg, options: [:])
-            do { try handler.perform([request]) } catch { NSLog("OCR failed: \(error)"); return TextIndex([], size: size) }
+            do { try handler.perform([request]) } catch { NSLog("OCR failed: \(error)"); return TextIndex(size: size) }
             return TextIndex(request.results ?? [], size: size)
         }.value
     }
@@ -144,11 +137,5 @@ enum TextRecognizer {
             found = (try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue))?.matches(in: text, range: ns) ?? []
         }
         return found.compactMap { Range($0.range, in: text) }
-    }
-
-    static func copyText(_ text: String) {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(text, forType: .string)
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import SkreenerCore
 
 /// Carries out a smart action (#243).
 @MainActor enum SmartActionRunner {

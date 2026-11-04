@@ -1,5 +1,5 @@
 import XCTest
-@testable import Skreener
+@testable import SkreenerCore
 
 /// Finding the terms to redact in OCR lines (#295).
 final class TextMatcherTests: XCTestCase {

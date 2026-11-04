@@ -1,5 +1,6 @@
 import AppKit
 import Vision
+import SkreenerCore
 
 extension TextRecognizer {
     /// The table in `image` for Capture Table (#248). Where Vision reads documents (macOS 26) and finds a table, its

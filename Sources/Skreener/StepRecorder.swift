@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Vision
+import SkreenerCore
 
 extension Notification.Name {
     /// Posted when Step Recorder turns on or off (#242).

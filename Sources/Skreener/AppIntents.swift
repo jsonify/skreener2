@@ -1,6 +1,7 @@
 import AppIntents
 import AppKit
 import UniformTypeIdentifiers
+import SkreenerCore
 
 // Skreener's actions in the Shortcuts app (#274). Unlike skreener:// links they take an image and hand back the
 // screenshot or the text, so a shortcut can chain them with other apps. They run the same commands the links run,

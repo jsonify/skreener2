@@ -1,5 +1,6 @@
 import AppKit
 import Vision
+import SkreenerCore
 
 /// QR codes and barcodes in an image, read with Vision (#243).
 enum BarcodeScanner {
