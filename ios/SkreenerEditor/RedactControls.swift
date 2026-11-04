@@ -56,10 +56,7 @@ struct RedactControls: View {
         }
         let n = finder.selectedCount
         SKKeyTray {
-            Button("Redact \(n)") {
-                model.redact(finder.selectedBoxes)
-                finder.clear()
-            }
+            Button("Redact \(n)") { model.redactFound() }
             .buttonStyle(.sk1Key(.orange))
             .disabled(n == 0)
         }
