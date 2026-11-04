@@ -22,13 +22,19 @@ and has keys for the latest screenshot and for choosing any image. Or, in Photos
   `com.skreener.ios.share` (the framework is `com.skreener.ios.editor`); iOS 17 or later, iPhone only.
 
 The `.xcodeproj` is generated and not committed (it is in `.gitignore`). The Info.plists are
-generated from `project.yml`'s `info:` sections and ignored too: change them there.
+generated from `project.yml`'s `info:` sections and ignored too: change them there. So are the `.entitlements` files
+(`entitlements:`).
 
 ## Setup (once)
 
 ```
 brew install xcodegen
 ```
+
+The app and the extension share the editor's last look (frame, background, sliders) through the App Group
+`group.com.skreener.ios`, which must exist for your team. Xcode's automatic signing registers it on the first build to
+a device. If signing fails over it, select each of the `Skreener` and `SkreenerShare` targets, open Signing &
+Capabilities, and add the App Groups capability with `group.com.skreener.ios` ticked.
 
 ## Build and run
 
@@ -70,7 +76,7 @@ open Skreener.xcodeproj
    step 4 below. Try it here with a screenshot of a message that has a 6-digit code and a phone number: "SAFE CHECK ·
    2 FOUND", the lamp beside it lit orange, "1 phone number · 1 code" under it. **Review 2**, untick one, **Redact 1**:
    "SAFE CHECK · 1 LEFT". A screenshot with nothing private reads "SAFE CHECK · CLEAR".
-7. In the editor, pick a frame and a background, cover an area in **Redact** and draw an arrow in **Draw**, as in
+7. In the editor, pick a frame (say Browser, Dark on) and a background, move the Padding slider, cover an area in **Redact** and draw an arrow in **Draw**, as in
    the extension steps below.
 8. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
    edited PNG is in Photos. **Copy** and **Share** work as in the extension; Share shows the system share sheet with
@@ -80,6 +86,9 @@ open Skreener.xcodeproj
     asks first, like Show my screenshots.) Close.
 11. Tap **Choose screenshot**: the system photo picker opens, showing only images, without asking for any access.
     Pick one: it opens in the editor. Close.
+12. The editor starts with the style you used last: open any screenshot again and the frame, Dark, background and
+    sliders are as you left them (redactions and drawings start empty). Now set a different frame and background,
+    Close, and share a screenshot from Photos to Skreener (see below): the extension starts with that same look.
 
 ## Try the extension
 
@@ -124,14 +133,20 @@ open Skreener.xcodeproj
     in Settings > Privacy & Security > Photos.
 13. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
 14. **Close** (top left) ends the sheet.
+15. Open the share sheet again: the frame, Dark, background and sliders are as you left them. Change them, Close,
+    and open the Skreener app and a screenshot: the app's editor shows the look you just set in the extension. A fresh
+    install starts with iPhone frame, Dark off, the first background and Padding 48, Corners 10, Shadow 50%.
 
 ## Privacy manifest
 
 The app has `Skreener/PrivacyInfo.xcprivacy`: it stores when it was last sent to the background in `UserDefaults`,
-to know which screenshots are new, so the manifest declares `NSPrivacyAccessedAPICategoryUserDefaults` with reason
-`CA92.1` (the app's own defaults). It declares no tracking and no collected data. The extension, the framework,
-`SkreenerCore` and SK1Kit use none of Apple's required-reason APIs (`UserDefaults`, file timestamps, system boot time,
-disk space, active keyboards). Add an entry, to the target that makes the call, if that changes.
+to know which screenshots are new (reason `CA92.1`, the app's own defaults), and the editor's last look in the shared
+App Group defaults (reason `1C8F.1`), so the manifest declares `NSPrivacyAccessedAPICategoryUserDefaults` with both.
+The extension has its own `SkreenerShare/PrivacyInfo.xcprivacy`, copied as a resource the same way, declaring the same
+category with `1C8F.1`: the editor framework runs inside it and reads and writes the shared defaults. Both declare no
+tracking and no collected data. The framework, `SkreenerCore` and SK1Kit use none of Apple's other required-reason APIs
+(file timestamps, system boot time, disk space, active keyboards). Add an entry, to the target that makes the call, if
+that changes.
 
 ## Upload to TestFlight
 

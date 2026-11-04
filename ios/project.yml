@@ -40,7 +40,7 @@ targets:
       - path: Skreener
         excludes:
           - PrivacyInfo.xcprivacy
-      # The privacy manifest (UserDefaults, for "last sent to the background") is a resource, copied into the app.
+      # The privacy manifest (UserDefaults: "last sent to the background", and the shared last look) is a resource, copied into the app.
       - path: Skreener/PrivacyInfo.xcprivacy
         buildPhase: resources
     dependencies:
@@ -56,6 +56,12 @@ targets:
         PRODUCT_NAME: Skreener
         # Skreener/Assets.xcassets/AppIcon.appiconset, drawn by Scripts/make_icons.py.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    # The App Group shares the last look with the extension (#408).
+    entitlements:
+      path: Skreener/Skreener.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.skreener.ios
     info:
       path: Skreener/Info.plist
       properties:
@@ -83,7 +89,12 @@ targets:
     type: app-extension
     platform: iOS
     sources:
-      - SkreenerShare
+      - path: SkreenerShare
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # The extension reads and writes the last look in the shared defaults (UserDefaults, reason 1C8F.1).
+      - path: SkreenerShare/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - target: SkreenerEditor
         embed: false                # the app embeds it
@@ -95,6 +106,11 @@ targets:
         APPLICATION_EXTENSION_API_ONLY: YES
         # The appex finds the framework in the app's Frameworks folder.
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+    entitlements:
+      path: SkreenerShare/SkreenerShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.skreener.ios
     info:
       path: SkreenerShare/Info.plist
       properties:

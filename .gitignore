@@ -8,6 +8,9 @@ ios/*.xcodeproj
 # XcodeGen writes these from project.yml's `info:` on every generate.
 ios/Skreener/Info.plist
 ios/SkreenerShare/Info.plist
+# And the entitlements, from `entitlements:`.
+ios/Skreener/Skreener.entitlements
+ios/SkreenerShare/SkreenerShare.entitlements
 # Local signing (DEVELOPMENT_TEAM); see ios/README.md.
 ios/Local.xcconfig
 # Build number stamped by ios/stamp_build_number.sh on each `xcodegen generate`.
