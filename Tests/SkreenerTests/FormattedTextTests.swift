@@ -1,4 +1,5 @@
 import XCTest
+import SkreenerCore
 @testable import Skreener
 
 /// Capture Text with formatting: lists, headings, styles, Markdown and HTML on made-up OCR lines and bitmaps.

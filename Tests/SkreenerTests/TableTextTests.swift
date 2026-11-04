@@ -1,4 +1,5 @@
 import XCTest
+import SkreenerCore
 @testable import Skreener
 
 /// Capture Table's layout and writers (#248), on made-up OCR words: no screen needed, except the last test, which
