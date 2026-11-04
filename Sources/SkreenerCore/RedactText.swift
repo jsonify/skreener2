@@ -16,7 +16,7 @@ public enum RedactText {
     }
 
     /// How the matches are covered. Only a solid fill really removes the text.
-    public enum Cover: Int, CaseIterable {
+    public enum Cover: Int, CaseIterable, Sendable {
         case solid, pixelate, blur, erase
 
         public var title: String {

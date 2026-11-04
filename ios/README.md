@@ -1,8 +1,9 @@
 # Skreener for iOS
 
 A Share Extension for iPhone (#396). Take a screenshot, open it in Photos, tap Share and choose **Skreener** to put it
-in a device frame on a background, then save it to Photos, copy it or share it at full size. Redaction and annotation
-come in later steps. The container app, also called Skreener, only says how to use it.
+in a device frame on a background, cover private parts (a dragged area, or emails, phone numbers, links and typed text
+found by on-device OCR) with pixelate, blur or solid black, then save it to Photos, copy it or share it at full size.
+Annotation comes in a later step. The container app, also called Skreener, only says how to use it.
 
 - `Skreener/`: the container app (SwiftUI, the SK-1 look from [SK1Kit](https://github.com/jsonify/SK1Kit)).
 - `SkreenerShare/`: the Share Extension. It draws with `SkreenerCore`, the library shared with the Mac app.
@@ -40,10 +41,18 @@ open Skreener.xcodeproj
 3. Choose Skreener. Switch the frame and background. The Dark switch is there for every frame but None; Browser also
    has an address field. With a background chosen, the Padding, Corners and Shadow sliders appear (scroll the controls
    if they do not fit; the preview stays put).
-4. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
+4. Switch **Mode** to **Redact**. The preview shows the screenshot alone. Drag across some text: an orange dashed band
+   follows your finger, and on release the area is pixelated. Pick **Blur** or **Solid** under Cover and drag again;
+   that area is blurred or black. **Undo** takes back the last area, **Clear** all of them.
+5. Tap **Emails** (or **Phones**, **Links**): the readout says "Reading text…", then "N matches · N selected" and each
+   match has an orange outline. Tap one: its outline turns dashed and the count drops. Or type a word into the Text
+   field (several separated by commas). **Redact N** covers the selected matches with the current Cover style.
+6. Switch back to **Style**: the frame and background return, with the redactions on the screenshot. They are in
+   every export too, at full size.
+7. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
    full-resolution PNG is in the Photos library. If you deny, the sheet says to allow "Add Photos Only" for Skreener in
    Settings > Privacy & Security > Photos.
-5. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
-6. **Close** (top left) ends the sheet.
+8. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
+9. **Close** (top left) ends the sheet.
 
 CI builds the project for the iOS Simulator in `.github/workflows/ios.yml`, with warnings as errors.

@@ -15,6 +15,8 @@ enum Exporter {
         let items: [NSExtensionItem]
         let frame: DeviceFrame
         let background: Background?
+        /// In full-image pixels.
+        let redactions: [Redaction]
     }
 
     /// Reloads the full image (up to `ImageLoader.maxPixels`), draws it and encodes a PNG. It runs off the main actor
@@ -23,7 +25,8 @@ enum Exporter {
         try await Task.detached(priority: .userInitiated) { () -> Data in
             let image = try await ImageLoader.load(from: job.items)
             let frame: DeviceFrame? = job.frame
-            guard let data = Renderer.render(image: image, frame: frame, background: job.background).pngData() else {
+            guard let data = Renderer.render(image: image, frame: frame, background: job.background,
+                                             redactions: job.redactions).pngData() else {
                 throw ExportError.renderFailed
             }
             return data
