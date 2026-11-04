@@ -54,6 +54,9 @@ targets:
       path: Skreener/Info.plist
       properties:
         CFBundleDisplayName: Skreener
+        # XcodeGen writes 1.0 and 1 otherwise, whatever the build settings say.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIApplicationSceneManifest:
@@ -87,6 +90,9 @@ targets:
       path: SkreenerShare/Info.plist
       properties:
         CFBundleDisplayName: Skreener
+        # XcodeGen writes 1.0 and 1 otherwise, whatever the build settings say.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSPhotoLibraryAddUsageDescription: Skreener saves your edited screenshot to Photos.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services

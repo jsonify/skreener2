@@ -47,17 +47,22 @@ jobs:
         run: |
           cd ios
           xcodebuild build -project Skreener.xcodeproj -scheme Skreener \
-            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
-      # xcodegen generate ran stamp_build_number.sh (project.yml's preGenCommand): both targets must resolve to its number.
-      - name: Check the build number
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+      # xcodegen generate ran stamp_build_number.sh (project.yml's preGenCommand): the built app and extension must
+      # carry its number and project.yml's MARKETING_VERSION, which App Store Connect reads from their Info.plists.
+      - name: Check the version and build number
         run: |
           cd ios
-          want=$(sed -n 's/^CURRENT_PROJECT_VERSION = //p' BuildNumber.xcconfig)
-          echo "Stamped: $want"
-          test -n "$want"
-          for target in Skreener SkreenerShare; do
-            got=$(xcodebuild -showBuildSettings -project Skreener.xcodeproj -target "$target" -configuration Release \
-              | sed -n 's/^ *CURRENT_PROJECT_VERSION = //p')
-            echo "$target: $got"
-            test "$got" = "$want"
+          want_build=$(sed -n 's/^CURRENT_PROJECT_VERSION = //p' BuildNumber.xcconfig)
+          want_version=$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"/\1/p' project.yml)
+          echo "Want: $want_version ($want_build)"
+          test -n "$want_build"
+          test -n "$want_version"
+          app=build/Build/Products/Debug-iphonesimulator/Skreener.app
+          for plist in "$app/Info.plist" "$app/PlugIns/SkreenerShare.appex/Info.plist"; do
+            build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
+            version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+            echo "$plist: $version ($build)"
+            test "$build" = "$want_build"
+            test "$version" = "$want_version"
           done
