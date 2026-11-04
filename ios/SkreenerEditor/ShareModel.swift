@@ -5,10 +5,39 @@ import UIKit
 /// What the share sheet shows and the choices made in it.
 @MainActor
 public final class ShareModel: ObservableObject {
-    public init() {}
+    /// Starts with the last look (#408), shared with the app or the extension through the App Group.
+    public init() {
+        let look = Look.load(offered: Self.backgroundChoices)
+        frameChoice = FrameChoice(name: look.frame)
+        dark = look.dark
+        backgroundChoice = look.background
+        padding = look.padding
+        cornerRadius = look.cornerRadius
+        shadow = look.shadow
+        cleanBar = look.cleanBar
+    }
 
     enum FrameChoice: Hashable {
         case plain, iPhone, browser, macWindow
+
+        /// The name `Look` stores.
+        var name: String {
+            switch self {
+            case .plain: return "plain"
+            case .iPhone: return "iPhone"
+            case .browser: return "browser"
+            case .macWindow: return "macWindow"
+            }
+        }
+
+        init(name: String) {
+            switch name {
+            case "plain": self = .plain
+            case "browser": self = .browser
+            case "macWindow": self = .macWindow
+            default: self = .iPhone
+            }
+        }
 
         var kind: DeviceFrame.Kind {
             switch self {
@@ -60,15 +89,15 @@ public final class ShareModel: ObservableObject {
     @Published private(set) var preview: UIImage?
     @Published private(set) var status: Status?
     @Published private(set) var busy = false
-    @Published var frameChoice = FrameChoice.iPhone { didSet { scheduleRedraw() } }
-    @Published var backgroundChoice: Int? = 0 { didSet { scheduleRedraw() } }
+    @Published var frameChoice = FrameChoice.iPhone { didSet { scheduleRedraw(); saveLook() } }
+    @Published var backgroundChoice: Int? = 0 { didSet { scheduleRedraw(); saveLook() } }
     @Published var browserURL = DeviceFrame.defaultURL { didSet { scheduleRedraw() } }
-    @Published var dark = false { didSet { scheduleRedraw() } }
-    @Published var padding = 48.0 { didSet { scheduleRedraw() } }
-    @Published var cornerRadius = 10.0 { didSet { scheduleRedraw() } }
-    @Published var shadow = 0.5 { didSet { scheduleRedraw() } }
-    /// Repaint an iPhone screenshot's status bar clean: 9:41, full signal, Wi-Fi and battery (#408).
-    @Published var cleanBar = false { didSet { scheduleRedraw() } }
+    @Published var dark = false { didSet { scheduleRedraw(); saveLook() } }
+    @Published var padding = 48.0 { didSet { scheduleRedraw(); saveLook() } }
+    @Published var cornerRadius = 10.0 { didSet { scheduleRedraw(); saveLook() } }
+    @Published var shadow = 0.5 { didSet { scheduleRedraw(); saveLook() } }
+    /// Repaint an iPhone screenshot's status bar clean: 9:41, full signal, Wi-Fi and battery (#408). Part of the look.
+    @Published var cleanBar = false { didSet { scheduleRedraw(); saveLook() } }
     /// Redact and Draw show the bare screenshot, so a touch maps straight to it. Redrawn at once on a switch: their
     /// canvases map touches with the preview's size.
     @Published public var mode = Mode.style {
@@ -274,6 +303,12 @@ public final class ShareModel: ObservableObject {
 
     func clearMarkups() {
         markups = []
+    }
+
+    /// Remembers the look for the next editor, here or in the app or extension. It is a few bytes, so no debounce.
+    private func saveLook() {
+        Look(frame: frameChoice.name, dark: dark, background: backgroundChoice, padding: padding,
+             cornerRadius: cornerRadius, shadow: shadow, cleanBar: cleanBar).save()
     }
 
     private func makeFrame() -> DeviceFrame {
