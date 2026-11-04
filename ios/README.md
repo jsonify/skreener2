@@ -9,8 +9,8 @@ later steps. The container app, also called Skreener, only says how to use it.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios` and
   `com.skreener.ios.share`; iOS 17 or later, iPhone only.
 
-The `.xcodeproj` is generated and not committed (it is in `.gitignore`). Info.plists are generated too, but are
-committed so changes to them show in review.
+The `.xcodeproj` is generated and not committed (it is in `.gitignore`). The Info.plists are
+generated from `project.yml`'s `info:` sections and ignored too: change them there.
 
 ## Setup (once)
 
