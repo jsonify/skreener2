@@ -8,3 +8,5 @@ ios/*.xcodeproj
 # XcodeGen writes these from project.yml's `info:` on every generate.
 ios/Skreener/Info.plist
 ios/SkreenerShare/Info.plist
+# Local signing (DEVELOPMENT_TEAM); see ios/README.md.
+ios/Local.xcconfig
