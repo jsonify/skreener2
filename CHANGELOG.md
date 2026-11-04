@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.18.0](https://github.com/jsonify/skreener2/compare/v1.17.1...v1.18.0) (2026-11-04)
+
+
+### Features
+
+* **ios:** add the Skreener app icon ([#396](https://github.com/jsonify/skreener2/issues/396)) ([#409](https://github.com/jsonify/skreener2/issues/409)) ([b3c75a1](https://github.com/jsonify/skreener2/commit/b3c75a1b15f411de7d6a5624358b3e155fe10a46))
+* **ios:** stamp the build number on every xcodegen generate ([#396](https://github.com/jsonify/skreener2/issues/396)) ([#410](https://github.com/jsonify/skreener2/issues/410)) ([5d0b524](https://github.com/jsonify/skreener2/commit/5d0b524b8686d48c3f1d3c5531fbf38db23b965a))
+
+
+### Bug Fixes
+
+* **ios:** put the version and build number in the Info.plists ([#396](https://github.com/jsonify/skreener2/issues/396)) ([#413](https://github.com/jsonify/skreener2/issues/413)) ([9a13ec2](https://github.com/jsonify/skreener2/commit/9a13ec2c283816fdf3ea70f03a2ff12691db38c8))
+
 ## [1.17.1](https://github.com/jsonify/skreener2/compare/v1.17.0...v1.17.1) (2026-11-04)
 
 
