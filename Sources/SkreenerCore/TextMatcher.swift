@@ -1,28 +1,45 @@
 import Foundation
 
 /// Finds the terms to redact in the lines OCR read (#295). Pure text: the editor turns each span into a box.
-enum TextMatcher {
-    struct Options: Equatable {
-        var caseSensitive = false
-        var wholeWord = true
-        var regex = false
-        var fuzzy = false
+public enum TextMatcher {
+    public struct Options: Equatable {
+        public var caseSensitive = false
+        public var wholeWord = true
+        public var regex = false
+        public var fuzzy = false
+
+        public init(caseSensitive: Bool = false, wholeWord: Bool = true, regex: Bool = false, fuzzy: Bool = false) {
+            self.caseSensitive = caseSensitive
+            self.wholeWord = wholeWord
+            self.regex = regex
+            self.fuzzy = fuzzy
+        }
     }
 
     /// Part of a match inside one line: the line's index and a range of that line's own string.
-    struct Span: Equatable {
-        let line: Int
-        let range: Range<String.Index>
+    public struct Span: Equatable {
+        public let line: Int
+        public let range: Range<String.Index>
+
+        public init(line: Int, range: Range<String.Index>) {
+            self.line = line
+            self.range = range
+        }
     }
 
     /// One hit: the index of the term that found it, and one span per line it covers (several when it wraps).
-    struct Match: Equatable {
-        let term: Int
-        let spans: [Span]
+    public struct Match: Equatable {
+        public let term: Int
+        public let spans: [Span]
+
+        public init(term: Int, spans: [Span]) {
+            self.term = term
+            self.spans = spans
+        }
     }
 
     /// Every match of `terms` in `lines`, in reading order (by first span's line, then position).
-    static func matches(of terms: [String], in lines: [String], options: Options) -> [Match] {
+    public static func matches(of terms: [String], in lines: [String], options: Options) -> [Match] {
         let units = makeUnits(lines)
         guard !units.isEmpty else { return [] }
         let cs = options.caseSensitive
@@ -65,7 +82,7 @@ enum TextMatcher {
     }
 
     /// Whether `pattern` compiles as a regular expression (the bar marks a bad pattern instead of matching nothing).
-    static func isValidPattern(_ pattern: String) -> Bool {
+    public static func isValidPattern(_ pattern: String) -> Bool {
         (try? NSRegularExpression(pattern: pattern)) != nil
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import SkreenerCore
 
 /// Capture Table's scratch pad (#248): the table as read, in a grid whose cells can be fixed (double-click one, or
 /// select it and press Return), and below it what will be copied in the chosen format (CSV, TSV or Markdown). Copy to

@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import ScreenCaptureKit
+import SkreenerCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServicesMenuRequestor {
     private var statusItem: NSStatusItem!

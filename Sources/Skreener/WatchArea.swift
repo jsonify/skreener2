@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import SkreenerCore
 
 /// The options of a Watch This Area watch (#240), remembered between watches.
 struct WatchSettings: Equatable {

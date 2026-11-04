@@ -1,4 +1,5 @@
 import AppKit
+import SkreenerCore
 
 /// How Capture Text ends, the same whether it was started from the menu bar or from the editor's Copy Text: the text
 /// is read (as Markdown when formatting is kept), then opened in the scratch pad when that is on

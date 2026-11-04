@@ -1,4 +1,5 @@
 import AppKit
+import SkreenerCore
 
 /// Gives a Capture Text copy clean text or Markdown as its plain text depending on where it is pasted (#327).
 ///

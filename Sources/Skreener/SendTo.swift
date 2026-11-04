@@ -1,4 +1,5 @@
 import AppKit
+import SkreenerCore
 
 /// What a destination tells the user once it has the capture.
 struct SendResult {
