@@ -2,43 +2,81 @@ import SkreenerCore
 import SK1UI
 import SwiftUI
 
-/// The share sheet: the preview, a frame picker and background keys, with Cancel and Done.
+/// The share sheet: a Close key on top, the preview, a status readout, the controls (which scroll when they do not
+/// fit) and the Save, Copy and Share keys at the bottom.
 struct ShareView: View {
     @ObservedObject var model: ShareModel
-    let onCancel: () -> Void
-    let onDone: () -> Void
+    let onClose: () -> Void
+    /// Shows the system share sheet for the PNG file; the hosting view controller does it.
+    let onShare: (URL) -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             SKPlate {
                 HStack {
-                    Button("Cancel", action: onCancel)
+                    Button("Close", action: onClose)
                         .buttonStyle(.sk1Key())
                     Spacer()
                     SKCaption("Skreener")
-                    Spacer()
-                    Button("Done", action: onDone)
-                        .buttonStyle(.sk1Key(.orange))
                 }
                 .padding(8)
             }
             SKWell { previewArea.padding(10) }
-            SKSegmented(selection: $model.frameChoice, options: [
-                .init(.plain, "None"),
-                .init(.iPhone, "iPhone"),
-                .init(.browser, "Browser"),
-                .init(.macWindow, "macOS Window", help: "macOS window"),
-            ], caption: "Frame")
-            SKKeyTray(caption: "Background") {
-                ForEach(ShareModel.backgroundChoices, id: \.self) { fill in
-                    Button { model.backgroundChoice = fill } label: { swatch(fill) }
-                        .buttonStyle(.sk1Key(isOn: model.backgroundChoice == fill))
-                        .accessibilityLabel(Text(fill.map { Background.presets[$0].name } ?? "No background"))
+                .frame(minHeight: 200, maxHeight: .infinity)
+                .layoutPriority(1)
+            statusArea
+            ScrollView {
+                VStack(spacing: 12) {
+                    frameAndBackground
+                    FrameOptions(model: model)
+                    if model.backgroundChoice != nil {
+                        BackgroundControls(model: model)
+                    }
                 }
             }
+            .frame(maxHeight: 300)
+            SKKeyTray {
+                Button("Save") { model.export(.save, share: onShare) }
+                    .buttonStyle(.sk1Key(.orange))
+                Button("Copy") { model.export(.copy, share: onShare) }
+                    .buttonStyle(.sk1Key())
+                Button("Share") { model.export(.share, share: onShare) }
+                    .buttonStyle(.sk1Key())
+            }
+            .disabled(!model.canExport)
         }
         .padding(16)
         .sk1Chassis()
+    }
+
+    @ViewBuilder private var statusArea: some View {
+        let status = model.status
+        VStack(spacing: 4) {
+            SKReadout(status?.text ?? "Ready")
+            if let detail = status?.detail {
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder private var frameAndBackground: some View {
+        SKSegmented(selection: $model.frameChoice, options: [
+            .init(.plain, "None"),
+            .init(.iPhone, "iPhone"),
+            .init(.browser, "Browser"),
+            .init(.macWindow, "macOS Window", help: "macOS window"),
+        ], caption: "Frame")
+        SKKeyTray(caption: "Background") {
+            ForEach(ShareModel.backgroundChoices, id: \.self) { fill in
+                Button { model.backgroundChoice = fill } label: { swatch(fill) }
+                    .buttonStyle(.sk1Key(isOn: model.backgroundChoice == fill))
+                    .accessibilityLabel(Text(fill.map { Background.presets[$0].name } ?? "No background"))
+            }
+        }
     }
 
     @ViewBuilder private var previewArea: some View {

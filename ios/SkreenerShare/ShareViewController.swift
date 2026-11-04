@@ -8,8 +8,8 @@ final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         let root = ShareView(model: model,
-                             onCancel: { [weak self] in self?.cancel() },
-                             onDone: { [weak self] in self?.done() })
+                             onClose: { [weak self] in self?.close() },
+                             onShare: { [weak self] url in self?.share(url) })
         let host = UIHostingController(rootView: root)
         addChild(host)
         host.view.frame = view.bounds
@@ -17,22 +17,23 @@ final class ShareViewController: UIViewController {
         view.addSubview(host.view)
         host.didMove(toParent: self)
 
-        let items = extensionContext?.inputItems as? [NSExtensionItem] ?? []
-        Task { [weak self] in
-            do {
-                let image = try await ImageLoader.load(from: items)
-                self?.model.show(image)
-            } catch {
-                self?.model.fail()
-            }
-        }
+        model.load(items: extensionContext?.inputItems as? [NSExtensionItem] ?? [])
     }
 
-    private func cancel() {
-        extensionContext?.cancelRequest(withError: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
-    }
-
-    private func done() {
+    /// Ends the request. After a save this is not a cancel, so it completes normally.
+    private func close() {
         extensionContext?.completeRequest(returningItems: [])
+    }
+
+    /// Presents the system share sheet for the PNG file, and removes the file when it is dismissed.
+    private func share(_ url: URL) {
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        sheet.popoverPresentationController?.sourceView = view
+        sheet.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY,
+                                                                 width: 0, height: 0)
+        sheet.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        present(sheet, animated: true)
     }
 }

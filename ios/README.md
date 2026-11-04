@@ -1,8 +1,8 @@
 # Skreener for iOS
 
 A Share Extension for iPhone (#396). Take a screenshot, open it in Photos, tap Share and choose **Skreener** to put it
-in a device frame on a background. For now the sheet previews the result; Save, Copy, redaction and annotation come in
-later steps. The container app, also called Skreener, only says how to use it.
+in a device frame on a background, then save it to Photos, copy it or share it at full size. Redaction and annotation
+come in later steps. The container app, also called Skreener, only says how to use it.
 
 - `Skreener/`: the container app (SwiftUI, the SK-1 look from [SK1Kit](https://github.com/jsonify/SK1Kit)).
 - `SkreenerShare/`: the Share Extension. It draws with `SkreenerCore`, the library shared with the Mac app.
@@ -37,6 +37,13 @@ open Skreener.xcodeproj
 1. Take a screenshot on the phone and open it in Photos.
 2. Tap Share. If Skreener is not in the app row, scroll to its end, tap More, and turn Skreener on (or use
    Edit Actions... in the share sheet).
-3. Choose Skreener. Switch the frame and background; Cancel or Done closes the sheet.
+3. Choose Skreener. Switch the frame and background. The Dark switch is there for every frame but None; Browser also
+   has an address field. With a background chosen, the Padding, Corners and Shadow sliders appear (scroll the controls
+   if they do not fit; the preview stays put).
+4. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The readout says "Saved to Photos" and the
+   full-resolution PNG is in the Photos library. If you deny, the sheet says to allow "Add Photos Only" for Skreener in
+   Settings > Privacy & Security > Photos.
+5. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
+6. **Close** (top left) ends the sheet.
 
 CI builds the project for the iOS Simulator in `.github/workflows/ios.yml`, with warnings as errors.
