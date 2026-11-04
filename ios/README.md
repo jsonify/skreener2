@@ -69,4 +69,15 @@ open Skreener.xcodeproj
 12. Tap **Copy** and paste into Notes or Messages. Tap **Share** for the system share sheet with `Skreener.png`.
 13. **Close** (top left) ends the sheet.
 
+## Upload to TestFlight
+
+1. Bump `MARKETING_VERSION` in `project.yml` when the build is a new version (testers see it as 0.1.0, 0.2.0...).
+2. `xcodegen generate`, always, right before archiving: it stamps a fresh build number, the UTC time as YYMMDD.HHMM
+   without leading zeros in the second part (2026-11-04 09:05 is `261104.905`), into the gitignored
+   `BuildNumber.xcconfig`; the command prints it. App Store Connect rejects an upload whose build number is not
+   higher than the last one's, so archiving from a project generated before the last upload fails there: generate
+   again and re-archive. Both targets get the same number, as App Store Connect requires.
+3. In Xcode, run destination **Any iOS Device (arm64)**, **Product > Archive**, then in the Organizer **Distribute App >
+   App Store Connect > Upload**. The build appears under TestFlight in App Store Connect after processing.
+
 CI builds the project for the iOS Simulator in `.github/workflows/ios.yml`, with warnings as errors.
