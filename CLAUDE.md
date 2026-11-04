@@ -5,6 +5,8 @@ lives in GitHub Issues (there is no TODO list).
 
 - Build: `Scripts/build_app.sh` (macOS only). CI builds with `SKREENER_STRICT=1`, which passes
   `-warnings-as-errors`, on the newest Xcode on the runner.
+- The iOS Share Extension (#396) lives in `ios/`, is generated with XcodeGen (`ios/project.yml`), and CI builds it in
+  `.github/workflows/ios.yml`; see `ios/README.md`.
 - Tests: `swift test` (macOS only; `Tests/SkreenerTests`, `@testable import Skreener`). CI runs them with warnings
   as errors before the build. They cover logic that runs without a screen or permissions; the rest needs a manual
   check on a Mac.
