@@ -167,10 +167,20 @@ final class LeakScanTests: XCTestCase {
         XCTAssertEqual(found.map { String(line[$0.range]) }, ["a@b.com", "ghp_abcdefghijklmnopqrstuv", "415-555-0132"])
     }
 
+    func testCodeDoesNotSplitAPhoneNumber() {
+        let line = "Your code is 482913, call 415-555-0132"
+        XCTAssertEqual(text(line, .oneTimeCode), ["482913"])
+        XCTAssertEqual(text(line, .phone), ["415-555-0132"])
+        let spaced = "Verify code 482913 or call 415 555 0132"
+        XCTAssertEqual(text(spaced, .oneTimeCode), ["482913"])
+        XCTAssertEqual(text(spaced, .phone), ["415 555 0132"])
+        XCTAssertEqual(text("Your code is 482913 valid 10 minutes", .oneTimeCode), ["482913"])
+    }
+
     func testNeverReturnsFaces() {
         let line = "a@b.com https://x.com 415-555-0132 Your code is 482913 and card 4242 4242 4242 4242 ghp_abcdefghijklmnopqrstuv"
         XCTAssertFalse(kinds(line).contains(.face))
-        XCTAssertTrue(Set(kinds(line)).isSuperset(of: [.email, .link, .oneTimeCode, .cardNumber, .secret]), "\(kinds(line))")
+        XCTAssertTrue(Set(kinds(line)).isSuperset(of: [.email, .link, .phone, .oneTimeCode, .cardNumber, .secret]), "\(kinds(line))")
     }
 
     // MARK: Scan (needs Vision OCR)
@@ -190,5 +200,11 @@ final class LeakScanTests: XCTestCase {
         let cards = await LeakScan.scan(image, size: size, kinds: [.cardNumber])
         XCTAssertEqual(emails.map(\.kind), [.email])
         XCTAssertTrue(cards.isEmpty)
+    }
+
+    func testScanRunsFaceDetectionAndFindsNoneInText() async {
+        let image = TestImages.text(["No people here"])
+        let findings = await LeakScan.scan(image, size: TestImages.size(of: image), kinds: [.face])
+        XCTAssertTrue(findings.isEmpty, "\(findings)")
     }
 }

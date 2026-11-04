@@ -72,7 +72,8 @@ public enum LeakScan {
     // MARK: Matchers
 
     private static let cardRegex = regex("(?<!\\d)\\d(?:[ -]?\\d){12,18}(?!\\d)")
-    private static let codeRegex = regex("(?<![\\w.,:/$€£+-])(?:\\d{3,4}[ -]\\d{3,4}|\\d{4,8})(?![\\w%]|[.,:/]\\d)")
+    // A code never starts or ends inside a longer group of digits joined by a dash or space (a phone number).
+    private static let codeRegex = regex("(?<![\\w.,:/$€£+-])(?<!\\d[ -])(?:\\d{3,4}[ -]\\d{3,4}|\\d{4,8})(?![\\w%]|[.,:/-]\\d| \\d{3,4}(?!\\d))")
     private static let codeKeywords = regex(
         "\\b(?:codes?|otp|passcode|verification|verify|pin|2fa|one-time|security code|is your)\\b", options: .caseInsensitive)
     private static let sixDigits = regex("^\\d{6}$")
