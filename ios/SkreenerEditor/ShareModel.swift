@@ -39,14 +39,6 @@ public final class ShareModel: ObservableObject {
             }
         }
 
-        var kind: DeviceFrame.Kind {
-            switch self {
-            case .plain: return .none
-            case .iPhone: return .iPhone
-            case .browser: return .browser
-            case .macWindow: return .macWindow
-            }
-        }
     }
 
     /// What the controls edit.
@@ -73,8 +65,9 @@ public final class ShareModel: ObservableObject {
         var detail: String?
     }
 
-    /// Background presets on offer, as indexes into `Background.presets`; nil is no background.
-    static let backgroundChoices: [Int?] = [nil, 0, 1, 4, 3, 5]
+    /// Background presets on offer, as indexes into `Background.presets`; nil is no background. Nonisolated, so
+    /// `QuickFrame` can read the last look off the main actor.
+    nonisolated static let backgroundChoices: [Int?] = [nil, 0, 1, 4, 3, 5]
 
     /// Colors on offer in Draw: the Mac's default red first, then some of its other presets (system colors).
     static let markupColors: [(name: String, color: RGBColor)] = [
@@ -305,28 +298,23 @@ public final class ShareModel: ObservableObject {
         markups = []
     }
 
+    /// The look the controls show now.
+    private var look: Look {
+        Look(frame: frameChoice.name, dark: dark, background: backgroundChoice, padding: padding,
+             cornerRadius: cornerRadius, shadow: shadow, cleanBar: cleanBar)
+    }
+
     /// Remembers the look for the next editor, here or in the app or extension. It is a few bytes, so no debounce.
     private func saveLook() {
-        Look(frame: frameChoice.name, dark: dark, background: backgroundChoice, padding: padding,
-             cornerRadius: cornerRadius, shadow: shadow, cleanBar: cleanBar).save()
+        look.save()
     }
 
     private func makeFrame() -> DeviceFrame {
-        var frame = DeviceFrame()
-        frame.kind = frameChoice.kind
-        frame.dark = dark
-        frame.url = browserURL
-        return frame
+        look.makeFrame(url: browserURL)
     }
 
     private func makeBackground(scale: CGFloat) -> Background? {
-        guard let fill = backgroundChoice else { return nil }
-        var background = Background()
-        background.fill = fill
-        background.padding = CGFloat(padding) * scale
-        background.cornerRadius = CGFloat(cornerRadius) * scale
-        background.shadow = CGFloat(shadow)
-        return background
+        look.makeBackground(scale: scale)
     }
 
     // MARK: Output
