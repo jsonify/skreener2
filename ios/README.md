@@ -143,6 +143,30 @@ open Skreener.xcodeproj
     extension. A fresh install starts with iPhone frame, Dark off, the first background, Padding 48, Corners 10,
     Shadow 50% and Clean bar off.
 
+## Try the shortcuts
+
+The app gives Shortcuts, Siri and Spotlight two actions (#439), with no setup: they show under Skreener in the
+Shortcuts app's gallery and in Spotlight once the app has been opened.
+
+- **Frame Latest Screenshot** frames the newest screenshot in your last look (frame, background, sliders, Clean bar)
+  without opening Skreener, and returns the PNG, so it chains with other actions. Its **Then** choice does one more
+  thing with it: **Copy** (the default), **Save to Photos**, **Share** (Skreener comes to the front with the share
+  sheet) or **Nothing**. Siri: "Frame my latest screenshot with Skreener".
+- **Open Latest Screenshot in Skreener** opens the app with the newest screenshot in the editor. Siri: "Open my
+  latest screenshot in Skreener".
+
+**Safe Check gate.** Frame Latest Screenshot first runs Safe Check on the screenshot. If it finds anything (a code,
+card number, email, phone number, link, key or face), nothing is copied, saved, shared or returned: it asks "Safe
+Check found 2 things to cover. Open in Skreener?" and opens the editor on that screenshot with the findings showing.
+A clean screenshot goes straight through.
+
+Neither action asks for Photos access. Until Skreener can see your screenshots, they stop with "Open Skreener and tap
+Show my screenshots to let it see your screenshots" (or say to allow access in Settings, or to Select more).
+
+**Back Tap.** In the Shortcuts app, tap **+**, add the Frame Latest Screenshot action (search for Skreener) and name
+the shortcut, say "Frame latest". Then Settings > Accessibility > Touch > Back Tap > Double Tap > the shortcut. Take a screenshot, double-tap
+the back of the phone and paste in Messages: the framed screenshot.
+
 ## Privacy manifest
 
 The app has `Skreener/PrivacyInfo.xcprivacy`: it stores when it was last sent to the background in `UserDefaults`,

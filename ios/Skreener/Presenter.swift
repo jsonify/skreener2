@@ -33,6 +33,15 @@ enum Presenter {
         top.present(sheet, animated: true)
     }
 
+    /// Like `share`, for a Shortcuts action that has just brought the app to the front (#439): waits up to two seconds
+    /// for the window to be active first, so the sheet has somewhere to show.
+    static func shareWhenActive(_ url: URL) async {
+        for _ in 0..<20 where UIApplication.shared.applicationState != .active {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        share(url)
+    }
+
     /// Lets the user change which photos Skreener can see (limited access). A change reaches `ScreenshotLibrary`
     /// through its library observer.
     static func selectMorePhotos() {

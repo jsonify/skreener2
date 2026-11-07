@@ -28,12 +28,17 @@ final class ScreenshotLibrary: NSObject, ObservableObject {
     private var observing = false
 
     override init() {
-        access = Self.access(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+        access = Self.currentAccess
         super.init()
         refresh()
     }
 
-    private static func access(_ status: PHAuthorizationStatus) -> Access {
+    /// The read access now, without asking. Nonisolated, so the Shortcuts actions can read it too (#439).
+    nonisolated static var currentAccess: Access {
+        access(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+    }
+
+    private nonisolated static func access(_ status: PHAuthorizationStatus) -> Access {
         switch status {
         case .notDetermined: return .notAsked
         case .authorized: return .full
@@ -63,7 +68,7 @@ final class ScreenshotLibrary: NSObject, ObservableObject {
 
     /// Reads the access (it may have changed in Settings) and the inbox again.
     func refresh() {
-        access = Self.access(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+        access = Self.currentAccess
         guard canRead else {
             inbox = []
             return
@@ -75,7 +80,7 @@ final class ScreenshotLibrary: NSObject, ObservableObject {
             since = lastBackground
             if since == nil { limit = Self.firstUseCount }
         }
-        let assets = fetch(since: since, limit: limit)
+        let assets = Self.fetch(since: since, limit: limit)
         inbox = assets
         thumbnails.stopCachingImagesForAllAssets()
         thumbnails.startCachingImages(for: Array(assets.prefix(60)), targetSize: Self.thumbnailSize,
@@ -84,11 +89,17 @@ final class ScreenshotLibrary: NSObject, ObservableObject {
 
     /// The newest screenshot Skreener can see, whatever its date.
     func newest() -> PHAsset? {
+        Self.newestScreenshot()
+    }
+
+    /// The newest screenshot Skreener can see, for callers without the home screen (the Shortcuts actions, #439). It
+    /// never asks for access: nil without it.
+    nonisolated static func newestScreenshot() -> PHAsset? {
         fetch(since: nil, limit: 1).first
     }
 
     /// Screenshots in the Screenshots album, newest first, taken after `since` (if any); `limit` 0 is all of them.
-    private func fetch(since: Date?, limit: Int) -> [PHAsset] {
+    private nonisolated static func fetch(since: Date?, limit: Int) -> [PHAsset] {
         let albums = PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: .smartAlbumScreenshots,
                                                              options: nil)
         guard let album = albums.firstObject else { return [] }

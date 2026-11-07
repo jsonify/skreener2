@@ -169,10 +169,15 @@ final class TextFinder: ObservableObject {
             return .boxes(kind, await TextRecognizer.boxes(in: image, size: full, matching: kind.sensitive))
         case .leaks:
             guard let image else { return .leaks([]) }
-            let findings = await LeakScan.scan(image, size: full)
-            // Padded like the Mac's Redact.
-            return .leaks(findings.map { LeakScan.Finding(kind: $0.kind, box: $0.box.insetBy(dx: -3, dy: -2)) })
+            return .leaks(await scanLeaks(image, size: full))
         }
+    }
+
+    /// Safe Check's scan of `image`, whose full size is `size`, boxes padded like the Mac's Redact. `QuickFrame` runs
+    /// it without an editor (#439).
+    nonisolated static func scanLeaks(_ image: CGImage, size: CGSize) async -> [LeakScan.Finding] {
+        let findings = await LeakScan.scan(image, size: size)
+        return findings.map { LeakScan.Finding(kind: $0.kind, box: $0.box.insetBy(dx: -3, dy: -2)) }
     }
 
     // MARK: Safe Check
