@@ -42,12 +42,6 @@ jobs:
           cd ios
           xcodebuild build -project Skreener.xcodeproj -scheme Skreener -configuration Debug \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO -quiet
-      - name: PROBE Release build (temporary)
-        run: |
-          cd ios
-          xcodebuild build -project Skreener.xcodeproj -scheme Skreener -configuration Release \
-            -destination 'generic/platform=iOS Simulator' -derivedDataPath buildrel CODE_SIGNING_ALLOWED=NO -quiet \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG
       - name: Pick the simulators
         run: |
           xcrun simctl list devices available
@@ -112,13 +106,9 @@ jobs:
               xcrun simctl launch "$udid" com.skreener.ios
               sleep 5
               xcrun simctl io "$udid" screenshot "screens/probe-resume.png"
-              xcrun simctl install "$udid" ios/buildrel/Build/Products/Release-iphonesimulator/Skreener.app
-              xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios
-              sleep 8
-              xcrun simctl io "$udid" screenshot "screens/probe-release-home.png"
-              xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor
-              sleep 12
-              xcrun simctl io "$udid" screenshot "screens/probe-release-editor.png"
+              xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor -SKDemoRace
+              sleep 15
+              xcrun simctl io "$udid" screenshot "screens/probe-race.png"
             fi
             xcrun simctl shutdown "$udid" || true
           }

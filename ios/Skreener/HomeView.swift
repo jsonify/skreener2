@@ -19,6 +19,10 @@ struct HomeView: View {
     /// What went wrong last, shown on the LCD until the next action.
     @State private var failure: String?
     @State private var picked: PhotosPickerItem?
+#if DEBUG
+    /// -SKDemoRace: the photo picker is up when the demo editor opens.
+    @State private var demoPicker = false
+#endif
 
     var body: some View {
         VStack(spacing: 10) {
@@ -62,6 +66,7 @@ struct HomeView: View {
 #if DEBUG
         // -SKDemoEditor (DemoLaunch.swift): the editor on a sample picture, for the Simulator screenshots.
         .task { await openDemo() }
+        .photosPicker(isPresented: $demoPicker, selection: $picked, matching: .images)
 #endif
     }
 
@@ -70,6 +75,11 @@ struct HomeView: View {
     private func openDemo() async {
         guard DemoLaunch.opensEditor, session == nil, let model = DemoLaunch.editorModel() else { return }
         if !DemoLaunch.has("-SKDemoNow") { try? await Task.sleep(nanoseconds: 300_000_000) }
+        if DemoLaunch.has("-SKDemoRace") {
+            demoPicker = true
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            demoPicker = false
+        }
         session = EditorSession(model: model)
         if DemoLaunch.has("-SKDemoReopen") {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
