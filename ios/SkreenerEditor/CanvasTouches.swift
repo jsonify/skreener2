@@ -6,7 +6,9 @@ import UIKit.UIGestureRecognizerSubclass
 /// about the pinch and two fingers pan, through `zoom`; a double-tap zooms in at the tap, or back to fit. One finger
 /// drags a draft (`onDraft` while it moves, `onDraftEnd` on release) or taps (`onTap`). A second finger cancels the
 /// draft (`onDraftCancel`), so a pinch never leaves a stray box or arrow. A single tap waits for a double-tap to fail,
-/// so a double-tap doesn't also tap. Points are in the canvas, which this layer covers.
+/// so a double-tap doesn't also tap. Points are in the canvas, which this layer covers. `onDraftPoints`, for freehand
+/// strokes, gets the finger's whole path in pieces: just before each `onDraft` and `onDraftEnd`, the points it passed
+/// since the last call (the first call starts where it landed), so nothing is lost before the drag counts.
 struct CanvasTouches: UIViewRepresentable {
     @Binding var zoom: PreviewZoom
     let preview: CGSize
@@ -15,6 +17,7 @@ struct CanvasTouches: UIViewRepresentable {
     let onDraftEnd: (_ start: CGPoint, _ end: CGPoint) -> Void
     let onDraftCancel: () -> Void
     let onTap: (CGPoint) -> Void
+    var onDraftPoints: (([CGPoint]) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -55,9 +58,14 @@ struct CanvasTouches: UIViewRepresentable {
         }
 
         @objc func draft(_ g: DraftRecognizer) {
+            let path = g.takePath()
             switch g.state {
-            case .began, .changed: parent.onDraft(g.start, g.current)
-            case .ended: parent.onDraftEnd(g.start, g.current)
+            case .began, .changed:
+                parent.onDraftPoints?(path)
+                parent.onDraft(g.start, g.current)
+            case .ended:
+                parent.onDraftPoints?(path)
+                parent.onDraftEnd(g.start, g.current)
             default: parent.onDraftCancel()
             }
         }
@@ -108,6 +116,14 @@ final class DraftRecognizer: UIGestureRecognizer {
     private(set) var start: CGPoint = .zero
     private(set) var current: CGPoint = .zero
     private var finger: UITouch?
+    /// The points the finger passed (with the coalesced ones in between) not yet taken by `takePath`.
+    private var path: [CGPoint] = []
+
+    /// The points the finger passed since the last call, in the view, oldest first.
+    func takePath() -> [CGPoint] {
+        defer { path.removeAll(keepingCapacity: true) }
+        return path
+    }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
@@ -118,12 +134,14 @@ final class DraftRecognizer: UIGestureRecognizer {
         finger = touch
         start = touch.location(in: view)
         current = start
+        path = [start]
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesMoved(touches, with: event)
         guard let finger, touches.contains(finger) else { return }
         current = finger.location(in: view)
+        path += (event.coalescedTouches(for: finger) ?? [finger]).map { $0.location(in: view) }
         if state == .possible {
             if PreviewMapping.isDrag(from: start, to: current) { state = .began }
         } else if state == .began || state == .changed {
@@ -135,6 +153,7 @@ final class DraftRecognizer: UIGestureRecognizer {
         super.touchesEnded(touches, with: event)
         guard let finger, touches.contains(finger) else { return }
         current = finger.location(in: view)
+        path.append(current)
         state = isDragging ? .ended : .failed
     }
 
@@ -146,6 +165,7 @@ final class DraftRecognizer: UIGestureRecognizer {
     override func reset() {
         super.reset()
         finger = nil
+        path = []
     }
 
     private var isDragging: Bool { state == .began || state == .changed }

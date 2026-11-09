@@ -118,7 +118,7 @@ public struct ShareView: View {
             case .redact:
                 RedactOptionsRow(model: model, finding: showsFind, onFind: { showsFind = true },
                                  onClose: closeOptions)
-            case .text, .arrow, .rect, .highlight:
+            case .text, .arrow, .line, .rect, .ellipse, .pen, .highlight:
                 TextOptionsRow(model: model, onClose: closeOptions)
             }
         } else {

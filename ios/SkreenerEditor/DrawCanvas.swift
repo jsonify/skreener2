@@ -4,8 +4,9 @@ import SkreenerCore
 import SwiftUI
 
 /// The Draw preview: the screenshot with its redactions and drawings, aspect-fitted or zoomed. Drag to draw an arrow,
-/// rectangle or highlight (the shape follows the finger); with the Text tool, tap where the label goes. Pinch,
-/// two-finger drag and double-tap zoom and pan (`CanvasTouches`).
+/// line, rectangle, ellipse or highlight (the shape follows the finger); with Pen, draw freely (the stroke follows the
+/// finger; a tap is a dot); with the Text tool, tap where the label goes. Pinch, two-finger drag and double-tap zoom
+/// and pan (`CanvasTouches`); a pinch drops the shape or stroke being drawn.
 struct DrawCanvas: View {
     @ObservedObject var model: ShareModel
     let preview: UIImage
@@ -13,6 +14,8 @@ struct DrawCanvas: View {
 
     @State private var dragStart: CGPoint?
     @State private var dragEnd: CGPoint?
+    /// The pen stroke being drawn, in full-image pixels.
+    @State private var penPoints: [CGPoint] = []
 
     var body: some View {
         GeometryReader { geo in
@@ -48,8 +51,10 @@ struct DrawCanvas: View {
         }
     }
 
-    /// The shape under the finger, once the drag is long enough to count; otherwise the label being typed.
+    /// The shape or pen stroke under the finger, once the drag is long enough to count; otherwise the label being
+    /// typed.
     private func draft(_ shown: CGRect) -> Markup? {
+        if model.tool == .pen { return model.penStroke(penPoints) }
         if let a = dragStart, let b = dragEnd, model.tool != .text, PreviewMapping.isDrag(from: a, to: b) {
             return model.shape(from: imagePoint(a, shown), to: imagePoint(b, shown))
         }
@@ -74,7 +79,11 @@ struct DrawCanvas: View {
             onDraftEnd: { start, end in
                 dragStart = nil
                 dragEnd = nil
-                if model.tool == .text {
+                if model.tool == .pen {
+                    let stroke = penPoints
+                    penPoints = []
+                    model.drawPen(stroke)
+                } else if model.tool == .text {
                     model.placeText(at: point(end))
                 } else if PreviewMapping.isDrag(from: start, to: end) {
                     model.draw(from: point(start), to: point(end))
@@ -83,9 +92,20 @@ struct DrawCanvas: View {
             onDraftCancel: {
                 dragStart = nil
                 dragEnd = nil
+                penPoints = []
             },
             onTap: { p in
-                if model.tool == .text { model.placeText(at: point(p)) }
+                switch model.tool {
+                case .text: model.placeText(at: point(p))
+                case .pen: model.drawDot(at: point(p))
+                default: break
+                }
+            },
+            onDraftPoints: { path in
+                guard model.tool == .pen else { return }
+                var stroke = penPoints
+                for p in path { model.addPenPoint(point(p), to: &stroke) }
+                penPoints = stroke
             })
     }
 }
