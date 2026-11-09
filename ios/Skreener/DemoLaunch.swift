@@ -18,7 +18,11 @@ import UIKit
 enum DemoLaunch {
     /// The launch arguments ask for the demo editor.
     static var opensEditor: Bool {
-        ProcessInfo.processInfo.arguments.contains("-SKDemoEditor")
+        has("-SKDemoEditor")
+    }
+
+    static func has(_ argument: String) -> Bool {
+        ProcessInfo.processInfo.arguments.contains(argument)
     }
 
     /// A fresh editor model on the sample picture, as `HomeView.openImage` makes one for picked bytes.
@@ -32,7 +36,7 @@ enum DemoLaunch {
     /// A 1179×2556 px picture (an iPhone 15/16 Pro screenshot's size): a status bar, a message with an email and a
     /// 6-digit code (Safe Check: "2 FOUND"), and a few shapes.
     static func samplePNG() -> Data? {
-        let size = CGSize(width: 1179, height: 2556)
+        let size = has("-SKDemoWide") ? CGSize(width: 4032, height: 3024) : CGSize(width: 1179, height: 2556)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true

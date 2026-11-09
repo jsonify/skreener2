@@ -69,8 +69,14 @@ struct HomeView: View {
     /// Opens the demo editor through the same `fullScreenCover` as a real pick, once the home screen is on screen.
     private func openDemo() async {
         guard DemoLaunch.opensEditor, session == nil, let model = DemoLaunch.editorModel() else { return }
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        if !DemoLaunch.has("-SKDemoNow") { try? await Task.sleep(nanoseconds: 300_000_000) }
         session = EditorSession(model: model)
+        if DemoLaunch.has("-SKDemoReopen") {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            session = nil
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if let again = DemoLaunch.editorModel() { session = EditorSession(model: again) }
+        }
     }
 #endif
 

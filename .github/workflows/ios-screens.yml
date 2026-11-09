@@ -97,6 +97,25 @@ jobs:
             xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor -SKDemoShapes
             sleep 8
             xcrun simctl io "$udid" screenshot "screens/$prefix-shapes.png"
+            if [ "$prefix" = pro ]; then
+              # PROBES (temporary)
+              for probe in "now:-SKDemoNow" "reopen:-SKDemoReopen" "wide:-SKDemoWide" "redact:-SKDemoTool redact"; do
+                n=${probe%%:*}; a=${probe#*:}
+                xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor $a
+                sleep 12
+                xcrun simctl io "$udid" screenshot "screens/probe-$n.png"
+              done
+              xcrun simctl ui "$udid" appearance dark
+              xcrun simctl ui "$udid" content_size accessibility-extra-extra-extra-large
+              xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor
+              sleep 10
+              xcrun simctl io "$udid" screenshot "screens/probe-darkxl.png"
+              xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios
+              sleep 6
+              xcrun simctl io "$udid" screenshot "screens/probe-darkxl-home.png"
+              xcrun simctl ui "$udid" appearance light
+              xcrun simctl ui "$udid" content_size large
+            fi
             xcrun simctl shutdown "$udid" || true
           }
           shoot "$PRO_UDID" pro
