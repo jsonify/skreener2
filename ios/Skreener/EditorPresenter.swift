@@ -54,8 +54,12 @@ enum EditorPresenter {
 
 /// The editor's full-screen controller: the SwiftUI editor pinned to its edges, as `ShareViewController` pins it in
 /// the extension. The hosting controller keeps its default safe-area handling, so the chassis fills the screen while
-/// the keys stay inside the safe area.
+/// the keys stay inside the safe area. The editor is portrait only: it opens upright and stays upright when the phone
+/// turns (a full-screen presentation decides the orientation while it is up); Home still rotates.
 final class EditorViewController: UIViewController {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .portrait }
+
     private let host: UIHostingController<ShareView>
 
     init(rootView: ShareView) {
