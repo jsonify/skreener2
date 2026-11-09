@@ -72,14 +72,6 @@ jobs:
                   if out.returncode == 0:
                       se = out.stdout.strip()
                       break
-          old = None
-          for r in reversed(runtimes):
-              pros = [(int(m.group(1)), d["udid"]) for d in data[r]
-                      if (m := re.fullmatch(r"iPhone (\d+) Pro", d["name"]))]
-              if pros:
-                  old = max(pros)
-                  break
-          print(f"OLD_UDID={old[1] if old and old != pro else ''}")
           print(f"PRO_UDID={pro[1]}")
           print(f"SE_UDID={se or ''}")
           EOF
@@ -105,13 +97,9 @@ jobs:
             xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor -SKDemoShapes
             sleep 8
             xcrun simctl io "$udid" screenshot "screens/$prefix-shapes.png"
-            if [ "$prefix" = pro ]; then
-              :
-            fi
             xcrun simctl shutdown "$udid" || true
           }
           shoot "$PRO_UDID" pro
-          [ -n "$OLD_UDID" ] && shoot "$OLD_UDID" probe-oldios
           if [ -n "$SE_UDID" ]; then
             shoot "$SE_UDID" se
           else
