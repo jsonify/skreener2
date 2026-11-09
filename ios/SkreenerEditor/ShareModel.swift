@@ -55,8 +55,21 @@ public final class ShareModel: ObservableObject {
         case loading, ready, failed
     }
 
+    /// Copy is the share sheet's Copy Photo (#440).
     enum Output {
-        case save, copy, share
+        case save, share
+    }
+
+    /// One undo step: a redaction step (how many areas it added) or one drawing. Undo takes back the newest, whichever
+    /// kind it is (#440).
+    private enum UndoStep {
+        case redaction(Int)
+        case markup
+
+        var isRedaction: Bool {
+            if case .redaction = self { return true }
+            return false
+        }
     }
 
     /// A line for the readout, and, when the user has to do something, what.
@@ -139,8 +152,9 @@ public final class ShareModel: ObservableObject {
     private var source: CGImage?
     /// The full image's size in pixels, to scale padding, corners and redactions down for the preview.
     private(set) var fullSize = CGSize(width: 1, height: 1)
-    /// How many redactions each step added, so Undo takes back a whole Redact N at once.
-    private var redactionSteps: [Int] = []
+    /// Every redaction step and drawing, oldest first, so Undo takes back a whole Redact N at once, and the newest
+    /// edit of either kind.
+    private var undoSteps: [UndoStep] = []
     private var redrawPending = false
 
     /// Loads the image from the extension's `items` and shows it.
@@ -207,7 +221,7 @@ public final class ShareModel: ObservableObject {
 
     // MARK: Redact
 
-    var canUndoRedaction: Bool { !redactionSteps.isEmpty }
+    var canUndoRedaction: Bool { undoSteps.contains(where: \.isRedaction) }
 
     /// Covers `rects` (full-image pixels) with the current style, as one step. Parts outside the image are dropped.
     func redact(_ rects: [CGRect]) {
@@ -216,19 +230,34 @@ public final class ShareModel: ObservableObject {
             .filter { !$0.isNull && $0.width >= 1 && $0.height >= 1 }
             .map { Redaction(rect: $0, style: redactStyle) }
         guard !added.isEmpty else { return }
-        redactionSteps.append(added.count)
+        undoSteps.append(.redaction(added.count))
         redactions += added
     }
 
     /// Takes back the last step: one dragged area, or all the matches one Redact N covered.
     func undoRedaction() {
-        guard let n = redactionSteps.popLast() else { return }
+        guard let i = undoSteps.lastIndex(where: \.isRedaction),
+              case .redaction(let n) = undoSteps.remove(at: i) else { return }
         redactions.removeLast(min(n, redactions.count))
     }
 
     func clearRedactions() {
-        redactionSteps = []
+        undoSteps.removeAll { $0.isRedaction }
         redactions = []
+    }
+
+    // MARK: Undo
+
+    /// There is a redaction or a drawing to take back.
+    var canUndo: Bool { !undoSteps.isEmpty }
+
+    /// Takes back the newest edit: a redaction step or a drawing, whichever came last.
+    func undo() {
+        guard let step = undoSteps.popLast() else { return }
+        switch step {
+        case .redaction(let n): redactions.removeLast(min(n, redactions.count))
+        case .markup: _ = markups.popLast()
+        }
     }
 
     // MARK: Draw
@@ -260,6 +289,7 @@ public final class ShareModel: ObservableObject {
     /// Adds what a finished drag made.
     func draw(from a: CGPoint, to b: CGPoint) {
         guard let markup = shape(from: a, to: b) else { return }
+        undoSteps.append(.markup)
         markups.append(markup)
     }
 
@@ -279,6 +309,7 @@ public final class ShareModel: ObservableObject {
     func commitText() {
         let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         if let spot = textSpot, !text.isEmpty {
+            undoSteps.append(.markup)
             markups.append(Markup(.text(text, at: spot), color: markupColor))
         }
         cancelText()
@@ -289,12 +320,8 @@ public final class ShareModel: ObservableObject {
         draftText = ""
     }
 
-    /// Takes back the last arrow, rectangle, text or highlight.
-    func undoMarkup() {
-        _ = markups.popLast()
-    }
-
     func clearMarkups() {
+        undoSteps.removeAll { !$0.isRedaction }
         markups = []
     }
 
@@ -319,7 +346,7 @@ public final class ShareModel: ObservableObject {
 
     // MARK: Output
 
-    /// Renders at full size, then saves, copies or hands the file to `share`. The output keys are off meanwhile.
+    /// Renders at full size, then saves or hands the file to `share`. The output keys are off meanwhile.
     func export(_ output: Output, share: @escaping (URL) -> Void) {
         guard canExport, let imageSource else { return }
         busy = true
@@ -340,9 +367,6 @@ public final class ShareModel: ObservableObject {
             case .save:
                 try await Exporter.save(png)
                 status = Status(text: "Saved to Photos")
-            case .copy:
-                Exporter.copy(png)
-                status = Status(text: "Copied")
             case .share:
                 let url = try Exporter.shareFile(png)
                 status = nil

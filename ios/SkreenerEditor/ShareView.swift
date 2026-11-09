@@ -1,17 +1,26 @@
 import SkreenerCore
+import SK1Tokens
 import SK1UI
 import SwiftUI
 
-/// The share sheet: a Close key on top, the preview, a status readout, the Style / Redact / Draw switch, that mode's
-/// controls (which scroll when they do not fit) and the Save, Copy and Share keys at the bottom. While a text label is
-/// typed, the switch and the output keys step aside and the preview shrinks, so the field stays above the keyboard.
-/// Redact and Draw share one zoom (#441), back to fit in Style and for a new image.
+/// The editor (#440), the same in the app and the Share Extension: Close, the title, Share and the orange Save on top
+/// (Copy is the share sheet's Copy Photo); a slim LCD strip with the tool and a hint, Safe Check or an export's status
+/// (`EditorStrip`); the picture as big as it fits; and one bottom row: Undo, the tray of tool keys (Frame, Arrow,
+/// Rectangle, Text, Highlight, Redact) and the colour key. Tapping the lit tool again swaps the row for that tool's
+/// options and a ✕ back to the tools. While a text label is typed, the row is its text field, above the keyboard.
+/// Redact and Draw share one zoom (#441), back to fit in Frame and for a new image.
 public struct ShareView: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
     /// Shows the system share sheet for the PNG file; the hosting view controller does it.
     let onShare: (URL) -> Void
     @State private var zoom = PreviewZoom()
+    /// The bottom row shows the lit tool's options.
+    @State private var showsOptions = false
+    /// Frame's More sheet.
+    @State private var showsMore = false
+    /// Redact's Find sheet.
+    @State private var showsFind = false
 
     public init(model: ShareModel, onClose: @escaping () -> Void, onShare: @escaping (URL) -> Void) {
         self.model = model
@@ -20,112 +29,96 @@ public struct ShareView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 12) {
-            SKPlate {
-                HStack {
-                    Button("Close", action: onClose)
-                        .buttonStyle(.sk1Key())
-                    Spacer()
-                    SKCaption("Skreener")
-                }
-                .padding(8)
-            }
-            SKWell { previewArea.padding(10) }
-                .overlay(alignment: .topTrailing) { zoomReadout.padding(14) }
+        VStack(spacing: 10) {
+            topBar
+            EditorStrip(model: model, finder: model.finder)
+            previewArea
+                .padding(10)
+                .background(CanvasWell())
+                .overlay(alignment: .topTrailing) { zoomReadout.padding(2) }
                 .frame(minHeight: typing ? 120 : 200, maxHeight: .infinity)
                 .layoutPriority(1)
-            statusArea
-            if !typing {
-                SKSegmented(selection: $model.mode, options: [
-                    .init(.style, "Style"),
-                    .init(.redact, "Redact"),
-                    .init(.draw, "Draw"),
-                ], caption: "Mode")
-            }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 12) {
-                        switch model.mode {
-                        case .style:
-                            frameAndBackground
-                            if model.canCleanBar {
-                                SKGroup(caption: "Status bar") {
-                                    SKRow(title: "Clean bar") {
-                                        Toggle("Clean bar", isOn: $model.cleanBar)
-                                            .toggleStyle(.sk1Switch)
-                                    }
-                                }
-                            }
-                            FrameOptions(model: model)
-                            if model.backgroundChoice != nil {
-                                BackgroundControls(model: model)
-                            }
-                        case .redact:
-                            RedactControls(model: model, finder: model.finder)
-                        case .draw:
-                            DrawControls(model: model)
-                        }
-                    }
-                }
-                .onChange(of: typing) {
-                    if typing { withAnimation { proxy.scrollTo(DrawControls.textID, anchor: .top) } }
-                }
-            }
-            // A floor, or the preview (which has layout priority) takes every point and a tall screenshot leaves the
-            // controls at zero height.
-            .frame(minHeight: 140, maxHeight: 300)
-            if !typing {
-                SKKeyTray {
-                    Button("Save") { model.export(.save, share: onShare) }
-                        .buttonStyle(.sk1Key(.orange))
-                    Button("Copy") { model.export(.copy, share: onShare) }
-                        .buttonStyle(.sk1Key())
-                    Button("Share") { model.export(.share, share: onShare) }
-                        .buttonStyle(.sk1Key())
-                }
-                .disabled(!model.canExport)
-            }
+            bottomRow
+                .frame(minHeight: SKPhoneMetrics.key + 8)
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .sk1Chassis()
         .onChange(of: model.mode) {
             if model.mode == .style { zoom = PreviewZoom() }
         }
         .onChange(of: model.phase) { zoom = PreviewZoom() }
+        // Picking another tool shows the tools; Safe Check's Review switches to Redact with the options as they were.
+        .onChange(of: model.editorTool) {
+            if model.editorTool != .redact { showsFind = false }
+            if model.editorTool != .frame { showsMore = false }
+        }
+        .sheet(isPresented: $showsMore) { FrameSheet(model: model) }
+        .sheet(isPresented: $showsFind) { FindSheet(model: model, finder: model.finder) }
     }
 
-    /// The zoom level while Redact or Draw is zoomed in; tapping it goes back to fit.
-    @ViewBuilder private var zoomReadout: some View {
-        if zoom.isZoomed, model.mode != .style {
-            let percent = "\(Int((zoom.scale * 100).rounded()))%"
-            Button { zoom = PreviewZoom() } label: { SKChip(percent) }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Zoom \(percent)"))
-                .accessibilityHint(Text("Shows the whole picture"))
+    // MARK: Top bar
+
+    private var topBar: some View {
+        HStack(spacing: 6) {
+            Button("Close", action: onClose)
+                .buttonStyle(.skPhoneKey())
+            Spacer(minLength: 8)
+            SymbolKey(symbol: "square.and.arrow.up", label: "Share",
+                      hint: "Shows the share sheet, with Copy Photo to copy it") {
+                model.export(.share, share: onShare)
+            }
+            .disabled(!model.canExport || typing)
+            Button("Save") { model.export(.save, share: onShare) }
+                .buttonStyle(.skPhoneKey(.orange))
+                .disabled(!model.canExport || typing)
+                .accessibilityHint(Text("Saves it to Photos"))
         }
+        .overlay {
+            SKCaption("Skreener", style: SK1.TextStyle(size: 12, weight: .bold, kern: 0.8, uppercase: true))
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    // MARK: Bottom row
+
+    @ViewBuilder private var bottomRow: some View {
+        if typing {
+            TextEntryRow(model: model)
+        } else if showsOptions {
+            switch model.editorTool {
+            case .frame:
+                FrameOptionsRow(model: model, onMore: { showsMore = true }, onClose: closeOptions)
+            case .redact:
+                RedactOptionsRow(model: model, finding: showsFind, onFind: { showsFind = true },
+                                 onClose: closeOptions)
+            case .arrow, .rect, .text, .highlight:
+                DrawOptionsRow(model: model, onClose: closeOptions)
+            }
+        } else {
+            ToolRow(model: model) { showsOptions = true }
+        }
+    }
+
+    private func closeOptions() {
+        showsOptions = false
+        showsMore = false
+        showsFind = false
     }
 
     /// A text label is being typed in Draw.
     private var typing: Bool { model.mode == .draw && model.textSpot != nil }
 
-    /// Safe Check's line, or an export's status while it is shown (SafeCheck.swift).
-    private var statusArea: some View {
-        EditorReadout(model: model, finder: model.finder)
-    }
+    // MARK: Preview
 
-    @ViewBuilder private var frameAndBackground: some View {
-        SKSegmented(selection: $model.frameChoice, options: [
-            .init(.plain, "None"),
-            .init(.iPhone, "iPhone"),
-            .init(.browser, "Browser"),
-            .init(.macWindow, "macOS Window", help: "macOS window"),
-        ], caption: "Frame")
-        SKKeyTray(caption: "Background") {
-            ForEach(ShareModel.backgroundChoices, id: \.self) { fill in
-                Button { model.backgroundChoice = fill } label: { swatch(fill) }
-                    .buttonStyle(.sk1Key(isOn: model.backgroundChoice == fill))
-                    .accessibilityLabel(Text(fill.map { Background.presets[$0].name } ?? "No background"))
-            }
+    /// The zoom level while Redact or Draw is zoomed in; tapping it goes back to fit.
+    @ViewBuilder private var zoomReadout: some View {
+        if zoom.isZoomed, model.mode != .style {
+            let percent = "\(Int((zoom.scale * 100).rounded()))%"
+            Button { zoom = PreviewZoom() } label: { SKChip(percent).padding(12) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Zoom \(percent)"))
+                .accessibilityHint(Text("Shows the whole picture"))
         }
     }
 
@@ -147,19 +140,6 @@ public struct ShareView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(Text("Preview"))
             }
-        }
-    }
-
-    /// A small swatch of the preset's colors; an empty circle for no background.
-    @ViewBuilder private func swatch(_ fill: Int?) -> some View {
-        if let fill {
-            let colors = Background.presets[fill].colors.map { Color(red: $0.r, green: $0.g, blue: $0.b) }
-            Circle()
-                .fill(LinearGradient(colors: colors.count > 1 ? colors : colors + colors, startPoint: .topLeading,
-                                     endPoint: .bottomTrailing))
-                .frame(width: 18, height: 18)
-        } else {
-            Circle().strokeBorder(.secondary, lineWidth: 1.5).frame(width: 18, height: 18)
         }
     }
 }
