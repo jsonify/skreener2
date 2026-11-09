@@ -54,7 +54,7 @@ jobs:
         run: |
           cd ios
           want_build=$(sed -n 's/^CURRENT_PROJECT_VERSION = //p' BuildNumber.xcconfig)
-          want_version=$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"/\1/p' project.yml)
+          want_version=$(sed -n 's/^ *MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml)
           echo "Want: $want_version ($want_build)"
           test -n "$want_build"
           test -n "$want_version"
