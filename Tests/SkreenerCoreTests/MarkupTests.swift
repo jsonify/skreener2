@@ -193,8 +193,8 @@ final class MarkupTests: XCTestCase {
         let out = drawn([Markup(.pen(points))])
         XCTAssertTrue(isRed(pixel(out, 50, 50)))
         XCTAssertTrue(isRed(pixel(out, 350, 200)))
-        // The midpoint of the first two points is on the curve.
-        XCTAssertTrue(isRed(pixel(out, 100, 125)), "mid is \(pixel(out, 100, 125))")
+        // Halfway along the first curve (control point 150,200; ends at the midpoint 200,125).
+        XCTAssertTrue(isRed(pixel(out, 137, 144)), "mid is \(pixel(out, 137, 144))")
         XCTAssertTrue(isWhite(pixel(out, 200, 280)))
     }
 
