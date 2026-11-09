@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.20.0](https://github.com/jsonify/skreener2/compare/v1.19.0...v1.20.0) (2026-11-09)
+
+
+### Features
+
+* **core:** line, pen and ellipse markups and a stroke width ([#440](https://github.com/jsonify/skreener2/issues/440)) ([#446](https://github.com/jsonify/skreener2/issues/446)) ([fccc430](https://github.com/jsonify/skreener2/commit/fccc4307692d779e337bb9dd36d4d00402f4819c))
+* **ios:** SK-1 editor redesign: one tool tray, slim LCD, Save and Share on top ([#440](https://github.com/jsonify/skreener2/issues/440)) ([#445](https://github.com/jsonify/skreener2/issues/445)) ([5087e42](https://github.com/jsonify/skreener2/commit/5087e424c2abc98d8eae21e7d26516e2f3314e2d))
+
 ## [1.19.0](https://github.com/jsonify/skreener2/compare/v1.18.0...v1.19.0) (2026-11-09)
 
 
