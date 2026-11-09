@@ -3,74 +3,121 @@ import SK1Tokens
 import SK1UI
 import SwiftUI
 
-/// The editor's bottom row with the tools showing (#440): Undo, the tray of tool keys (it scrolls sideways when it
-/// does not fit; a fade at its right edge hints at more), and the round colour key. Tapping the lit tool again opens
-/// its options (`onOptions`).
+/// The editor's bottom row with the tools showing (#440): the tray of tool keys (Frame, Draw, Text, Redact) and the
+/// round colour key. It always fits a 375 pt phone, so nothing at the bottom of the screen scrolls sideways (a sideways
+/// swipe there is the system's, to switch apps). Tapping the lit Frame, Text or Redact key opens its options
+/// (`onOptions`); tapping the lit Draw key opens the shapes (`onShapes`).
 struct ToolRow: View {
     @ObservedObject var model: ShareModel
+    /// The shape the Draw key shows and picks.
+    let lastShape: EditorTool
     let onOptions: () -> Void
+    let onShapes: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            SymbolKey(symbol: "arrow.uturn.backward", label: "Undo", hint: "Takes back the last redaction or drawing") {
-                model.undo()
+            PhoneKeyTray(label: "Tools") {
+                ForEach(ToolKey.allCases, id: \.self) { key in
+                    if key == .draw {
+                        DrawKey(model: model, lastShape: lastShape, onShapes: onShapes)
+                    } else {
+                        toolKey(key)
+                    }
+                }
             }
-            .disabled(!model.canUndo)
-            ToolTray(model: model, onOptions: onOptions)
+            Spacer(minLength: 0)
             ColorKey(model: model)
         }
     }
-}
 
-/// The joined, sideways-scrolling tray of square tool keys, the selected one lit.
-struct ToolTray: View {
-    @ObservedObject var model: ShareModel
-    let onOptions: () -> Void
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        let selected = model.editorTool
-        SKWell(radius: SK1.Metrics.trayRadius) {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 3) {
-                        ForEach(EditorTool.allCases, id: \.self) { tool in
-                            SymbolKey(symbol: tool.symbol, label: tool.title, isOn: tool == selected,
-                                      hint: tool == selected ? "Shows the \(tool.title) options" : nil) {
-                                if tool == selected {
-                                    onOptions()
-                                } else {
-                                    model.editorTool = tool
-                                }
-                            }
-                            .id(tool)
-                        }
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.top, 5)
-                    .padding(.bottom, 3)
-                }
-                .onAppear { proxy.scrollTo(selected) }
-                .onChange(of: selected) { withAnimation { proxy.scrollTo(selected) } }
+    private func toolKey(_ key: ToolKey) -> some View {
+        let tool = key.tool(lastShape: lastShape)
+        let lit = key.isLit(for: model.editorTool)
+        return SymbolKey(symbol: tool.symbol, label: tool.title, isOn: lit,
+                         hint: lit ? "Shows the \(tool.title) options" : nil) {
+            if lit {
+                onOptions()
+            } else {
+                model.editorTool = tool
             }
         }
-        .overlay(alignment: .trailing) {
-            // The fade over the tray's end: there are more keys past it.
-            LinearGradient(colors: [Color(sk1Hex: SK1.palette(for: scheme).wellBottom).opacity(0),
-                                    Color(sk1Hex: SK1.palette(for: scheme).wellBottom)],
-                           startPoint: .leading, endPoint: .trailing)
-                .frame(width: 18)
-                .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: SK1.Metrics.trayRadius,
-                                                  topTrailingRadius: SK1.Metrics.trayRadius))
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("Tools"))
     }
 }
 
-/// The round key showing the markup colour; it opens the colour choices.
+/// Where the Draw key is, for the shapes' flyout above it (`ShareView` lays the flyout over the whole editor, so a tap
+/// anywhere else closes it).
+struct DrawKeyBounds: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
+/// The Draw key: one key for the shapes, showing the last one used (Arrow at first) with a small ▴ for the flyout of
+/// the others. Not lit, a tap draws with that shape; lit, a tap opens the flyout.
+struct DrawKey: View {
+    @ObservedObject var model: ShareModel
+    let lastShape: EditorTool
+    let onShapes: () -> Void
+
+    var body: some View {
+        let lit = model.editorTool.isShape
+        Button {
+            if lit {
+                onShapes()
+            } else {
+                model.editorTool = lastShape
+            }
+        } label: {
+            Image(systemName: lastShape.symbol)
+                .font(.system(size: SKPhoneMetrics.symbol, weight: .semibold))
+                .frame(width: SKPhoneMetrics.face, height: SKPhoneMetrics.face)
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: "arrowtriangle.up.fill")
+                        .font(.system(size: 6, weight: .bold))
+                        .opacity(0.7)
+                        .padding(5)
+                }
+        }
+        .buttonStyle(.skPhoneKey(isOn: lit, shape: .square))
+        .anchorPreference(key: DrawKeyBounds.self, value: .bounds) { $0 }
+        .accessibilityLabel(Text("Draw, \(lastShape.title)"))
+        .accessibilityHint(Text(lit ? "Shows the shapes" : "Draws with \(lastShape.title)"))
+        .accessibilityAction(named: Text("Shapes")) {
+            if !lit { model.editorTool = lastShape }
+            onShapes()
+        }
+    }
+}
+
+/// The Draw key's shapes (`EditorTool.shapes`) as a column of keys on a chassis plate, the current one lit. Picking
+/// one draws with it (`onPick`); `onClose` closes it (VoiceOver's escape).
+struct ShapeFlyout: View {
+    let current: EditorTool
+    let onPick: (EditorTool) -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        SKPlate {
+            VStack(spacing: 4) {
+                ForEach(EditorTool.shapes, id: \.self) { shape in
+                    SymbolKey(symbol: shape.symbol, label: shape.title, isOn: shape == current) { onPick(shape) }
+                }
+            }
+            .padding(6)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Shapes"))
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape, onClose)
+    }
+}
+
+/// The round key showing the markup colour. It opens Draw's options, so they need no second tap: the colours and
+/// Clear for the drawings (the size slider joins them in #440 step 3b).
 struct ColorKey: View {
     @ObservedObject var model: ShareModel
     @State private var choosing = false
@@ -79,20 +126,32 @@ struct ColorKey: View {
         Button { choosing = true } label: { ColorDot(colors: [model.markupColor.swiftUI]) }
             .buttonStyle(.skPhoneKey(shape: .round))
             .accessibilityLabel(Text("Colour: \(model.markupColorName)"))
-            .accessibilityHint(Text("Shows the colours for arrows, rectangles, text and highlights"))
+            .accessibilityHint(Text("Shows the colours for arrows, rectangles, text and highlights, and Clear"))
             .popover(isPresented: $choosing) {
-                HStack(spacing: 6) {
-                    ForEach(ShareModel.markupColors.indices, id: \.self) { i in
-                        let choice = ShareModel.markupColors[i]
-                        Button {
-                            model.markupColor = choice.color
-                            choosing = false
-                        } label: { ColorDot(colors: [choice.color.swiftUI]) }
-                            .buttonStyle(.skPhoneKey(isOn: model.markupColor == choice.color, shape: .round))
-                            .accessibilityLabel(Text(choice.name))
+                VStack(spacing: 10) {
+                    HStack(spacing: 6) {
+                        ForEach(ShareModel.markupColors.indices, id: \.self) { i in
+                            let choice = ShareModel.markupColors[i]
+                            Button {
+                                model.markupColor = choice.color
+                                choosing = false
+                            } label: { ColorDot(colors: [choice.color.swiftUI]) }
+                                .buttonStyle(.skPhoneKey(isOn: model.markupColor == choice.color, shape: .round))
+                                .accessibilityLabel(Text(choice.name))
+                        }
                     }
+                    // TODO(#440 step 3b): the stroke-size slider goes here, between the colours and Clear.
+                    SKGroove()
+                    Button("Clear drawings") {
+                        model.clearMarkups()
+                        choosing = false
+                    }
+                    .buttonStyle(.skPhoneKey(fill: true))
+                    .disabled(model.markups.isEmpty)
+                    .accessibilityHint(Text("Removes the arrows, rectangles, text and highlights; the redactions stay"))
                 }
                 .padding(12)
+                .fixedSize()
                 .presentationCompactAdaptation(.popover)
                 .presentationBackground { Color.clear.sk1Chassis() }
             }
@@ -147,18 +206,16 @@ struct FrameOptionsRow: View {
     }
 }
 
-/// Arrow, Rectangle, Text and Highlight's options: the lit tool key (it closes the options too), the colour key,
-/// Clear for the drawings, and ✕.
-struct DrawOptionsRow: View {
+/// Text's options: the lit Text key (it closes the options too), the colour key, Clear for the drawings, and ✕.
+struct TextOptionsRow: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
 
     var body: some View {
-        let tool = model.editorTool
         HStack(spacing: 8) {
-            SymbolKey(symbol: tool.symbol, label: tool.title, isOn: true, hint: "Shows the tools again", action: onClose)
+            SymbolKey(symbol: EditorTool.text.symbol, label: EditorTool.text.title, isOn: true,
+                      hint: "Shows the tools again", action: onClose)
             ColorKey(model: model)
-            // TODO(#440 step 3): the size slider goes here once Markup has a stroke width (step 2, SkreenerCore).
             Spacer(minLength: 0)
             Button("Clear") { model.clearMarkups() }
                 .buttonStyle(.skPhoneKey())

@@ -101,7 +101,8 @@ extension ShareModel {
     }
 }
 
-/// The slim LCD strip under the top bar (#440): the lit tool and a short hint ("ARROW  Red · drag to draw"). Safe
+/// The slim LCD strip under the top bar (#440): the lit tool and a short hint ("ARROW · DRAG TO DRAW", "REDACT
+/// Pixelate · drag to cover"). Safe
 /// Check takes its place while it reads, while something is left to cover (lamp lit orange, with the Review key, or
 /// Redact N once reviewing) and for a few seconds after it finds nothing or all is covered. An export's status
 /// ("Saved to Photos"...) takes the place of both while it is shown: while exporting, a few seconds after, and for as
@@ -134,6 +135,9 @@ struct EditorStrip: View {
                             if let detail = check.detail {
                                 line(detail, bold: false).opacity(0.7)
                             }
+                        } else if model.editorTool.drawTool != nil {
+                            // A shape or Text: "ARROW · DRAG TO DRAW" (the colour is on the colour key).
+                            line("\(model.editorTool.title) · \(model.toolHint)".uppercased(), bold: true)
                         } else {
                             Text(model.editorTool.title.uppercased())
                                 .font(.system(size: 12, weight: .heavy))

@@ -40,7 +40,9 @@ struct HomeView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .sk1Chassis()
+        // The chassis fills the screen; the content stays inside the safe area.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { SKChassisFill() }
         .disabled(opening)
         .fullScreenCover(item: $session) { session in
             ShareView(model: session.model,

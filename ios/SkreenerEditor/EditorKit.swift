@@ -337,6 +337,21 @@ struct CanvasWell: View {
     }
 }
 
+/// The SK-1 chassis behind a whole screen, filling it edge to edge, the safe areas included. Put it in the screen's
+/// `.background { }` so the controls stay inside the safe area: under the status bar and the Dynamic Island, above the
+/// home indicator. (SK1Kit's `sk1Chassis()` does the same; this keeps the filler and its sizing in one obvious place.)
+public struct SKChassisFill: View {
+    public init() {}
+
+    public var body: some View {
+        Color.clear
+            .sk1Chassis()
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 extension View {
     /// A bottom sheet on the SK-1 chassis: rounded 16 pt, with a grabber.
     func sk1Sheet() -> some View {

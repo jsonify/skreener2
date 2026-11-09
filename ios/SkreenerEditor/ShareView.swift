@@ -3,12 +3,17 @@ import SK1Tokens
 import SK1UI
 import SwiftUI
 
-/// The editor (#440), the same in the app and the Share Extension: Close, the title, Share and the orange Save on top
-/// (Copy is the share sheet's Copy Photo); a slim LCD strip with the tool and a hint, Safe Check or an export's status
-/// (`EditorStrip`); the picture as big as it fits; and one bottom row: Undo, the tray of tool keys (Frame, Arrow,
-/// Rectangle, Text, Highlight, Redact) and the colour key. Tapping the lit tool again swaps the row for that tool's
-/// options and a ✕ back to the tools. While a text label is typed, the row is its text field, above the keyboard.
+/// The editor (#440), the same in the app and the Share Extension: Close and Undo, the title, Share and the orange Save
+/// on top (Copy is the share sheet's Copy Photo); a slim LCD strip with the tool and a hint, Safe Check or an export's
+/// status (`EditorStrip`); the picture as big as it fits; and one bottom row of fixed keys: Frame, Draw, Text and
+/// Redact in a tray, and the colour key (`ToolRow`). Draw stands for the shapes; tapping it lit fans them upward
+/// (`ShapeFlyout`). Tapping lit Frame, Text or Redact swaps the row for that tool's options and a ✕ back to the tools;
+/// the colour key holds Draw's options. While a text label is typed, the row is its text field, above the keyboard.
 /// Redact and Draw share one zoom (#441), back to fit in Frame and for a new image.
+///
+/// The chassis fills the screen behind it, but every control stays inside the safe area, clear of the status bar, the
+/// Dynamic Island and the home indicator; nothing at the bottom scrolls sideways, and a swipe that starts on the
+/// bottom keys reaches them before the home indicator takes it.
 public struct ShareView: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
@@ -21,6 +26,10 @@ public struct ShareView: View {
     @State private var showsMore = false
     /// Redact's Find sheet.
     @State private var showsFind = false
+    /// The Draw key's shapes are fanned out above it.
+    @State private var showsShapes = false
+    /// The shape the Draw key shows and picks: the last one used.
+    @State private var lastShape = EditorTool.arrow
 
     public init(model: ShareModel, onClose: @escaping () -> Void, onShare: @escaping (URL) -> Void) {
         self.model = model
@@ -32,27 +41,41 @@ public struct ShareView: View {
         VStack(spacing: 10) {
             topBar
             EditorStrip(model: model, finder: model.finder)
-            previewArea
-                .padding(10)
+            // The picture fills the space it is given and never asks for more (a tall screenshot fitted to the width
+            // would), so the column always fits between the safe area's edges.
+            Color.clear
+                .overlay { previewArea.padding(10) }
                 .background(CanvasWell())
                 .overlay(alignment: .topTrailing) { zoomReadout.padding(2) }
                 .frame(minHeight: typing ? 120 : 200, maxHeight: .infinity)
                 .layoutPriority(1)
             bottomRow
-                .frame(minHeight: SKPhoneMetrics.key + 8)
+                .frame(height: SKPhoneMetrics.key + 8)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .sk1Chassis()
+        .overlayPreferenceValue(DrawKeyBounds.self) { anchor in shapes(anchor) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { SKChassisFill() }
+        .defersSystemGestures(on: .bottom)
+        .onAppear { if model.editorTool.isShape { lastShape = model.editorTool } }
         .onChange(of: model.mode) {
             if model.mode == .style { zoom = PreviewZoom() }
         }
         .onChange(of: model.phase) { zoom = PreviewZoom() }
         // Picking another tool shows the tools; Safe Check's Review switches to Redact with the options as they were.
         .onChange(of: model.editorTool) {
-            if model.editorTool != .redact { showsFind = false }
-            if model.editorTool != .frame { showsMore = false }
+            let tool = model.editorTool
+            if tool != .redact { showsFind = false }
+            if tool != .frame { showsMore = false }
+            if tool.isShape {
+                lastShape = tool
+                showsOptions = false
+            } else {
+                showsShapes = false
+            }
         }
+        .onChange(of: typing) { if typing { showsShapes = false } }
         .sheet(isPresented: $showsMore) { FrameSheet(model: model) }
         .sheet(isPresented: $showsFind) { FindSheet(model: model, finder: model.finder) }
     }
@@ -63,6 +86,10 @@ public struct ShareView: View {
         HStack(spacing: 6) {
             Button("Close", action: onClose)
                 .buttonStyle(.skPhoneKey())
+            SymbolKey(symbol: "arrow.uturn.backward", label: "Undo", hint: "Takes back the last redaction or drawing") {
+                model.undo()
+            }
+            .disabled(!model.canUndo || typing)
             Spacer(minLength: 8)
             SymbolKey(symbol: "square.and.arrow.up", label: "Share",
                       hint: "Shows the share sheet, with Copy Photo to copy it") {
@@ -85,18 +112,19 @@ public struct ShareView: View {
     @ViewBuilder private var bottomRow: some View {
         if typing {
             TextEntryRow(model: model)
-        } else if showsOptions {
+        } else if showsOptions && !model.editorTool.isShape {
             switch model.editorTool {
             case .frame:
                 FrameOptionsRow(model: model, onMore: { showsMore = true }, onClose: closeOptions)
             case .redact:
                 RedactOptionsRow(model: model, finding: showsFind, onFind: { showsFind = true },
                                  onClose: closeOptions)
-            case .arrow, .rect, .text, .highlight:
-                DrawOptionsRow(model: model, onClose: closeOptions)
+            case .text, .arrow, .rect, .highlight:
+                TextOptionsRow(model: model, onClose: closeOptions)
             }
         } else {
-            ToolRow(model: model) { showsOptions = true }
+            ToolRow(model: model, lastShape: lastShape, onOptions: { showsOptions = true },
+                    onShapes: { setShapes(!showsShapes) })
         }
     }
 
@@ -104,6 +132,41 @@ public struct ShareView: View {
         showsOptions = false
         showsMore = false
         showsFind = false
+    }
+
+    // MARK: Shapes flyout
+
+    /// The Draw key's shapes, fanned upward above it, over a catcher that closes them on a tap anywhere else (the Draw
+    /// key included).
+    @ViewBuilder private func shapes(_ anchor: Anchor<CGRect>?) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                if showsShapes {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { setShapes(false) }
+                        .accessibilityHidden(true)
+                }
+                if showsShapes, let anchor {
+                    let key = geo[anchor]
+                    ShapeFlyout(current: model.editorTool, onPick: { shape in
+                        model.editorTool = shape
+                        setShapes(false)
+                    }, onClose: { setShapes(false) })
+                    .transition(.scale(scale: 0.4, anchor: .bottom).combined(with: .opacity))
+                    // Its bottom 6 pt above the key, centred on it.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .frame(width: geo.size.width, height: max(key.minY - 6, 0))
+                    .offset(x: key.midX - geo.size.width / 2)
+                }
+            }
+        }
+        .allowsHitTesting(showsShapes)
+    }
+
+    private func setShapes(_ open: Bool) {
+        guard open != showsShapes else { return }
+        withAnimation(.spring(duration: 0.25, bounce: 0.2)) { showsShapes = open }
     }
 
     /// A text label is being typed in Draw.
