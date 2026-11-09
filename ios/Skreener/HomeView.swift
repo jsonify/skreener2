@@ -21,22 +21,16 @@ struct HomeView: View {
     @State private var picked: PhotosPickerItem?
 
     var body: some View {
-        VStack(spacing: 12) {
-            SKPlate {
-                HStack {
-                    SKCaption("Skreener")
-                    Spacer()
-                }
-                .padding(8)
-            }
-            SKReadout(readout)
+        VStack(spacing: 10) {
+            header
+            lcd
             if let hint {
                 Text(hint)
                     .sk1Hint()
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            SKWell { inbox.padding(10) }
+            SKWell(radius: SK1.Metrics.trayRadius) { inbox.padding(10) }
                 .frame(maxHeight: .infinity)
             keys
             Text("Skreener is in the share sheet too: tap Share on a screenshot and choose Skreener.")
@@ -44,7 +38,8 @@ struct HomeView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .sk1Chassis()
         .disabled(opening)
         .fullScreenCover(item: $session) { session in
@@ -62,6 +57,77 @@ struct HomeView: View {
             guard let asset = router.take() else { return }
             Task { await open(asset) }
         }
+    }
+
+    // MARK: Header and LCD
+
+    /// "SK-1 Skreener" and a speaker grille, as on the Mac's panels.
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            SKCaption("SK-1", style: SK1.TextStyle(size: 12, weight: .bold, kern: 0.8, uppercase: true))
+                .accessibilityHidden(true)
+            SKCaption("Skreener", tone: .soft, style: SK1.TextStyle(size: 12, weight: .semibold, kern: 0.8,
+                                                                     uppercase: true))
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Grille()
+        }
+        .padding(.horizontal, 4)
+        .frame(minHeight: 32)
+    }
+
+    /// The LCD: the count in seven-segment digits and what it counts ("12" "NEW"), or the state in words, a short
+    /// line under it, and the inbox lamp. VoiceOver reads the readout ("12 NEW").
+    private var lcd: some View {
+        let (number, title) = lcdParts
+        return SKLCD {
+            HStack(spacing: 14) {
+                if let number {
+                    SKSevenSegment(SK1.SevenSegment.cells(number, count: 2), digitHeight: 38, spacing: 4)
+                        .shadow(color: Color(sk1Hex: SK1.lcdInk, opacity: 0.15), radius: 0, x: 1, y: 1)
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .heavy))
+                        .tracking(1.2)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                    if let line = lcdLine {
+                        Text(line)
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                }
+                Spacer(minLength: 0)
+                HStack(spacing: 6) {
+                    SKLamp(color: .orange, lit: library.canRead && !library.inbox.isEmpty, glow: 0, size: 6)
+                    Text("INBOX")
+                        .font(.system(size: 10, weight: .heavy))
+                        .tracking(1)
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 14)
+            }
+            .foregroundStyle(Color(sk1Hex: SK1.lcdInk))
+            .padding(.horizontal, 16)
+        }
+        .frame(height: 84)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(readout))
+    }
+
+    /// The readout as a number in digits and words, when it is a count ("12 NEW", "3 SELECTED").
+    private var lcdParts: (Int?, String) {
+        if !opening, failure == nil, library.canRead, !library.inbox.isEmpty {
+            return (library.inbox.count, library.access == .limited ? "SELECTED" : "NEW")
+        }
+        return (nil, readout)
+    }
+
+    /// The short line under the LCD's words, with screenshots to show.
+    private var lcdLine: String? {
+        lcdParts.0 == nil ? nil : "Tap one to edit it"
     }
 
     // MARK: Readout
@@ -142,23 +208,32 @@ struct HomeView: View {
 
     // MARK: Keys
 
+    /// The main action is orange: Show my screenshots until Photos access is asked, then Latest screenshot.
     @ViewBuilder private var keys: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             if library.access == .notAsked {
                 Button("Show my screenshots") { Task { await showScreenshots() } }
-                    .buttonStyle(.sk1Key(.orange, size: .large))
+                    .buttonStyle(.skPhoneKey(.orange, fill: true))
             }
             if library.access == .limited {
                 Button("Select more") { Presenter.selectMorePhotos() }
-                    .buttonStyle(.sk1Key())
+                    .buttonStyle(.skPhoneKey(fill: true))
             }
-            SKKeyTray {
-                Button("Latest screenshot") { Task { await openLatest() } }
-                    .buttonStyle(.sk1Key())
-                PhotosPicker(selection: $picked, matching: .images) {
-                    Text("Choose screenshot")
+            VStack(spacing: 5) {
+                SKWell(radius: SK1.Metrics.trayRadius) {
+                    HStack(spacing: 4) {
+                        Button("Latest screenshot") { Task { await openLatest() } }
+                            .buttonStyle(.skPhoneKey(library.access == .notAsked ? .cream : .orange, fill: true))
+                        PhotosPicker(selection: $picked, matching: .images) {
+                            Text("Choose screenshot")
+                        }
+                        .buttonStyle(.skPhoneKey(fill: true))
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.top, 5)
+                    .padding(.bottom, 4)
                 }
-                .buttonStyle(.sk1Key())
+                SKCaption("Open").accessibilityHidden(true)
             }
         }
     }
@@ -209,6 +284,28 @@ struct HomeView: View {
         let model = ShareModel()
         model.load(source: .data(data))
         session = EditorSession(model: model)
+    }
+}
+
+/// A speaker grille: two rows of seven holes, as on the Mac's panels.
+private struct Grille: View {
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let p = SK1.palette(for: scheme)
+        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+            ForEach(0..<2, id: \.self) { _ in
+                GridRow {
+                    ForEach(0..<7, id: \.self) { _ in
+                        Circle()
+                            .fill(LinearGradient(colors: [Color(sk1Hex: p.grilleDark), Color(sk1Hex: p.grilleLight)],
+                                                 startPoint: .top, endPoint: .bottom))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 

@@ -1,4 +1,5 @@
 import SkreenerCore
+import SK1Tokens
 import SK1UI
 import SwiftUI
 
@@ -100,35 +101,59 @@ extension ShareModel {
     }
 }
 
-/// The readout under the preview: Safe Check's line, with a lamp lit orange while something is left to cover and its
-/// Review key (Redact N once reviewing). An export's status ("Saved to Photos"...) takes its place while it is shown:
-/// while exporting, a few seconds after, and for as long as it says what to do.
-struct EditorReadout: View {
+/// The slim LCD strip under the top bar (#440): the lit tool and a short hint ("ARROW  Red · drag to draw"). Safe
+/// Check takes its place while it reads, while something is left to cover (lamp lit orange, with the Review key, or
+/// Redact N once reviewing) and for a few seconds after it finds nothing or all is covered. An export's status
+/// ("Saved to Photos"...) takes the place of both while it is shown: while exporting, a few seconds after, and for as
+/// long as it says what to do (that advice shows under the strip).
+struct EditorStrip: View {
     @ObservedObject var model: ShareModel
     @ObservedObject var finder: TextFinder
     @State private var exportShown = false
+    /// A finished Safe Check line (clear or covered) is still showing.
+    @State private var checkShown = true
 
-    /// How long a finished export's status stays.
+    /// How long a finished export's status, or a finished Safe Check line, stays.
     private static let statusSeconds: UInt64 = 4
 
     var body: some View {
         let check = model.safeCheck
         let status = exportShown ? model.status : nil
+        let showsCheck = status == nil && showsSafeCheck(check)
         VStack(spacing: 4) {
             HStack(spacing: 8) {
-                if let status {
-                    SKReadout(status.text)
-                } else {
-                    SKLamp(color: .orange, lit: !check.outstanding.isEmpty, size: 8)
-                        .accessibilityHidden(true)
-                    SKReadout(check.text)
-                    key(check)
+                SKLCD {
+                    HStack(spacing: 10) {
+                        if let status {
+                            line(status.text, bold: true)
+                        } else if showsCheck {
+                            SKLamp(color: .orange, lit: !check.outstanding.isEmpty, glow: 0, size: 7)
+                                .accessibilityHidden(true)
+                            line(check.text, bold: true)
+                                .layoutPriority(1)
+                            if let detail = check.detail {
+                                line(detail, bold: false).opacity(0.7)
+                            }
+                        } else {
+                            Text(model.editorTool.title.uppercased())
+                                .font(.system(size: 12, weight: .heavy))
+                                .tracking(1.1)
+                                .lineLimit(1)
+                                .fixedSize()
+                            line(model.toolHint, bold: false)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Color(sk1Hex: SK1.lcdInk))
+                    .padding(.horizontal, 12)
                 }
+                .frame(height: 44)
+                .accessibilityElement(children: .combine)
+                if showsCheck { key(check) }
             }
-            if let detail = status.map(\.detail) ?? check.detail {
+            if let detail = status?.detail {
                 Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .sk1Hint()
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -139,19 +164,38 @@ struct EditorReadout: View {
             try? await Task.sleep(nanoseconds: Self.statusSeconds * 1_000_000_000)
             if !Task.isCancelled, !model.busy, model.status == status { exportShown = false }
         }
+        .task(id: check.state) {
+            checkShown = true
+            let state = model.safeCheck.state
+            guard state == .clear || state == .covered else { return }
+            try? await Task.sleep(nanoseconds: Self.statusSeconds * 1_000_000_000)
+            if !Task.isCancelled { checkShown = false }
+        }
+    }
+
+    /// Safe Check has the strip: reading, something left to cover, reviewing, or just finished.
+    private func showsSafeCheck(_ check: SafeCheck.Summary) -> Bool {
+        if check.state == .reading || !check.outstanding.isEmpty { return true }
+        if model.mode == .redact && finder.reviewing { return true }
+        return checkShown
+    }
+
+    private func line(_ text: String, bold: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: bold ? .bold : .semibold, design: .monospaced))
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     @ViewBuilder private func key(_ check: SafeCheck.Summary) -> some View {
         if model.mode == .redact && finder.reviewing {
             let n = finder.selectedCount
             Button("Redact \(n)") { model.redactFound() }
-                .buttonStyle(.sk1Key(.orange))
-                .fixedSize()
+                .buttonStyle(.skPhoneKey())
                 .disabled(n == 0)
         } else if !check.outstanding.isEmpty {
             Button("Review \(check.outstanding.count)") { model.reviewLeaks() }
-                .buttonStyle(.sk1Key(.orange))
-                .fixedSize()
+                .buttonStyle(.skPhoneKey())
         }
     }
 }
