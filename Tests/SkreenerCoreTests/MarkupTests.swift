@@ -141,4 +141,96 @@ final class MarkupTests: XCTestCase {
         XCTAssertTrue(isRed(out.rgba(x: 50, y: h / 2 - 1 - 75)), "scaled edge is \(out.rgba(x: 50, y: h / 2 - 1 - 75))")
         XCTAssertTrue(isWhite(out.rgba(x: 100, y: h / 2 - 1 - 75)))
     }
+
+    // MARK: Line, pen, ellipse and width
+
+    func testScaledScalesNewKindsAndKeepsWidth() {
+        let line = Markup(.line(from: CGPoint(x: 10, y: 20), to: CGPoint(x: 30, y: 40)), width: 2.5)
+        XCTAssertEqual(line.scaled(by: 0.5),
+                       Markup(.line(from: CGPoint(x: 5, y: 10), to: CGPoint(x: 15, y: 20)), width: 2.5))
+        let pen = Markup(.pen([CGPoint(x: 10, y: 20), CGPoint(x: 30, y: 40)]), width: 0.5)
+        XCTAssertEqual(pen.scaled(by: 2), Markup(.pen([CGPoint(x: 20, y: 40), CGPoint(x: 60, y: 80)]), width: 0.5))
+        let ellipse = Markup(.ellipse(CGRect(x: 10, y: 20, width: 30, height: 40)), width: 3)
+        XCTAssertEqual(ellipse.scaled(by: 2).width, 3)
+        XCTAssertEqual(ellipse.scaled(by: 2), Markup(.ellipse(CGRect(x: 20, y: 40, width: 60, height: 80)), width: 3))
+        XCTAssertEqual(Markup(.arrow(from: .zero, to: CGPoint(x: 4, y: 4)), width: 2).scaled(by: 3).width, 2)
+    }
+
+    func testWidthDefaultsToOneAndIsClamped() {
+        let kind = Markup.Kind.rectangle(CGRect(x: 0, y: 0, width: 10, height: 10))
+        XCTAssertEqual(Markup(kind).width, 1)
+        XCTAssertEqual(Markup(kind, width: 0.1).width, 0.5)
+        XCTAssertEqual(Markup(kind, width: 9).width, 4)
+        XCTAssertEqual(Markup(kind, width: 2).width, 2)
+        var m = Markup(kind)
+        m.width = 100
+        XCTAssertEqual(m.width, 4)
+        m.width = -1
+        XCTAssertEqual(m.width, 0.5)
+        XCTAssertEqual(Markup.lineWidth(imageWidth: 1179, scale: 1), Markup.lineWidth(imageWidth: 1179))
+        XCTAssertEqual(Markup.lineWidth(imageWidth: 1179, scale: 2), 18, accuracy: 0.01)
+    }
+
+    func testLinePaintsAlongItselfOnly() {
+        let out = drawn([Markup(.line(from: CGPoint(x: 50, y: 150), to: CGPoint(x: 350, y: 150)))])
+        XCTAssertTrue(isRed(pixel(out, 200, 150)))
+        XCTAssertTrue(isRed(pixel(out, 60, 150)))
+        XCTAssertTrue(isWhite(pixel(out, 200, 200)))
+        XCTAssertTrue(isWhite(pixel(out, 380, 150)))
+    }
+
+    func testEllipseStrokesItsEdgeNotItsCentre() {
+        let out = drawn([Markup(.ellipse(CGRect(x: 100, y: 100, width: 200, height: 100)))])
+        XCTAssertTrue(isRed(pixel(out, 100, 150)), "left is \(pixel(out, 100, 150))")
+        XCTAssertTrue(isRed(pixel(out, 200, 200)), "top is \(pixel(out, 200, 200))")
+        XCTAssertTrue(isWhite(pixel(out, 200, 150)))
+        // The rectangle's corner is outside the ellipse.
+        XCTAssertTrue(isWhite(pixel(out, 105, 195)))
+    }
+
+    func testPenPaintsThroughItsPoints() {
+        let points = [CGPoint(x: 50, y: 50), CGPoint(x: 150, y: 200), CGPoint(x: 250, y: 50), CGPoint(x: 350, y: 200)]
+        let out = drawn([Markup(.pen(points))])
+        XCTAssertTrue(isRed(pixel(out, 50, 50)))
+        XCTAssertTrue(isRed(pixel(out, 350, 200)))
+        // Halfway along the first curve (control point 150,200; ends at the midpoint 200,125).
+        XCTAssertTrue(isRed(pixel(out, 137, 144)), "mid is \(pixel(out, 137, 144))")
+        XCTAssertTrue(isWhite(pixel(out, 200, 280)))
+    }
+
+    func testPenWithOneOrNoPoints() {
+        let dot = drawn([Markup(.pen([CGPoint(x: 200, y: 150)]), width: 4)])
+        XCTAssertTrue(isRed(pixel(dot, 200, 150)))
+        XCTAssertTrue(isWhite(pixel(dot, 260, 150)))
+        let none = drawn([Markup(.pen([]))])
+        XCTAssertTrue(isWhite(pixel(none, 200, 150)))
+        let two = drawn([Markup(.pen([CGPoint(x: 50, y: 150), CGPoint(x: 350, y: 150)]))])
+        XCTAssertTrue(isRed(pixel(two, 200, 150)))
+    }
+
+    func testWidthMakesStrokesThickerAndThinner() {
+        func coverage(_ width: CGFloat) -> Int {
+            let out = drawn([Markup(.line(from: CGPoint(x: 50, y: 150), to: CGPoint(x: 350, y: 150)), width: width)])
+            return (100..<200).filter { !isWhite(pixel(out, 200, $0)) }.count
+        }
+        XCTAssertGreaterThan(coverage(4), coverage(1))
+        XCTAssertGreaterThan(coverage(1), coverage(0.5))
+    }
+
+    func testWidthOneDrawsLikeBefore() {
+        let kind = Markup.Kind.rectangle(CGRect(x: 100, y: 100, width: 200, height: 100))
+        let a = drawn([Markup(kind)]), b = drawn([Markup(kind, width: 1)])
+        XCTAssertEqual(a.rgba(x: 100, y: h - 150).r, b.rgba(x: 100, y: h - 150).r)
+        XCTAssertEqual(Markup.headLength(imageWidth: 1179, scale: 1), Markup.headLength(imageWidth: 1179))
+    }
+
+    func testWidthScalesTextAndNotHighlight() {
+        XCTAssertEqual(Markup.fontSize(imageWidth: 393, scale: 2), 44, accuracy: 0.01)
+        let small = Markup.textBounds("Hello", at: .zero, imageWidth: w)
+        let big = Markup.textBounds("Hello", at: .zero, imageWidth: w, scale: 2)
+        XCTAssertEqual(big.width / small.width, 2, accuracy: 0.05)
+        let rect = CGRect(x: 120, y: 80, width: 160, height: 60)
+        let a = drawn([Markup(.highlight(rect))]), b = drawn([Markup(.highlight(rect), width: 4)])
+        XCTAssertEqual(a.rgba(x: 200, y: h - 110).g, b.rgba(x: 200, y: h - 110).g)
+    }
 }
