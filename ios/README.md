@@ -80,8 +80,7 @@ open Skreener.xcodeproj
    bottom row, above the home indicator: a tray of four tool keys, **Frame** (lit), **Draw** (an arrow with a small
    ▴ at its corner), **Text** and **Redact**, and a round key showing a red dot. Nothing in the bottom row scrolls
    sideways, even on a 375 pt wide iPhone (SE, mini): a sideways swipe along the bottom edge switches apps as usual,
-   and a swipe up from the home indicator still goes home (the first swipe that starts on the bottom keys may only
-   show the indicator; swipe again).
+   and a swipe up from the home indicator goes home on the first try.
 6. Safe Check: the strip first says "SAFE CHECK…", then what it found, as in the extension's step 4 below. Try it
    here with a screenshot of a message that has a 6-digit code and a phone number: "SAFE CHECK · 2 FOUND  1 phone
    number · 1 code", the lamp at its left lit orange, and a **Review 2** key beside the strip. **Review 2**, untick

@@ -12,8 +12,8 @@ import SwiftUI
 /// Redact and Draw share one zoom (#441), back to fit in Frame and for a new image.
 ///
 /// The chassis fills the screen behind it, but every control stays inside the safe area, clear of the status bar, the
-/// Dynamic Island and the home indicator; nothing at the bottom scrolls sideways, and a swipe that starts on the
-/// bottom keys reaches them before the home indicator takes it.
+/// Dynamic Island and the home indicator; nothing at the bottom scrolls sideways, so the system's swipes along the
+/// bottom edge (home, switch apps) work as usual.
 public struct ShareView: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
@@ -57,7 +57,6 @@ public struct ShareView: View {
         .overlayPreferenceValue(DrawKeyBounds.self) { anchor in shapes(anchor) }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { SKChassisFill() }
-        .defersSystemGestures(on: .bottom)
         .onAppear { if model.editorTool.isShape { lastShape = model.editorTool } }
         .onChange(of: model.mode) {
             if model.mode == .style { zoom = PreviewZoom() }
