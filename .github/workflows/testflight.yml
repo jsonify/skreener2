@@ -59,7 +59,7 @@ jobs:
           cd ios
           printf 'DEVELOPMENT_TEAM = %s\n' "$APPLE_TEAM_ID" > Local.xcconfig
           xcodegen generate
-          version=$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"/\1/p' project.yml)
+          version=$(sed -n 's/^ *MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml)
           build=$(sed -n 's/^CURRENT_PROJECT_VERSION = //p' BuildNumber.xcconfig)
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "BUILD=$build" >> "$GITHUB_ENV"
