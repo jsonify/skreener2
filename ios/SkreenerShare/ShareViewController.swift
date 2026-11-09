@@ -15,9 +15,15 @@ final class ShareViewController: UIViewController {
                              onShare: { [weak self] url in self?.share(url) })
         let host = UIHostingController(rootView: root)
         addChild(host)
-        host.view.frame = view.bounds
-        host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // Edge to edge: the editor fills the sheet with its chassis and keeps its keys inside the sheet's safe area.
+        host.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.topAnchor.constraint(equalTo: view.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
         host.didMove(toParent: self)
 
         // In Redact and Draw a downward drag on the preview covers an area or draws; it must not pull the sheet down.

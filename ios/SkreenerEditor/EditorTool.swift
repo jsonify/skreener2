@@ -1,10 +1,17 @@
 import SkreenerCore
 import SwiftUI
 
-/// The keys in the editor's tool tray (#440), in order. Frame is the Style mode, Redact the Redact mode, and the rest
-/// are Draw with that tool, so picking one sets the model's mode (and tool).
+/// The editor's tools (#440). Frame is the Style mode, Redact the Redact mode, and the rest are Draw with that tool, so
+/// picking one sets the model's mode (and tool). The bottom row's keys are `ToolKey`s: the shapes share the Draw key.
 enum EditorTool: CaseIterable, Hashable {
     case frame, arrow, rect, text, highlight, redact
+
+    /// The Draw key's shapes, in its flyout's order, top to bottom. The flyout is laid out for up to six
+    /// (Line, Ellipse and Pen join in #440 step 3b).
+    static let shapes: [EditorTool] = [.arrow, .rect, .highlight]
+
+    /// One of the Draw key's shapes.
+    var isShape: Bool { Self.shapes.contains(self) }
 
     var title: String {
         switch self {
@@ -73,7 +80,9 @@ extension ShareModel {
         Self.markupColors.first { $0.color == markupColor }?.name ?? "Custom"
     }
 
-    /// The LCD strip's short line for the lit tool, e.g. "Red · drag to draw".
+    /// The LCD strip's short line after the lit tool's name: Frame's look ("iPhone · Sky · Padding 48"), Redact's
+    /// cover ("Pixelate · drag to cover"), or what to do with a shape or Text ("drag to draw"; the strip reads
+    /// "ARROW · DRAG TO DRAW").
     var toolHint: String {
         switch editorTool {
         case .frame:
@@ -84,13 +93,39 @@ extension ShareModel {
             }
             return parts.joined(separator: " · ")
         case .arrow, .rect:
-            return "\(markupColorName) · drag to draw"
+            return "drag to draw"
         case .highlight:
-            return "\(markupColorName) · drag across text"
+            return "drag across text"
         case .text:
-            return "\(markupColorName) · tap where the text goes"
+            return "tap where it goes"
         case .redact:
             return "\(redactStyle.title) · drag to cover"
+        }
+    }
+}
+
+/// The bottom row's tool keys (#440), left to right: they always fit a 375 pt phone, so the row never scrolls.
+/// Draw stands for the shapes (`EditorTool.shapes`), showing the last one used.
+enum ToolKey: CaseIterable, Hashable {
+    case frame, draw, text, redact
+
+    /// Lit for `tool`.
+    func isLit(for tool: EditorTool) -> Bool {
+        switch self {
+        case .frame: return tool == .frame
+        case .draw: return tool.isShape
+        case .text: return tool == .text
+        case .redact: return tool == .redact
+        }
+    }
+
+    /// The tool it picks when it is not lit; Draw picks the last shape used.
+    func tool(lastShape: EditorTool) -> EditorTool {
+        switch self {
+        case .frame: return .frame
+        case .draw: return lastShape
+        case .text: return .text
+        case .redact: return .redact
         }
     }
 }

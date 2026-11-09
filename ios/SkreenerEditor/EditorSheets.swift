@@ -32,18 +32,18 @@ struct FrameSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 SheetHeader(title: "Frame options") { dismiss() }
                 SKCaption("Background")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(ShareModel.backgroundChoices, id: \.self) { fill in
-                            Button { model.backgroundChoice = fill } label: {
-                                ColorDot(colors: ShareModel.swatchColors(fill), empty: fill == nil)
-                            }
-                            .buttonStyle(.skPhoneKey(isOn: model.backgroundChoice == fill, shape: .round))
-                            .accessibilityLabel(Text(ShareModel.backgroundName(fill)))
+                // Wraps onto more lines rather than scrolling sideways.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: SKPhoneMetrics.face, maximum: SKPhoneMetrics.face),
+                                             spacing: 6)], alignment: .leading, spacing: 6) {
+                    ForEach(ShareModel.backgroundChoices, id: \.self) { fill in
+                        Button { model.backgroundChoice = fill } label: {
+                            ColorDot(colors: ShareModel.swatchColors(fill), empty: fill == nil)
                         }
+                        .buttonStyle(.skPhoneKey(isOn: model.backgroundChoice == fill, shape: .round))
+                        .accessibilityLabel(Text(ShareModel.backgroundName(fill)))
                     }
-                    .padding(.vertical, 4)
                 }
+                .padding(.vertical, 4)
                 if model.backgroundChoice != nil {
                     sliderRow("Padding", value: $model.padding, range: 0...160, step: 1, text: "\(Int(model.padding))")
                     sliderRow("Corners", value: $model.cornerRadius, range: 0...40, step: 1,
