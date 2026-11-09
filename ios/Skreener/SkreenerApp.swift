@@ -7,7 +7,7 @@ struct SkreenerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            HomeView(library: library)
+            HomeView(library: library, router: AppRouter.shared)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

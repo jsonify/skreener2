@@ -10,6 +10,8 @@ import SK1UI
 @MainActor
 struct HomeView: View {
     @ObservedObject var library: ScreenshotLibrary
+    /// Screenshots the Shortcuts actions ask to open (#439).
+    @ObservedObject var router: AppRouter
     /// The editor on screen, if any.
     @State private var session: EditorSession?
     /// An image is being read (from iCloud, maybe).
@@ -54,6 +56,11 @@ struct HomeView: View {
             guard let item else { return }
             picked = nil
             Task { await open(item) }
+        }
+        // Initial too: an intent may have asked before this screen existed.
+        .onChange(of: router.request?.id, initial: true) {
+            guard let asset = router.take() else { return }
+            Task { await open(asset) }
         }
     }
 
