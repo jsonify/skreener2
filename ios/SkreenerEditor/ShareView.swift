@@ -5,11 +5,13 @@ import SwiftUI
 /// The share sheet: a Close key on top, the preview, a status readout, the Style / Redact / Draw switch, that mode's
 /// controls (which scroll when they do not fit) and the Save, Copy and Share keys at the bottom. While a text label is
 /// typed, the switch and the output keys step aside and the preview shrinks, so the field stays above the keyboard.
+/// Redact and Draw share one zoom (#441), back to fit in Style and for a new image.
 public struct ShareView: View {
     @ObservedObject var model: ShareModel
     let onClose: () -> Void
     /// Shows the system share sheet for the PNG file; the hosting view controller does it.
     let onShare: (URL) -> Void
+    @State private var zoom = PreviewZoom()
 
     public init(model: ShareModel, onClose: @escaping () -> Void, onShare: @escaping (URL) -> Void) {
         self.model = model
@@ -29,6 +31,7 @@ public struct ShareView: View {
                 .padding(8)
             }
             SKWell { previewArea.padding(10) }
+                .overlay(alignment: .topTrailing) { zoomReadout.padding(14) }
                 .frame(minHeight: typing ? 120 : 200, maxHeight: .infinity)
                 .layoutPriority(1)
             statusArea
@@ -85,6 +88,21 @@ public struct ShareView: View {
         }
         .padding(16)
         .sk1Chassis()
+        .onChange(of: model.mode) {
+            if model.mode == .style { zoom = PreviewZoom() }
+        }
+        .onChange(of: model.phase) { zoom = PreviewZoom() }
+    }
+
+    /// The zoom level while Redact or Draw is zoomed in; tapping it goes back to fit.
+    @ViewBuilder private var zoomReadout: some View {
+        if zoom.isZoomed, model.mode != .style {
+            let percent = "\(Int((zoom.scale * 100).rounded()))%"
+            Button { zoom = PreviewZoom() } label: { SKChip(percent) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Zoom \(percent)"))
+                .accessibilityHint(Text("Shows the whole picture"))
+        }
     }
 
     /// A text label is being typed in Draw.
@@ -119,9 +137,9 @@ public struct ShareView: View {
             SKReadout("Could not read the image.").frame(maxHeight: .infinity, alignment: .center)
         case .ready:
             if let preview = model.preview, model.mode == .redact {
-                RedactCanvas(model: model, finder: model.finder, preview: preview)
+                RedactCanvas(model: model, finder: model.finder, preview: preview, zoom: $zoom)
             } else if let preview = model.preview, model.mode == .draw {
-                DrawCanvas(model: model, preview: preview)
+                DrawCanvas(model: model, preview: preview, zoom: $zoom)
             } else if let preview = model.preview {
                 Image(uiImage: preview)
                     .resizable()

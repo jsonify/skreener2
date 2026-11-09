@@ -26,7 +26,7 @@ struct RedactControls: View {
                     .buttonStyle(.sk1Key())
                     .disabled(model.redactions.isEmpty)
             }
-            Text("Drag on the picture to cover an area.").sk1Hint()
+            Text("Drag on the picture to cover an area. Pinch to zoom.").sk1Hint()
             findText
         }
     }

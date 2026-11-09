@@ -38,7 +38,8 @@ struct DrawControls: View {
                     .buttonStyle(.sk1Key())
                     .disabled(model.markups.isEmpty)
             }
-            Text(model.tool == .text ? "Tap the picture where the text goes." : "Drag on the picture to draw.")
+            Text(model.tool == .text ? "Tap the picture where the text goes. Pinch to zoom."
+                 : "Drag on the picture to draw. Pinch to zoom.")
                 .sk1Hint()
         }
     }

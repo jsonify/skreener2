@@ -1,16 +1,17 @@
 import SwiftUI
 
-/// The Redact and Draw preview: the picture at its aspect-fitted rect in the canvas (see `PreviewMapping.fitted`).
+/// The Redact and Draw preview: the picture at its rect in the canvas, zoomed or fitted (see
+/// `PreviewMapping.displayed`).
 struct PreviewImage: View {
     let preview: UIImage
-    let fit: CGRect
+    let rect: CGRect
     let label: String
 
     var body: some View {
         Image(uiImage: preview)
             .resizable()
-            .frame(width: fit.width, height: fit.height)
-            .offset(x: fit.minX, y: fit.minY)
+            .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
             .accessibilityLabel(Text(label))
     }
 }

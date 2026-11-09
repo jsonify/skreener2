@@ -111,7 +111,11 @@ open Skreener.xcodeproj
    the readout shows "Saved to Photos" or "Copied" for a few seconds, then the Safe Check line again.
 5. Switch **Mode** to **Redact**. The preview shows the screenshot alone. Drag across some text: an orange dashed band
    follows your finger, and on release the area is pixelated. Pick **Blur** or **Solid** under Cover and drag again;
-   that area is blurred or black. **Undo** takes back the last area, **Clear** all of them.
+   that area is blurred or black. **Undo** takes back the last area, **Clear** all of them. To cover small text,
+   pinch on the picture to zoom in (up to 600%, about the pinch), drag with two fingers to move around, and drag with
+   one finger to cover as before; a chip in the preview's corner reads the zoom (e.g. "250%"). Double-tap zooms to
+   250% at the tap; double-tap again, or tap the chip, to see the whole picture. A pinch never leaves a band behind. Draw zooms the same
+   way (the zoom carries over between Redact and Draw), and Style shows the whole picture again.
 6. Tap **Emails** (or **Phones**, **Links**): the readout says "Reading text…", then "N matches · N selected" and each
    match has an orange outline. Tap one: its outline turns dashed and the count drops. Or type a word into the Text
    field (several separated by commas). **Redact N** covers the selected matches with the current Cover style.
