@@ -3,13 +3,14 @@ import SK1Tokens
 import SK1UI
 import SwiftUI
 
-/// The editor (#440), the same in the app and the Share Extension: Close and Undo, the title, Share and the orange Save
-/// on top (Copy is the share sheet's Copy Photo); a slim LCD strip with the tool and a hint, Safe Check or an export's
-/// status (`EditorStrip`); the picture as big as it fits; and one bottom row of fixed keys: Frame, Draw, Text and
-/// Redact in a tray, and the colour key (`ToolRow`). Draw stands for the shapes; tapping it lit fans them upward
-/// (`ShapeFlyout`). Tapping lit Frame, Text or Redact swaps the row for that tool's options and a ✕ back to the tools;
-/// the colour key holds Draw's options. While a text label is typed, the row is its text field, above the keyboard.
-/// Redact and Draw share one zoom (#441), back to fit in Frame and for a new image.
+/// The editor (#440), the same in the app and the Share Extension: the home screen's header (`SKAppHeader`), then
+/// Close and Undo on the left and Share and the orange Save on the right (Copy is the share sheet's Copy Photo); a slim
+/// LCD strip with the tool and a hint, Safe Check or an export's status (`EditorStrip`); the picture as big as it fits;
+/// and one bottom row of fixed keys: Frame, Draw, Text and Redact in a tray, and the colour key (`ToolRow`). Draw
+/// stands for the shapes; tapping it lit fans them upward (`ShapeFlyout`). Tapping lit Frame, Text or Redact swaps the
+/// row for that tool's options and a ✕ back to the tools; the colour key holds Draw's options. While a text label
+/// is typed, the row is its text field, above the keyboard. Redact and Draw share one zoom (#441), back to fit in Frame
+/// and for a new image.
 ///
 /// The chassis fills the screen behind it, but every control stays inside the safe area, clear of the status bar, the
 /// Dynamic Island and the home indicator; nothing at the bottom scrolls sideways, so the system's swipes along the
@@ -87,6 +88,14 @@ public struct ShareView: View {
     // MARK: Top bar
 
     private var topBar: some View {
+        VStack(spacing: 8) {
+            SKAppHeader()
+            topKeys
+        }
+    }
+
+    /// Close and Undo on the left, Share and the orange Save on the right.
+    private var topKeys: some View {
         HStack(spacing: 6) {
             Button("Close", action: onClose)
                 .buttonStyle(.skPhoneKey())
@@ -104,10 +113,6 @@ public struct ShareView: View {
                 .buttonStyle(.skPhoneKey(.orange))
                 .disabled(!model.canExport || typing)
                 .accessibilityHint(Text("Saves it to Photos"))
-        }
-        .overlay {
-            SKCaption("Skreener", style: SK1.TextStyle(size: 12, weight: .bold, kern: 0.8, uppercase: true))
-                .accessibilityAddTraits(.isHeader)
         }
     }
 

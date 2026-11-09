@@ -360,3 +360,45 @@ extension View {
             .presentationDragIndicator(.visible)
     }
 }
+
+/// The app's header, at the top of the home screen and the editor (in the app and the Share Extension), so the two
+/// screens match: "SK-1 Skreener" on the left and a speaker grille on the right, as on the Mac's panels.
+public struct SKAppHeader: View {
+    public init() {}
+
+    public var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            SKCaption("SK-1", style: SK1.TextStyle(size: 12, weight: .bold, kern: 0.8, uppercase: true))
+                .accessibilityHidden(true)
+            SKCaption("Skreener", tone: .soft, style: SK1.TextStyle(size: 12, weight: .semibold, kern: 0.8,
+                                                                     uppercase: true))
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            SKGrille()
+        }
+        .padding(.horizontal, 4)
+        .frame(minHeight: 32)
+    }
+}
+
+/// A speaker grille: two rows of seven holes, as on the Mac's panels.
+struct SKGrille: View {
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let p = SK1.palette(for: scheme)
+        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+            ForEach(0..<2, id: \.self) { _ in
+                GridRow {
+                    ForEach(0..<7, id: \.self) { _ in
+                        Circle()
+                            .fill(LinearGradient(colors: [Color(sk1Hex: p.grilleDark), Color(sk1Hex: p.grilleLight)],
+                                                 startPoint: .top, endPoint: .bottom))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}

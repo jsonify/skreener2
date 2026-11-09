@@ -87,19 +87,9 @@ struct HomeView: View {
 
     // MARK: Header and LCD
 
-    /// "SK-1 Skreener" and a speaker grille, as on the Mac's panels.
+    /// "SK-1 Skreener" and a speaker grille, as on the Mac's panels; the editor shows the same header.
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            SKCaption("SK-1", style: SK1.TextStyle(size: 12, weight: .bold, kern: 0.8, uppercase: true))
-                .accessibilityHidden(true)
-            SKCaption("Skreener", tone: .soft, style: SK1.TextStyle(size: 12, weight: .semibold, kern: 0.8,
-                                                                     uppercase: true))
-                .accessibilityAddTraits(.isHeader)
-            Spacer()
-            Grille()
-        }
-        .padding(.horizontal, 4)
-        .frame(minHeight: 32)
+        SKAppHeader()
     }
 
     /// The LCD: the count in seven-segment digits and what it counts ("12" "NEW"), or the state in words, a short
@@ -313,28 +303,6 @@ struct HomeView: View {
         let model = ShareModel()
         model.load(source: .data(data))
         session = EditorSession(model: model)
-    }
-}
-
-/// A speaker grille: two rows of seven holes, as on the Mac's panels.
-private struct Grille: View {
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        let p = SK1.palette(for: scheme)
-        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
-            ForEach(0..<2, id: \.self) { _ in
-                GridRow {
-                    ForEach(0..<7, id: \.self) { _ in
-                        Circle()
-                            .fill(LinearGradient(colors: [Color(sk1Hex: p.grilleDark), Color(sk1Hex: p.grilleLight)],
-                                                 startPoint: .top, endPoint: .bottom))
-                            .frame(width: 5, height: 5)
-                    }
-                }
-            }
-        }
-        .accessibilityHidden(true)
     }
 }
 
