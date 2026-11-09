@@ -6,13 +6,15 @@ import SK1Tokens
 import SK1UI
 
 /// The app's home: an inbox of the screenshots taken since Skreener was last left (a contact sheet; the LCD reads
-/// `N NEW`), and keys to open the latest screenshot or choose any image. Opening one shows the editor full screen.
+/// `N NEW`), and keys to open the latest screenshot or choose any image. Opening one shows the editor full screen,
+/// presented through UIKit by `EditorPresenter` (as the Share Extension hosts it), not SwiftUI's `fullScreenCover`.
 @MainActor
 struct HomeView: View {
     @ObservedObject var library: ScreenshotLibrary
     /// Screenshots the Shortcuts actions ask to open (#439).
     @ObservedObject var router: AppRouter
-    /// The editor on screen, if any.
+    /// The editor on screen, if any. Setting it shows a fresh editor (replacing one on screen); clearing it dismisses
+    /// the editor (`EditorPresenter`).
     @State private var session: EditorSession?
     /// An image is being read (from iCloud, maybe).
     @State private var opening = false
@@ -44,11 +46,7 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { SKChassisFill() }
         .disabled(opening)
-        .fullScreenCover(item: $session) { session in
-            ShareView(model: session.model,
-                      onClose: { self.session = nil },
-                      onShare: { url in Presenter.share(url) })
-        }
+        .onChange(of: session?.id) { showEditor() }
         .onChange(of: picked) { _, item in
             guard let item else { return }
             picked = nil
@@ -65,8 +63,21 @@ struct HomeView: View {
 #endif
     }
 
+    /// Presents the session's editor, or dismisses the editor when the session ended. Close ends the session only if it
+    /// is still the one on screen (a Shortcut may have replaced it).
+    private func showEditor() {
+        guard let session else {
+            EditorPresenter.dismiss()
+            return
+        }
+        let id = session.id
+        EditorPresenter.show(session.model, onClose: {
+            if self.session?.id == id { self.session = nil }
+        })
+    }
+
 #if DEBUG
-    /// Opens the demo editor through the same `fullScreenCover` as a real pick, once the home screen is on screen.
+    /// Opens the demo editor through the same `EditorPresenter` as a real pick, once the home screen is on screen.
     private func openDemo() async {
         guard DemoLaunch.opensEditor, session == nil, let model = DemoLaunch.editorModel() else { return }
         try? await Task.sleep(nanoseconds: 300_000_000)
@@ -76,19 +87,9 @@ struct HomeView: View {
 
     // MARK: Header and LCD
 
-    /// "SK-1 Skreener" and a speaker grille, as on the Mac's panels.
+    /// "SK-1 Skreener" and a speaker grille, as on the Mac's panels; the editor shows the same header.
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            SKCaption("SK-1", style: SK1.TextStyle(size: 12, weight: .bold, kern: 0.8, uppercase: true))
-                .accessibilityHidden(true)
-            SKCaption("Skreener", tone: .soft, style: SK1.TextStyle(size: 12, weight: .semibold, kern: 0.8,
-                                                                     uppercase: true))
-                .accessibilityAddTraits(.isHeader)
-            Spacer()
-            Grille()
-        }
-        .padding(.horizontal, 4)
-        .frame(minHeight: 32)
+        SKAppHeader()
     }
 
     /// The LCD: the count in seven-segment digits and what it counts ("12" "NEW"), or the state in words, a short
@@ -296,31 +297,12 @@ struct HomeView: View {
             failure = "COULD NOT OPEN THE IMAGE"
             return
         }
+        // The system photo picker may still be going away (it runs out of process); the editor is presented once it
+        // is gone, as presenting during its dismissal left the editor's keys outside the safe area (#440).
+        await Presenter.waitUntilSettled()
         let model = ShareModel()
         model.load(source: .data(data))
         session = EditorSession(model: model)
-    }
-}
-
-/// A speaker grille: two rows of seven holes, as on the Mac's panels.
-private struct Grille: View {
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        let p = SK1.palette(for: scheme)
-        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
-            ForEach(0..<2, id: \.self) { _ in
-                GridRow {
-                    ForEach(0..<7, id: \.self) { _ in
-                        Circle()
-                            .fill(LinearGradient(colors: [Color(sk1Hex: p.grilleDark), Color(sk1Hex: p.grilleLight)],
-                                                 startPoint: .top, endPoint: .bottom))
-                            .frame(width: 5, height: 5)
-                    }
-                }
-            }
-        }
-        .accessibilityHidden(true)
     }
 }
 

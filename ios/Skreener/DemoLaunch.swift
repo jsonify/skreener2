@@ -6,7 +6,7 @@ import UIKit
 /// Simulator (`.github/workflows/ios-screens.yml`) and so can anyone with `xcrun simctl launch`. Release builds, the
 /// TestFlight ones, compile none of this.
 ///
-/// - `-SKDemoEditor`: opens the editor full screen, through the home screen's own `fullScreenCover` (as a real pick
+/// - `-SKDemoEditor`: opens the editor full screen, through the home screen's own `EditorPresenter` (as a real pick
 ///   does), on a generated phone screenshot with an email and a 6-digit code, so Safe Check finds something.
 /// - `-SKDemoTool <frame|draw|text|redact>`: the editor starts with that tool lit (read by `ShareView`).
 /// - `-SKDemoShapes`: the editor starts with the Draw key's shapes fanned out (read by `ShareView`).

@@ -8,6 +8,10 @@ final class ShareViewController: UIViewController {
     private let model = ShareModel()
     private var modeWatch: AnyCancellable?
 
+    /// Portrait, like the app's editor. The host app decides the extension's orientation, so this holds only where it
+    /// asks its presented sheet; in a landscape host the editor still turns.
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         let root = ShareView(model: model,

@@ -74,8 +74,9 @@ open Skreener.xcodeproj
    those two and the LCD reads "2" "NEW". Go to the Home Screen and come back without taking any: "NO NEW
    SCREENSHOTS". A screenshot taken while Skreener is open shows up straight away.
 5. Tap a screenshot in the grid. The LCD reads "OPENING…" (longer if it is in iCloud only), then the editor fills the
-   screen with that screenshot: **Close** and **Undo** (greyed out) at the top left, "SKREENER" in the middle, a
-   **Share** key (the share icon) and the orange **Save** key, its label dark, at the top right. All of them sit
+   screen with that screenshot. At the top, the same header as the home screen ("SK-1 SKREENER" at the left, the
+   speaker grille at the right); under it a row of keys: **Close** and **Undo** (greyed out) at the left, a
+   **Share** key (the share icon) and the orange **Save** key, its label dark, at the right. All of them sit
    below the status bar and the Dynamic Island, easy to tap; the cream (or charcoal) chassis still fills the screen
    to its edges. There is no Copy key. Under them, a slim LCD strip; then the picture, as big as it fits; then the
    bottom row, above the home indicator: a tray of four tool keys, **Frame** (lit), **Draw** (an arrow with a small
