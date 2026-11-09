@@ -5,6 +5,13 @@ name: iOS screens
 # runner has one, a 375 pt iPhone SE. The PNGs are the run's `ios-screens` artifact.
 on:
   workflow_dispatch:
+  # Agent branches have no PR while they work, and GitHub only dispatches a workflow already on main: run on their
+  # pushes too, so a new branch's changes can be screenshotted.
+  push:
+    branches: ['claude/**']
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-screens.yml'
   pull_request:
     paths:
       - 'ios/**'
