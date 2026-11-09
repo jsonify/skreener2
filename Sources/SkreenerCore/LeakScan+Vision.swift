@@ -15,15 +15,14 @@ extension LeakScan {
     }
 
     /// Scans `cg` for the wanted `kinds`: one OCR pass for the text kinds, and face detection for `.face`.
-    /// `size` is the image's size in points. Lines are matched one at a time, so every finding is one box.
+    /// `size` is the image's size in points. Text is matched with `matches(inLines:)`, so every finding is part of
+    /// one line, and a key wrapped onto two lines is two findings.
     public static func scan(_ cg: CGImage, size: CGSize, kinds: Set<Kind> = Set(Kind.allCases)) async -> [Finding] {
         var out: [Finding] = []
         if kinds.contains(where: { $0 != .face }) {
             let index = await TextRecognizer.index(of: cg, size: size)
-            for (i, line) in index.lines.enumerated() {
-                for m in matches(in: line) where kinds.contains(m.kind) {
-                    if let box = index.box(line: i, range: m.range) { out.append(Finding(kind: m.kind, box: box)) }
-                }
+            for m in matches(inLines: index.lines) where kinds.contains(m.kind) {
+                if let box = index.box(line: m.line, range: m.range) { out.append(Finding(kind: m.kind, box: box)) }
             }
         }
         if kinds.contains(.face) {

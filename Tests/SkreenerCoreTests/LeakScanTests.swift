@@ -136,6 +136,94 @@ final class LeakScanTests: XCTestCase {
         XCTAssertEqual(kinds(line), [.link])
     }
 
+    // MARK: Keys in groups (#440)
+
+    private let hexKey = "3F9A1C7E-B2D4E6F8-0A1B2C3D-4E5F6071"
+
+    func testLicenseKeyCountsOnItsOwn() {
+        XCTAssertEqual(text("K7QM-4XPZ-9TRW-2HBN", .secret), ["K7QM-4XPZ-9TRW-2HBN"])
+        XCTAssertEqual(text("License key: K7QM-4XPZ-9TRW-2HBN.", .secret), ["K7QM-4XPZ-9TRW-2HBN"])
+        XCTAssertEqual(text("serial k7qm-4xpz-9trw-2hbn ok", .secret), ["k7qm-4xpz-9trw-2hbn"])
+    }
+
+    func testHexKeyNeedsASecretWord() {
+        XCTAssertEqual(text("Account key \(hexKey)", .secret), [hexKey])
+        XCTAssertFalse(kinds(hexKey).contains(.secret))
+        let lines = ["Your Account Key", hexKey, "Copy"]
+        XCTAssertEqual(LeakScan.matches(inLines: lines).filter { $0.kind == .secret }.map { lines[$0.line] }, [hexKey])
+        XCTAssertTrue(LeakScan.matches(inLines: ["Your Account Key", "Copy", hexKey]).filter { $0.kind == .secret }.isEmpty)
+    }
+
+    func testUUIDNeedsASecretWord() {
+        let uuid = "9b2e4f1a-7c3d-4e5f-8a6b-1c2d3e4f5a6b"
+        XCTAssertFalse(kinds("Request \(uuid) failed").contains(.secret))
+        XCTAssertFalse(LeakScan.matches(inLines: ["Request ID", uuid, "Retry"]).contains { $0.kind == .secret })
+        XCTAssertEqual(text("API token \(uuid)", .secret), [uuid])
+    }
+
+    func testThreeGroupsAndSpacedGroupsNeedASecretWord() {
+        XCTAssertFalse(kinds("K7QM-4XPZ-9TRW").contains(.secret))
+        XCTAssertEqual(text("Recovery key K7QM-4XPZ-9TRW", .secret), ["K7QM-4XPZ-9TRW"])
+        XCTAssertFalse(kinds("K7QM 4XPZ 9TRW 2HBN").contains(.secret))
+        XCTAssertEqual(text("Secret key: JBSW Y3DP EHPK 3PXP", .secret), ["JBSW Y3DP EHPK 3PXP"])
+        XCTAssertFalse(kinds("Key: ROOM 1234 EAST WING").contains(.secret))   // no group mixes letters and digits
+    }
+
+    func testGroupsThatAreNotKeys() {
+        let negatives = [
+            "Due 2026-11-09 at 10:30",
+            "Call 415-555-0132 or 1-800-356-9377",
+            "Order ABC-12345 shipped",
+            "Version 1.19.0 (build 2026-11-09)",
+            "Order 1234 shipped today",
+            "state-of-the-art key handling",
+            "Key: 1234-5678-9012",
+            "Password: Model-X200-Pro-Max",
+        ]
+        for line in negatives { XCTAssertFalse(kinds(line).contains(.secret), line) }
+    }
+
+    func testCardWithDashesIsStillACard() {
+        XCTAssertEqual(kinds("License 4242-4242-4242-4242"), [.cardNumber])
+    }
+
+    func testUUIDInALinkIsNotAKey() {
+        let line = "API https://example.com/items/3F9A1C7E-B2D4-4E6F-80A1-B2C3D4E5F607 open"
+        XCTAssertFalse(kinds(line).contains(.secret), "\(kinds(line))")
+        XCTAssertFalse(kinds("API docs at example.com/K7QM-4XPZ-9TRW-2HBN").contains(.secret))
+    }
+
+    func testKeyWrappedOntoTwoLines() {
+        let lines = [
+            "Your Account Key",
+            "This is your Flexibits Account key. Keep it somewhere safe.",
+            "3F9A1C7E-B2D4E6F8-",
+            "0A1B2C3D-4E5F6071",
+            "Never share your account key, it encrypts and protects your data.",
+        ]
+        let secrets = LeakScan.matches(inLines: lines).filter { $0.kind == .secret }
+        XCTAssertEqual(secrets.map(\.line), [2, 3])
+        XCTAssertEqual(secrets.map { String(lines[$0.line][$0.range]) }, ["3F9A1C7E-B2D4E6F8-", "0A1B2C3D-4E5F6071"])
+    }
+
+    func testWrappedLicenseKeyWithTextAround() {
+        let lines = ["Your key is K7QM-4XPZ-", "9TRW-2HBN and never expires"]
+        let secrets = LeakScan.matches(inLines: lines).filter { $0.kind == .secret }
+        XCTAssertEqual(secrets.map { String(lines[$0.line][$0.range]) }, ["K7QM-4XPZ-", "9TRW-2HBN"])
+    }
+
+    func testHyphenatedWordsAcrossLinesAreNotKeys() {
+        XCTAssertTrue(LeakScan.matches(inLines: ["A long and well-", "known story about keys"]).isEmpty)
+        XCTAssertFalse(LeakScan.matches(inLines: ["Call 415-555-", "0132 today"]).contains { $0.kind == .secret })
+        XCTAssertFalse(LeakScan.matches(inLines: ["3F9A1C7E-B2D4E6F8-", "0A1B2C3D-4E5F6071"]).contains { $0.kind == .secret })
+    }
+
+    func testLinesMatchLikeSingleLines() {
+        let lines = ["Mail jane@example.com today", "Card 4242 4242 4242 4242"]
+        XCTAssertEqual(LeakScan.matches(inLines: lines).map(\.kind), [.email, .cardNumber])
+        XCTAssertTrue(LeakScan.matches(inLines: []).isEmpty)
+    }
+
     // MARK: Overlaps and order
 
     func testSecretInsideALinkWinsAndNothingOverlaps() {
