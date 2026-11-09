@@ -38,19 +38,16 @@ enum EditorPresenter {
         }
     }
 
-    /// Presents `editor` from the top view controller once there is one that can present: the window may not be up
-    /// yet (a Shortcut launched the app), or a sheet such as the photo picker may still be going away. Gives up after
-    /// about two seconds, or when the editor was replaced or dismissed meanwhile.
+    /// Presents `editor` from the top view controller once no presentation is coming or going: the window may not be
+    /// up yet (a Shortcut launched the app), or a sheet such as the system photo picker may still be going away.
+    /// Presenting during the photo picker's dismissal is what put the editor's keys outside the safe area on a real
+    /// iPhone (#440). After about two seconds it presents anyway, from the last controller that is not being
+    /// dismissed (`Presenter.top()`); it gives up if the editor was replaced or dismissed meanwhile.
     private static func present(_ editor: EditorViewController) {
         Task { @MainActor in
-            for _ in 0..<20 {
-                guard shown === editor else { return }
-                if let top = Presenter.top(), !top.isBeingDismissed, !top.isBeingPresented {
-                    top.present(editor, animated: true)
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 100_000_000)
-            }
+            await Presenter.waitUntilSettled(limit: 2)
+            guard shown === editor, let top = Presenter.top() else { return }
+            top.present(editor, animated: true)
         }
     }
 }

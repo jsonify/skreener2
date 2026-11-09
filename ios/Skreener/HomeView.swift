@@ -307,6 +307,9 @@ struct HomeView: View {
             failure = "COULD NOT OPEN THE IMAGE"
             return
         }
+        // The system photo picker may still be going away (it runs out of process); the editor is presented once it
+        // is gone, as presenting during its dismissal left the editor's keys outside the safe area (#440).
+        await Presenter.waitUntilSettled()
         let model = ShareModel()
         model.load(source: .data(data))
         session = EditorSession(model: model)

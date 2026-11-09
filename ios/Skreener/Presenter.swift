@@ -1,19 +1,53 @@
 import Photos
+import PhotosUI
 import UIKit
 
 /// UIKit sheets the SwiftUI screens show: the system share sheet and the limited-library picker. They are presented
 /// from the top view controller, so they also work over the full-screen editor.
 @MainActor
 enum Presenter {
-    /// The view controller on top of the app's window.
+    /// The view controller on top of the app's window: the last presented one that is not being dismissed, so
+    /// something presented from it stays up (presenting on a controller that is going away fails or misplaces it).
     static func top() -> UIViewController? {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-        var controller = scene?.keyWindow?.rootViewController
-        while let presented = controller?.presentedViewController {
+        var controller = root()
+        while let presented = controller?.presentedViewController, !presented.isBeingDismissed {
             controller = presented
         }
         return controller
+    }
+
+    /// The root view controller of the app's window.
+    private static func root() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        return scene?.keyWindow?.rootViewController
+    }
+
+    /// No presentation in the window is still coming or going: nothing is being presented or dismissed, no
+    /// transition is running, and the system photo picker is gone.
+    static var isSettled: Bool {
+        guard let root = root() else { return false }
+        var controller: UIViewController? = root
+        while let current = controller {
+            if current.isBeingPresented || current.isBeingDismissed || current.transitionCoordinator != nil
+                || current is PHPickerViewController {
+                return false
+            }
+            controller = current.presentedViewController
+        }
+        return true
+    }
+
+    /// Waits, up to `limit` seconds, until `isSettled`. The system photo picker (`PhotosPicker`) runs out of process
+    /// and goes away a moment after its pick arrives: a full-screen controller presented during that dismissal was
+    /// laid out without the safe area on a real iPhone (#440), its keys under the Dynamic Island and on the home
+    /// indicator.
+    static func waitUntilSettled(limit: Double = 1.5) async {
+        var waited = 0.0
+        while !isSettled, waited < limit {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            waited += 0.05
+        }
     }
 
     /// Presents the system share sheet for the PNG file, and removes the file when it is dismissed (as the Share
