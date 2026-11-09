@@ -116,8 +116,8 @@ struct ShapeFlyout: View {
     }
 }
 
-/// The round key showing the markup colour. It opens Draw's options, so they need no second tap: the colours and
-/// Clear for the drawings (the size slider joins them in #440 step 3b).
+/// The round key showing the markup colour. It opens Draw's options, so they need no second tap: the colours, the
+/// size slider (`WidthRow`) and Clear for the drawings.
 struct ColorKey: View {
     @ObservedObject var model: ShareModel
     @State private var choosing = false
@@ -126,7 +126,7 @@ struct ColorKey: View {
         Button { choosing = true } label: { ColorDot(colors: [model.markupColor.swiftUI]) }
             .buttonStyle(.skPhoneKey(shape: .round))
             .accessibilityLabel(Text("Colour: \(model.markupColorName)"))
-            .accessibilityHint(Text("Shows the colours for arrows, rectangles, text and highlights, and Clear"))
+            .accessibilityHint(Text("Shows the colours and the size for drawings and text, and Clear"))
             .popover(isPresented: $choosing) {
                 VStack(spacing: 10) {
                     HStack(spacing: 6) {
@@ -140,7 +140,7 @@ struct ColorKey: View {
                                 .accessibilityLabel(Text(choice.name))
                         }
                     }
-                    // TODO(#440 step 3b): the stroke-size slider goes here, between the colours and Clear.
+                    WidthRow(model: model)
                     SKGroove()
                     Button("Clear drawings") {
                         model.clearMarkups()
@@ -148,13 +148,55 @@ struct ColorKey: View {
                     }
                     .buttonStyle(.skPhoneKey(fill: true))
                     .disabled(model.markups.isEmpty)
-                    .accessibilityHint(Text("Removes the arrows, rectangles, text and highlights; the redactions stay"))
+                    .accessibilityHint(Text("Removes the drawings and text; the redactions stay"))
                 }
                 .padding(12)
                 .fixedSize()
                 .presentationCompactAdaptation(.popover)
                 .presentationBackground { Color.clear.sk1Chassis() }
             }
+    }
+}
+
+/// The size slider in the colour key's popover: a preview of the line in the current colour, the slider over
+/// `ShareModel.markupWidths` (snapping to 0.5, 1, 2, 3 and 4) and the size in an LCD chip ("2×"). New drawings and
+/// text take it; it is greyed out with Highlight, which has one size.
+struct WidthRow: View {
+    @ObservedObject var model: ShareModel
+
+    var body: some View {
+        let widths = ShareModel.markupWidths
+        let off = model.mode == .draw && !model.tool.hasWidth
+        let text = Self.text(model.markupWidth)
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                // The line as drawn at 1x: the default line is 3 pt.
+                Capsule()
+                    .fill(model.markupColor.swiftUI)
+                    .frame(width: 28, height: 3 * model.markupWidth)
+                    .frame(width: 32, height: 16)
+                    .accessibilityHidden(true)
+                SKSlider(title: "Size", value: Binding(
+                    get: { Double(widths.firstIndex(of: ShareModel.nearestMarkupWidth(model.markupWidth)) ?? 1) },
+                    set: { i in model.markupWidth = widths[min(max(Int(i.rounded()), 0), widths.count - 1)] }),
+                         range: 0...Double(widths.count - 1), step: 1, valueText: text)
+                    .frame(width: 140)
+                    .allowsHitTesting(!off)
+                    .accessibilityHint(Text("The size of new drawings and text"))
+                SKChip(text, minWidth: 44)
+                    .accessibilityHidden(true)
+            }
+            .opacity(off ? 0.6 : 1)
+            .disabled(off)
+            if off {
+                Text("Highlights have one size.").sk1Hint()
+            }
+        }
+    }
+
+    /// "0.5×", "1×", "2×"...
+    static func text(_ width: Double) -> String {
+        width == width.rounded() ? "\(Int(width))×" : "\(width)×"
     }
 }
 

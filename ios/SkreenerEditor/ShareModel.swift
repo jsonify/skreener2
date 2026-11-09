@@ -15,6 +15,7 @@ public final class ShareModel: ObservableObject {
         cornerRadius = look.cornerRadius
         shadow = look.shadow
         cleanBar = look.cleanBar
+        markupWidth = Self.nearestMarkupWidth(look.markupWidth)
     }
 
     enum FrameChoice: Hashable {
@@ -48,7 +49,10 @@ public final class ShareModel: ObservableObject {
 
     /// What a drag (or, for text, a tap) on the Draw preview makes.
     enum Tool: Hashable {
-        case arrow, rect, text, highlight
+        case arrow, line, rect, ellipse, pen, text, highlight
+
+        /// New markups take the size slider's width; a highlight has one size.
+        var hasWidth: Bool { self != .highlight }
     }
 
     enum Phase {
@@ -91,6 +95,17 @@ public final class ShareModel: ObservableObject {
         ("Black", .hex(0x000000)),
     ]
 
+    /// The size slider's stops, as `Markup.width` multipliers (1 is the default 3 pt line).
+    static let markupWidths: [Double] = [0.5, 1, 2, 3, 4]
+
+    /// The stop nearest `w`.
+    static func nearestMarkupWidth(_ w: Double) -> Double {
+        markupWidths.min { abs($0 - w) < abs($1 - w) } ?? 1
+    }
+
+    /// Pen points closer than this (full-image pixels) to the last kept one are dropped.
+    static let penSpacing: CGFloat = 2
+
     @Published private(set) var phase = Phase.loading
     @Published private(set) var preview: UIImage?
     @Published private(set) var status: Status?
@@ -121,8 +136,11 @@ public final class ShareModel: ObservableObject {
     let finder = TextFinder()
     /// The Draw tool. Leaving Text drops the label being typed.
     @Published var tool = Tool.arrow { didSet { if tool != .text { cancelText() } } }
-    /// The color of new arrows, rectangles, text and highlights.
+    /// The color of new drawings and text.
     @Published var markupColor = Markup.defaultColor
+    /// The width of new drawings and the size of new text, one of `markupWidths` (highlights ignore it). Each markup
+    /// keeps its own. Part of the look.
+    @Published var markupWidth = 1.0 { didSet { saveLook() } }
     /// In full-image pixels; drawn over the redactions in the preview and every export. Each is its own undo step.
     /// Redrawn at once, so a finished shape doesn't blink between the live one and the preview.
     @Published private(set) var markups: [Markup] = [] { didSet { redraw() } }
@@ -265,25 +283,64 @@ public final class ShareModel: ObservableObject {
     /// The full image's rect, in its pixels.
     private var imageBounds: CGRect { CGRect(origin: .zero, size: fullSize) }
 
-    /// What the current tool makes from a drag between two full-image points (kept inside the image), in the current
-    /// color; nil for the Text tool or when too little is left. Also the live shape while dragging.
-    func shape(from a: CGPoint, to b: CGPoint) -> Markup? {
+    /// `p` kept inside the image.
+    private func clamped(_ p: CGPoint) -> CGPoint {
         let bounds = imageBounds
-        func clamped(_ p: CGPoint) -> CGPoint {
-            CGPoint(x: min(max(p.x, bounds.minX), bounds.maxX), y: min(max(p.y, bounds.minY), bounds.maxY))
-        }
+        return CGPoint(x: min(max(p.x, bounds.minX), bounds.maxX), y: min(max(p.y, bounds.minY), bounds.maxY))
+    }
+
+    /// A new markup of `kind` in the current colour and width (a highlight keeps width 1: it has one size).
+    private func newMarkup(_ kind: Markup.Kind) -> Markup {
+        if case .highlight = kind { return Markup(kind, color: markupColor) }
+        return Markup(kind, color: markupColor, width: CGFloat(markupWidth))
+    }
+
+    /// What the current tool makes from a drag between two full-image points (kept inside the image), in the current
+    /// color and width; nil for Text and Pen or when too little is left. Also the live shape while dragging.
+    func shape(from a: CGPoint, to b: CGPoint) -> Markup? {
         let p = clamped(a), q = clamped(b)
         let rect = CGRect(x: min(p.x, q.x), y: min(p.y, q.y), width: abs(p.x - q.x), height: abs(p.y - q.y))
         switch tool {
-        case .arrow:
+        case .arrow, .line:
             guard hypot(q.x - p.x, q.y - p.y) >= 1 else { return nil }
-            return Markup(.arrow(from: p, to: q), color: markupColor)
-        case .rect, .highlight:
+            return newMarkup(tool == .arrow ? .arrow(from: p, to: q) : .line(from: p, to: q))
+        case .rect, .ellipse, .highlight:
             guard rect.width >= 1, rect.height >= 1 else { return nil }
-            return Markup(tool == .rect ? .rectangle(rect) : .highlight(rect), color: markupColor)
-        case .text:
+            switch tool {
+            case .rect: return newMarkup(.rectangle(rect))
+            case .ellipse: return newMarkup(.ellipse(rect))
+            default: return newMarkup(.highlight(rect))
+            }
+        case .pen, .text:
             return nil
         }
+    }
+
+    /// Adds `p` (full-image pixels, kept inside the image) to a pen stroke being drawn, unless it is within
+    /// `penSpacing` of the last point kept.
+    func addPenPoint(_ p: CGPoint, to points: inout [CGPoint]) {
+        let q = clamped(p)
+        if let last = points.last, hypot(q.x - last.x, q.y - last.y) < Self.penSpacing { return }
+        points.append(q)
+    }
+
+    /// A pen stroke through `points` (full-image pixels) in the current colour and width; one point is a dot. Nil
+    /// for none. Also the live stroke while drawing.
+    func penStroke(_ points: [CGPoint]) -> Markup? {
+        points.isEmpty ? nil : newMarkup(.pen(points))
+    }
+
+    /// Adds a finished pen stroke.
+    func drawPen(_ points: [CGPoint]) {
+        guard let markup = penStroke(points) else { return }
+        undoSteps.append(.markup)
+        markups.append(markup)
+    }
+
+    /// A tap with Pen: a dot at `p` (full-image pixels); a tap beside the picture is ignored.
+    func drawDot(at p: CGPoint) {
+        guard imageBounds.contains(p) else { return }
+        drawPen([p])
     }
 
     /// Adds what a finished drag made.
@@ -302,7 +359,7 @@ public final class ShareModel: ObservableObject {
     /// The label being typed, to show it on the preview as it will be drawn.
     var draftMarkup: Markup? {
         guard let spot = textSpot else { return nil }
-        return Markup(.text(draftText, at: spot), color: markupColor)
+        return newMarkup(.text(draftText, at: spot))
     }
 
     /// Adds the typed label at its spot; empty text adds nothing.
@@ -310,7 +367,7 @@ public final class ShareModel: ObservableObject {
         let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         if let spot = textSpot, !text.isEmpty {
             undoSteps.append(.markup)
-            markups.append(Markup(.text(text, at: spot), color: markupColor))
+            markups.append(newMarkup(.text(text, at: spot)))
         }
         cancelText()
     }
@@ -328,7 +385,7 @@ public final class ShareModel: ObservableObject {
     /// The look the controls show now.
     private var look: Look {
         Look(frame: frameChoice.name, dark: dark, background: backgroundChoice, padding: padding,
-             cornerRadius: cornerRadius, shadow: shadow, cleanBar: cleanBar)
+             cornerRadius: cornerRadius, shadow: shadow, cleanBar: cleanBar, markupWidth: markupWidth)
     }
 
     /// Remembers the look for the next editor, here or in the app or extension. It is a few bytes, so no debounce.

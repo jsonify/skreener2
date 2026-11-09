@@ -3,7 +3,8 @@
 An app and a Share Extension for iPhone (#396, #408). The editor puts a screenshot in a device frame on a background,
 covers private parts (a dragged area, or emails, phone numbers, links and typed text found by on-device OCR) with
 pixelate, blur or solid black, checks each screenshot as it opens for things not to share (Safe Check: emails,
-phone numbers, links, one-time codes, card numbers, API keys and faces, all on the device), marks it up with arrows, rectangles, text and highlights, then saves it to Photos
+phone numbers, links, one-time codes, card numbers, API keys and faces, all on the device), marks it up with arrows, lines, rectangles, ellipses, freehand pen strokes, text and highlights, in five colours
+and five sizes, then saves it to Photos
 or shares it at full size (the share sheet's Copy Photo copies it).
 
 There are two ways in. Open the **Skreener** app: its home screen shows the screenshots taken since you last left it,
@@ -98,7 +99,7 @@ open Skreener.xcodeproj
 11. Tap **Choose screenshot**: the system photo picker opens, showing only images, without asking for any access.
     Pick one: it opens in the editor. Close.
 12. The editor starts with the style you used last: open any screenshot again and the frame, Dark, background and
-    sliders are as you left them (redactions and drawings start empty). Now set a different frame and background,
+    sliders, and the drawing size in the colour key, are as you left them (redactions and drawings start empty). Now set a different frame and background,
     Close, and share a screenshot from Photos to Skreener (see below): the extension starts with that same look.
 13. Dark mode: in Control Centre (or Settings > Display & Brightness) choose Dark and open the editor: the chassis
     turns charcoal, the keys dark grey with light symbols, the LCD glass a little dimmer; Save stays orange with its
@@ -130,7 +131,7 @@ open Skreener.xcodeproj
    and Redact 1 again: "SAFE CHECK · COVERED", lamp off, and a few seconds later the strip shows the tool again.
    **Undo** takes back that last cover (the strip says 1 left again). A face in the screenshot is found and covered
    the same way. Open a screenshot with nothing private: the strip says "SAFE CHECK · CLEAR" with the lamp off and no
-   Review key, then the tool. After Save (step 14), the strip shows "Saved to Photos" for a few seconds, then its
+   Review key, then the tool. After Save (step 15), the strip shows "Saved to Photos" for a few seconds, then its
    line again.
 5. Tap **Redact** in the tray. The preview shows the screenshot alone and the strip reads "REDACT  Pixelate · drag
    to cover". Drag across some text: an orange dashed band follows your finger, and on release the area is
@@ -151,43 +152,55 @@ open Skreener.xcodeproj
    shows the screenshot with its redactions and the strip reads "ARROW · DRAG TO DRAW". Drag from a spot to what it
    points at: a red arrow follows your finger, its head at the finger, and stays on release. A very short drag draws
    nothing. **Undo**, at the top left next to Close, is no longer grey.
-8. Tap the lit **Draw** key again: a column of shape keys fans upward above it on a small chassis plate with a soft
-   shadow: **Arrow** (lit), **Rectangle** and **Highlight**. Tap **Rectangle**: the column closes, the Draw key now
-   shows a rectangle (still with its ▴) and the strip reads "RECTANGLE · DRAG TO DRAW"; drag on the picture for a red
-   rounded outline. Open the column again and close it without choosing: tap the picture (nothing is drawn), or tap
-   Draw again. Tap **Frame**, then **Draw**: it picks Rectangle, the last shape used. With VoiceOver, the Draw key
-   reads "Draw, Rectangle", and the open column reads as "Shapes" with each shape (the current one selected); a
-   two-finger scrub closes it.
-9. Tap the round colour key: a small popover with five round colour keys (red, yellow, green, blue, black; the
-   current one pressed in) and, under them, **Clear drawings** (all the drawings; the redactions stay; greyed out
-   with none). Pick yellow: the popover closes and the key shows a yellow dot. Drag a rectangle: yellow. Choose
-   **Highlight** from Draw's column and drag across a line of text: a translucent yellow band, the text still
-   readable through it. (A size slider joins the colour popover in a later update.)
-10. Tap **Text** and tap the picture: a small orange ring marks the spot and the bottom row becomes a text field,
+8. Tap the lit **Draw** key again: a column of six shape keys fans upward above it on a small chassis plate with a
+   soft shadow, top to bottom **Arrow** (lit), **Line**, **Rectangle**, **Ellipse**, **Pen** and **Highlight**. On a
+   667 pt iPhone SE it still sits between the top bar and the Draw key, covering neither. Tap **Rectangle**: the
+   column closes, the Draw key now shows a rectangle (still with its ▴) and the strip reads "RECTANGLE · DRAG TO
+   DRAW"; drag on the picture for a red rounded outline. **Line** ("LINE · DRAG TO DRAW") draws a straight stroke
+   with round ends and no head; **Ellipse** ("ELLIPSE · DRAG TO DRAW") an outlined oval in the dragged box; both
+   follow the finger. Open the column again and close it without choosing: tap the picture (nothing is drawn), or
+   tap Draw again. Tap **Frame**, then **Draw**: it picks the last shape used. With VoiceOver, the Draw key reads
+   "Draw, Rectangle", and the open column reads as "Shapes" with each shape (the current one selected); a two-finger
+   scrub closes it.
+9. Pick **Pen**: the strip reads "PEN · DRAW FREELY". Draw a loop or a signature: a smooth red line follows the
+   finger and stays on release. A tap draws a dot. Pinch to zoom in and draw again: the stroke lands exactly under
+   the finger. Start a stroke and put a second finger down mid-way: the stroke vanishes and the pinch zooms.
+10. Tap the round colour key: a small popover with five round colour keys (red, yellow, green, blue, black; the
+    current one pressed in); under them a **Size** row: a short line in the colour showing the size, a slider with
+    five stops (0.5×, 1×, 2×, 3×, 4×; it snaps) and the size in an LCD chip ("1×"); then **Clear drawings** (all the
+    drawings; the redactions stay; greyed out with none). Pick yellow: the popover closes and the key shows a yellow
+    dot. Drag a rectangle: yellow. Open the popover, slide to 4×: the preview line thickens and the chip reads "4×";
+    draw an arrow, a line, an ellipse and a pen stroke: all thick (the arrowhead grows too), while the earlier
+    rectangle keeps its size. With **Text** the size sets the text size. Choose **Highlight** from Draw's column and
+    drag across a line of text: a translucent yellow band, the text still readable through it; its popover greys
+    the Size row out, with "Highlights have one size." under it. The size is part of the last look, like the frame:
+    the next editor, in the app or the extension, starts with it.
+11. Tap **Text** and tap the picture: a small orange ring marks the spot and the bottom row becomes a text field,
     **Done** and **✕**, with the keyboard up and the row riding above it (Share, Save and Undo grey out meanwhile).
     Type a word: it shows on the picture as you type, its left end at the ring; the strip reads "TEXT · TAP WHERE IT
     GOES". **Done** (or the keyboard's Done) keeps it; **✕**, or Done with nothing typed, adds nothing. Tapping
     elsewhere on the picture while typing moves the label. Tap the lit **Text** key for its options: the lit Text
     key, the colour key, **Clear** and **✕**.
-11. **Undo** (top left) takes back the newest edit, a drawing or a redaction, whichever came last: draw an arrow,
-    cover an area, then tap Undo twice: the area goes, then the arrow. With nothing left, Undo greys out.
-12. Tap **Frame**: the frame and background return, with the redactions and drawings on the screenshot (drawings
+12. **Undo** (top left) takes back the newest edit, a drawing or a redaction, whichever came last: draw an arrow,
+    cover an area, then tap Undo twice: the area goes, then the arrow. A line, ellipse, pen stroke or dot is one
+    step each, the same way. With nothing left, Undo greys out.
+13. Tap **Frame**: the frame and background return, with the redactions and drawings on the screenshot (drawings
     over redactions). They are in every export too, at full size.
-13. With a full iPhone screenshot, Frame's **More** sheet has a **Clean bar** switch next to Dark (it is absent for a
+14. With a full iPhone screenshot, Frame's **More** sheet has a **Clean bar** switch next to Dark (it is absent for a
     photo, an iPad or a cropped screenshot). Turn it on: the bar at the top repaints with the time reading 9:41, full
     signal bars, full Wi-Fi and a full battery, and no carrier, notification icons or real time. It stays on in
     Redact and the draw tools, and in Save and Share at full size. Turn it off to get the original bar back. The
     app's own editor has the same switch.
-14. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The strip says "Saved to Photos" and the
+15. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The strip says "Saved to Photos" and the
     full-resolution PNG is in the Photos library. If you deny, the strip says "No access to Photos" with, under it,
     to allow "Add Photos Only" for Skreener in Settings > Privacy & Security > Photos.
-15. Tap **Share** (the icon left of Save) for the system share sheet with `Skreener.png`. Tap **Copy Photo** and
+16. Tap **Share** (the icon left of Save) for the system share sheet with `Skreener.png`. Tap **Copy Photo** and
     paste into Notes or Messages: the edited picture.
-16. **Close** (top left) ends the sheet.
-17. Open the share sheet again: the frame, Dark, background, sliders and Clean bar are as you left them. Change
-    them, Close, and open the Skreener app and a screenshot: the app's editor shows the look you just set in the
+17. **Close** (top left) ends the sheet.
+18. Open the share sheet again: the frame, Dark, background, sliders, Clean bar and drawing size are as you left
+    them. Change them, Close, and open the Skreener app and a screenshot: the app's editor shows the look you just set in the
     extension. A fresh install starts with iPhone frame, Dark off, the first background, Padding 48, Corners 10,
-    Shadow 50% and Clean bar off.
+    Shadow 50%, Clean bar off and size 1×.
 
 ## Try the shortcuts
 
