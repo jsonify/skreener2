@@ -72,6 +72,14 @@ jobs:
                   if out.returncode == 0:
                       se = out.stdout.strip()
                       break
+          old = None
+          for r in reversed(runtimes):
+              pros = [(int(m.group(1)), d["udid"]) for d in data[r]
+                      if (m := re.fullmatch(r"iPhone (\d+) Pro", d["name"]))]
+              if pros:
+                  old = max(pros)
+                  break
+          print(f"OLD_UDID={old[1] if old and old != pro else ''}")
           print(f"PRO_UDID={pro[1]}")
           print(f"SE_UDID={se or ''}")
           EOF
@@ -98,21 +106,12 @@ jobs:
             sleep 8
             xcrun simctl io "$udid" screenshot "screens/$prefix-shapes.png"
             if [ "$prefix" = pro ]; then
-              # PROBES (temporary): back from the background, then the Release build.
-              xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor
-              sleep 10
-              xcrun simctl launch "$udid" com.apple.Preferences
-              sleep 5
-              xcrun simctl launch "$udid" com.skreener.ios
-              sleep 5
-              xcrun simctl io "$udid" screenshot "screens/probe-resume.png"
-              xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor -SKDemoRace
-              sleep 15
-              xcrun simctl io "$udid" screenshot "screens/probe-race.png"
+              :
             fi
             xcrun simctl shutdown "$udid" || true
           }
           shoot "$PRO_UDID" pro
+          [ -n "$OLD_UDID" ] && shoot "$OLD_UDID" probe-oldios
           if [ -n "$SE_UDID" ]; then
             shoot "$SE_UDID" se
           else
