@@ -106,6 +106,18 @@ jobs:
             echo "No iPhone SE simulator on this runner: skipping the 375 pt screens."
           fi
           ls -l screens
+      # The same screens as small JPEGs in the log, base64 between BEGIN/END lines, for readers that can fetch a
+      # run's logs but not its artifacts (cloud agent sessions).
+      - name: Print the screens into the log
+        if: always()
+        run: |
+          for f in screens/*.png; do
+            name=$(basename "$f" .png)
+            sips -Z 1000 -s format jpeg -s formatOptions 75 "$f" --out "/tmp/$name.jpg" > /dev/null
+            echo "BEGIN-SCREEN $name"
+            base64 -b 76 -i "/tmp/$name.jpg"
+            echo "END-SCREEN $name"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
