@@ -21,7 +21,7 @@ settings:
     SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
     GCC_TREAT_WARNINGS_AS_ERRORS: YES
     TARGETED_DEVICE_FAMILY: "1"     # iPhone only
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.1.0"     # above the 1.0 (1) uploaded from Xcode on 2026-11-03, which TestFlight would offer otherwise
     # CURRENT_PROJECT_VERSION comes from BuildNumber.xcconfig through Signing.xcconfig: a setting here would override it.
     CODE_SIGN_STYLE: Automatic
 

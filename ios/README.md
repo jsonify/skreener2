@@ -184,7 +184,7 @@ that changes.
 
 ## Upload to TestFlight
 
-1. Bump `MARKETING_VERSION` in `project.yml` when the build is a new version (testers see it as 0.1.0, 0.2.0...).
+1. Bump `MARKETING_VERSION` in `project.yml` when the build is a new version (testers see it as 1.1.0, 1.2.0...). It must stay above 1.0: a build uploaded from Xcode on 2026-11-03 is 1.0 (1), and TestFlight offers the highest version.
 2. `xcodegen generate`, always, right before archiving: it stamps a fresh build number, the UTC time as YYMMDD.HHMM
    without leading zeros in the second part (2026-11-04 09:05 is `261104.905`), into the gitignored
    `BuildNumber.xcconfig`; the command prints it. App Store Connect rejects an upload whose build number is not
