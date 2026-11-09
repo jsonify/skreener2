@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.19.0](https://github.com/jsonify/skreener2/compare/v1.18.0...v1.19.0) (2026-11-09)
+
+
+### Features
+
+* **core:** clean status bar for iPhone screenshots ([#408](https://github.com/jsonify/skreener2/issues/408)) ([#418](https://github.com/jsonify/skreener2/issues/418)) ([9462482](https://github.com/jsonify/skreener2/commit/9462482d027e4a10a5dabadb5dfb28d53b9b4fed))
+* **core:** leak-scan matchers for Safe Check ([#408](https://github.com/jsonify/skreener2/issues/408)) ([#434](https://github.com/jsonify/skreener2/issues/434)) ([7c850d7](https://github.com/jsonify/skreener2/commit/7c850d7998b5c3a3aaa1179e2e243d93c229813e))
+* **ios:** Clean bar switch for iPhone screenshots ([#408](https://github.com/jsonify/skreener2/issues/408)) ([#438](https://github.com/jsonify/skreener2/issues/438)) ([f85c12d](https://github.com/jsonify/skreener2/commit/f85c12d2dd1bf35477afe19ad7da1befdec50aea))
+* **ios:** remember the last look across the app and the extension ([#408](https://github.com/jsonify/skreener2/issues/408)) ([#436](https://github.com/jsonify/skreener2/issues/436)) ([7bb3f95](https://github.com/jsonify/skreener2/commit/7bb3f95a624b78230148148a42ba5088697c3536))
+
 ## [1.18.0](https://github.com/jsonify/skreener2/compare/v1.17.1...v1.18.0) (2026-11-04)
 
 
