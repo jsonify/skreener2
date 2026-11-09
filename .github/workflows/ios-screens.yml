@@ -1,0 +1,107 @@
+name: iOS screens
+
+# Simulator screenshots of the iPhone app (#440): Home, and the editor opened full screen from Home on a generated
+# picture (the Debug-only launch arguments in ios/Skreener/DemoLaunch.swift), on a Dynamic Island iPhone and, when the
+# runner has one, a 375 pt iPhone SE. The PNGs are the run's `ios-screens` artifact.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-screens.yml'
+
+concurrency:
+  group: ios-screens-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screens:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          # Versioned bundles only: the plain Xcode.app is the runner's default, which sorts last.
+          NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$NEWEST"
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the project
+        run: cd ios && xcodegen generate
+      - name: Build for the iOS Simulator (Debug)
+        run: |
+          cd ios
+          xcodebuild build -project Skreener.xcodeproj -scheme Skreener -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO -quiet
+      - name: Pick the simulators
+        run: |
+          xcrun simctl list devices available
+          # Newest iOS runtime first; the highest-numbered "iPhone N Pro" (Dynamic Island), and a 375 pt iPhone SE.
+          xcrun simctl list devices available -j > devices.json
+          python3 - <<'EOF' >> "$GITHUB_ENV"
+          import json, re
+          data = json.load(open("devices.json"))["devices"]
+          def version(runtime):
+              m = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              return (int(m.group(1)), int(m.group(2))) if m else None
+          runtimes = sorted((r for r in data if version(r)), key=version, reverse=True)
+          pro = se = None
+          for r in runtimes:
+              pros = [(int(m.group(1)), d["udid"]) for d in data[r]
+                      if (m := re.fullmatch(r"iPhone (\d+) Pro", d["name"]))]
+              if pro is None and pros:
+                  pro = max(pros)
+              if se is None:
+                  se = next((d["udid"] for d in data[r] if d["name"].startswith("iPhone SE")), None)
+          if se is None:
+              # Not created by default on newer runtimes: make one on the newest runtime that still supports it.
+              import subprocess
+              for r in runtimes:
+                  out = subprocess.run(["xcrun", "simctl", "create", "iPhone SE (screens)",
+                                        "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation", r],
+                                       capture_output=True, text=True)
+                  if out.returncode == 0:
+                      se = out.stdout.strip()
+                      break
+          print(f"PRO_UDID={pro[1]}")
+          print(f"SE_UDID={se or ''}")
+          EOF
+          cat "$GITHUB_ENV"
+      - name: Screenshot Home and the editor
+        run: |
+          set -x
+          APP=ios/build/Build/Products/Debug-iphonesimulator/Skreener.app
+          mkdir -p screens
+          shoot() { # udid, prefix
+            local udid=$1 prefix=$2
+            xcrun simctl boot "$udid" || true
+            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 \
+              --cellularBars 4 --wifiBars 3 || true
+            xcrun simctl install "$udid" "$APP"
+            xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios
+            sleep 8
+            xcrun simctl io "$udid" screenshot "screens/$prefix-home.png"
+            xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor
+            sleep 10
+            xcrun simctl io "$udid" screenshot "screens/$prefix-editor.png"
+            xcrun simctl launch --terminate-running-process "$udid" com.skreener.ios -SKDemoEditor -SKDemoShapes
+            sleep 8
+            xcrun simctl io "$udid" screenshot "screens/$prefix-shapes.png"
+            xcrun simctl shutdown "$udid" || true
+          }
+          shoot "$PRO_UDID" pro
+          if [ -n "$SE_UDID" ]; then
+            shoot "$SE_UDID" se
+          else
+            echo "No iPhone SE simulator on this runner: skipping the 375 pt screens."
+          fi
+          ls -l screens
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-screens
+          path: screens/*.png
+          if-no-files-found: warn

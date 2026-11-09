@@ -59,7 +59,20 @@ struct HomeView: View {
             guard let asset = router.take() else { return }
             Task { await open(asset) }
         }
+#if DEBUG
+        // -SKDemoEditor (DemoLaunch.swift): the editor on a sample picture, for the Simulator screenshots.
+        .task { await openDemo() }
+#endif
     }
+
+#if DEBUG
+    /// Opens the demo editor through the same `fullScreenCover` as a real pick, once the home screen is on screen.
+    private func openDemo() async {
+        guard DemoLaunch.opensEditor, session == nil, let model = DemoLaunch.editorModel() else { return }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        session = EditorSession(model: model)
+    }
+#endif
 
     // MARK: Header and LCD
 
