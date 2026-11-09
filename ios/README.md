@@ -273,3 +273,22 @@ Setup, once:
 To revoke CI's access, revoke the key on the same App Store Connect page.
 
 CI builds the project for the iOS Simulator in `.github/workflows/ios.yml` on every change, with warnings as errors.
+
+## Simulator screenshots
+
+`.github/workflows/ios-screens.yml` builds the app (Debug) for the Simulator and screenshots Home, the editor and the
+Draw key's open shapes on the newest "iPhone N Pro" (Dynamic Island), and on a 375 pt iPhone SE when the runner can
+make one. It runs on pull requests and pushes to `claude/` branches that change `ios/`, or from the Actions tab
+(**iOS screens** > **Run workflow**, once the workflow is on `main`). The PNGs are the run's `ios-screens` artifact
+(`pro-home.png`, `pro-editor.png`, `pro-shapes.png`, and `se-*.png`).
+
+Debug builds take launch arguments that open screens without Photos access (`Skreener/DemoLaunch.swift`; Release
+builds, TestFlight's, have none of it):
+
+- `-SKDemoEditor`: opens the editor full screen from Home, as a pick does, on a generated phone screenshot with an
+  email and a 6-digit code (Safe Check finds 2).
+- `-SKDemoTool frame|draw|text|redact`: starts the editor with that tool lit.
+- `-SKDemoShapes`: starts it with the Draw key's shapes fanned out.
+
+Locally: `xcrun simctl launch booted com.skreener.ios -SKDemoEditor -SKDemoTool redact`, or add them in Xcode under
+Product > Scheme > Edit Scheme > Run > Arguments.

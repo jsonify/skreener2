@@ -57,7 +57,12 @@ public struct ShareView: View {
         .overlayPreferenceValue(DrawKeyBounds.self) { anchor in shapes(anchor) }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { SKChassisFill() }
-        .onAppear { if model.editorTool.isShape { lastShape = model.editorTool } }
+        .onAppear {
+            if model.editorTool.isShape { lastShape = model.editorTool }
+#if DEBUG
+            applyDemoArguments()
+#endif
+        }
         .onChange(of: model.mode) {
             if model.mode == .style { zoom = PreviewZoom() }
         }
@@ -167,6 +172,27 @@ public struct ShareView: View {
         guard open != showsShapes else { return }
         withAnimation(.spring(duration: 0.25, bounce: 0.2)) { showsShapes = open }
     }
+
+#if DEBUG
+    /// Debug builds only, for the Simulator screenshots (the app's DemoLaunch.swift): `-SKDemoTool <frame|draw|text|
+    /// redact>` starts with that tool lit, `-SKDemoShapes` with the Draw key's shapes fanned out.
+    private func applyDemoArguments() {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-SKDemoTool"), i + 1 < args.count {
+            switch args[i + 1] {
+            case "frame": model.editorTool = .frame
+            case "draw": model.editorTool = lastShape
+            case "text": model.editorTool = .text
+            case "redact": model.editorTool = .redact
+            default: break
+            }
+        }
+        if args.contains("-SKDemoShapes") {
+            if !model.editorTool.isShape { model.editorTool = lastShape }
+            showsShapes = true
+        }
+    }
+#endif
 
     /// A text label is being typed in Draw.
     private var typing: Bool { model.mode == .draw && model.textSpot != nil }
