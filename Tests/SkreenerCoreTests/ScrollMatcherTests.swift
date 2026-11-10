@@ -1,5 +1,5 @@
 import XCTest
-@testable import Skreener
+@testable import SkreenerCore
 
 /// Scrolling-capture matching on made-up frames: every row of a "page" has its own pattern, like lines of text.
 final class ScrollMatcherTests: XCTestCase {
