@@ -95,8 +95,10 @@ extension ShareModel {
 
     /// The LCD strip's short line after the lit tool's name: Frame's look ("iPhone · Sky · Padding 48"), Redact's
     /// cover ("Pixelate · drag to cover"), or what to do with a shape or Text ("drag to draw"; the strip reads
-    /// "ARROW · DRAG TO DRAW").
+    /// "ARROW · DRAG TO DRAW"), or, with a drawing or area selected, that it can be dragged.
     var toolHint: String {
+        if selectedMarkup != nil { return "selected · drag to move" }
+        if selectedRedaction != nil { return "area selected · drag to move" }
         switch editorTool {
         case .frame:
             var parts = [frameChoice.title]

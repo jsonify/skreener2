@@ -64,16 +64,23 @@ public final class ShareModel: ObservableObject {
         case save, share
     }
 
-    /// One undo step: a redaction step (how many areas it added) or one drawing. Undo takes back the newest, whichever
-    /// kind it is (#440).
+    /// One undo step: the redactions or the drawings as they were before it, so a step can add, change, move or
+    /// delete any of them. Undo takes back the newest, whichever kind it is (#440).
     private enum UndoStep {
-        case redaction(Int)
-        case markup
+        case redactions([Redaction])
+        case markups([Markup])
 
         var isRedaction: Bool {
-            if case .redaction = self { return true }
+            if case .redactions = self { return true }
             return false
         }
+    }
+
+    /// The drawing or redaction picked to edit: tapped, it shows handles and a menu (Edit, Duplicate, Delete) and can
+    /// be dragged; the colour, size or cover then change it.
+    enum Selection: Equatable {
+        case markup(Int)
+        case redaction(Int)
     }
 
     /// A line for the readout, and, when the user has to do something, what.
@@ -125,22 +132,28 @@ public final class ShareModel: ObservableObject {
         didSet {
             guard mode != oldValue else { return }
             if mode != .draw { cancelText() }
+            deselect()
             redraw()
         }
     }
     /// How new redactions cover: pixelate, blur or solid.
-    @Published var redactStyle = RedactText.Cover.pixelate
+    @Published var redactStyle = RedactText.Cover.pixelate { didSet { applyCoverToSelection() } }
     /// In full-image pixels (bottom-left origin); drawn over the screenshot in the preview and every export.
     @Published private(set) var redactions: [Redaction] = [] { didSet { scheduleRedraw() } }
     /// Finds text to redact.
     let finder = TextFinder()
     /// The Draw tool. Leaving Text drops the label being typed.
-    @Published var tool = Tool.arrow { didSet { if tool != .text { cancelText() } } }
-    /// The color of new drawings and text.
-    @Published var markupColor = Markup.defaultColor
+    @Published var tool = Tool.arrow {
+        didSet {
+            if tool != .text { cancelText() }
+            if tool != oldValue { deselect() }
+        }
+    }
+    /// The color of new drawings and text, and of the selected one.
+    @Published var markupColor = Markup.defaultColor { didSet { applyStyleToSelection() } }
     /// The width of new drawings and the size of new text, one of `markupWidths` (highlights ignore it). Each markup
     /// keeps its own. Part of the look.
-    @Published var markupWidth = 1.0 { didSet { saveLook() } }
+    @Published var markupWidth = 1.0 { didSet { saveLook(); applyStyleToSelection() } }
     /// In full-image pixels; drawn over the redactions in the preview and every export. Each is its own undo step.
     /// Redrawn at once, so a finished shape doesn't blink between the live one and the preview.
     @Published private(set) var markups: [Markup] = [] { didSet { redraw() } }
@@ -148,6 +161,17 @@ public final class ShareModel: ObservableObject {
     @Published private(set) var textSpot: CGPoint?
     /// The label being typed.
     @Published var draftText = ""
+    /// The drawing or redaction being edited, if any.
+    @Published private(set) var selection: Selection?
+    /// A drawing left out of the preview while it is dragged or its text retyped: the canvas draws it live instead.
+    private var liftedMarkup: Int?
+    /// The text drawing being retyped: Done replaces it.
+    private var editingText: Int?
+    /// The drawing or redaction whose colour, size or cover was last changed in one undo step, so a slider drag is
+    /// one step; any other step ends it.
+    private var styledSelection: Selection?
+    /// The colour key and size slider are being set to the selected drawing's, which must not change it.
+    private var syncingStyle = false
 
     /// True when the full image is an iPhone screenshot whose status bar size is known.
     var canCleanBar: Bool {
@@ -225,7 +249,7 @@ public final class ShareModel: ObservableObject {
         // Padding and corners are in full-image pixels; the preview is smaller by this much.
         let scale = CGFloat(source.width) / fullSize.width
         let shown = redactions.map { $0.scaled(by: scale) }
-        let marks = markups.map { $0.scaled(by: scale) }
+        let marks = markups.indices.filter { $0 != liftedMarkup }.map { markups[$0].scaled(by: scale) }
         let bar = previewStatusBar(scale: scale)
         switch mode {
         case .style:
@@ -248,19 +272,25 @@ public final class ShareModel: ObservableObject {
             .filter { !$0.isNull && $0.width >= 1 && $0.height >= 1 }
             .map { Redaction(rect: $0, style: redactStyle) }
         guard !added.isEmpty else { return }
-        undoSteps.append(.redaction(added.count))
+        pushUndo(.redactions(redactions))
+        deselect()
         redactions += added
     }
 
-    /// Takes back the last step: one dragged area, or all the matches one Redact N covered.
+    /// Takes back the last redaction step: one dragged area, all the matches one Redact N covered, a move or a delete.
     func undoRedaction() {
         guard let i = undoSteps.lastIndex(where: \.isRedaction),
-              case .redaction(let n) = undoSteps.remove(at: i) else { return }
-        redactions.removeLast(min(n, redactions.count))
+              case .redactions(let before) = undoSteps.remove(at: i) else { return }
+        deselect()
+        styledSelection = nil
+        redactions = before
     }
 
+    /// Removes every redaction, as one step Undo takes back.
     func clearRedactions() {
-        undoSteps.removeAll { $0.isRedaction }
+        guard !redactions.isEmpty else { return }
+        pushUndo(.redactions(redactions))
+        deselect()
         redactions = []
     }
 
@@ -272,10 +302,19 @@ public final class ShareModel: ObservableObject {
     /// Takes back the newest edit: a redaction step or a drawing, whichever came last.
     func undo() {
         guard let step = undoSteps.popLast() else { return }
+        cancelText()
+        deselect()
+        styledSelection = nil
         switch step {
-        case .redaction(let n): redactions.removeLast(min(n, redactions.count))
-        case .markup: _ = markups.popLast()
+        case .redactions(let before): redactions = before
+        case .markups(let before): markups = before
         }
+    }
+
+    /// Records the state before a new step.
+    private func pushUndo(_ step: UndoStep) {
+        undoSteps.append(step)
+        styledSelection = nil
     }
 
     // MARK: Draw
@@ -333,8 +372,7 @@ public final class ShareModel: ObservableObject {
     /// Adds a finished pen stroke.
     func drawPen(_ points: [CGPoint]) {
         guard let markup = penStroke(points) else { return }
-        undoSteps.append(.markup)
-        markups.append(markup)
+        add(markup)
     }
 
     /// A tap with Pen: a dot at `p` (full-image pixels); a tap beside the picture is ignored.
@@ -346,8 +384,7 @@ public final class ShareModel: ObservableObject {
     /// Adds what a finished drag made.
     func draw(from a: CGPoint, to b: CGPoint) {
         guard let markup = shape(from: a, to: b) else { return }
-        undoSteps.append(.markup)
-        markups.append(markup)
+        add(markup)
     }
 
     /// Puts the label being typed at `p` (full-image pixels); a tap beside the picture is ignored.
@@ -362,24 +399,230 @@ public final class ShareModel: ObservableObject {
         return newMarkup(.text(draftText, at: spot))
     }
 
-    /// Adds the typed label at its spot; empty text adds nothing.
+    /// Adds a new drawing as one step.
+    private func add(_ markup: Markup) {
+        pushUndo(.markups(markups))
+        deselect()
+        markups.append(markup)
+    }
+
+    /// Adds the typed label at its spot, or, when retyping one, puts it back changed; empty text adds nothing (and
+    /// deletes a retyped label).
     func commitText() {
         let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let spot = textSpot, !text.isEmpty {
-            undoSteps.append(.markup)
-            markups.append(newMarkup(.text(text, at: spot)))
+        if let i = editingText, markups.indices.contains(i), let spot = textSpot {
+            var m = markups[i]
+            m.kind = .text(text, at: spot)
+            m.color = markupColor
+            m.width = CGFloat(markupWidth)
+            if text.isEmpty {
+                pushUndo(.markups(markups))
+                markups.remove(at: i)
+                selection = nil
+            } else if m != markups[i] {
+                pushUndo(.markups(markups))
+                markups[i] = m
+            }
+        } else if let spot = textSpot, !text.isEmpty {
+            add(newMarkup(.text(text, at: spot)))
         }
         cancelText()
     }
 
+    /// Drops the label being typed; a label being retyped stays as it was.
     func cancelText() {
         textSpot = nil
         draftText = ""
+        if editingText != nil {
+            editingText = nil
+            liftedMarkup = nil
+            redraw()
+        }
     }
 
+    /// Removes every drawing, as one step Undo takes back.
     func clearMarkups() {
-        undoSteps.removeAll { !$0.isRedaction }
+        guard !markups.isEmpty else { return }
+        cancelText()
+        pushUndo(.markups(markups))
+        deselect()
         markups = []
+    }
+
+    // MARK: Editing
+
+    /// The selected drawing, if a drawing is selected.
+    var selectedMarkup: Markup? {
+        guard case .markup(let i)? = selection, markups.indices.contains(i) else { return nil }
+        return markups[i]
+    }
+
+    /// The selected redaction, if a redaction is selected.
+    var selectedRedaction: Redaction? {
+        guard case .redaction(let i)? = selection, redactions.indices.contains(i) else { return nil }
+        return redactions[i]
+    }
+
+    /// The newest drawing within `tolerance` (full-image pixels) of `p`.
+    func markupIndex(at p: CGPoint, tolerance: CGFloat) -> Int? {
+        Markup.index(at: p, in: markups, tolerance: tolerance, imageWidth: Int(fullSize.width))
+    }
+
+    /// The newest redaction within `tolerance` (full-image pixels) of `p`.
+    func redactionIndex(at p: CGPoint, tolerance: CGFloat) -> Int? {
+        Redaction.index(at: p, in: redactions, tolerance: tolerance)
+    }
+
+    /// Selects drawing `i`. The colour key and size slider show its colour and size, so changing them changes it.
+    func selectMarkup(_ i: Int) {
+        guard markups.indices.contains(i) else { return }
+        selection = .markup(i)
+        styledSelection = nil
+        let m = markups[i]
+        syncingStyle = true
+        defer { syncingStyle = false }
+        markupColor = m.color
+        if case .highlight = m.kind {} else { markupWidth = Self.nearestMarkupWidth(Double(m.width)) }
+    }
+
+    /// Selects redaction `i`; the cover control shows its cover, so changing it changes it.
+    func selectRedaction(_ i: Int) {
+        guard redactions.indices.contains(i) else { return }
+        selection = .redaction(i)
+        styledSelection = nil
+        redactStyle = redactions[i].style
+    }
+
+    func deselect() {
+        guard selection != nil else { return }
+        selection = nil
+    }
+
+    /// Leaves the selected drawing out of the preview while it is dragged; `dropMarkup` puts it back.
+    func liftSelectedMarkup() {
+        guard case .markup(let i)? = selection, markups.indices.contains(i) else { return }
+        liftedMarkup = i
+        redraw()
+    }
+
+    /// Puts the lifted drawing back as `changed` (one step), or as it was for nil or the same.
+    func dropMarkup(_ changed: Markup?) {
+        guard let i = liftedMarkup else { return }
+        if let changed, markups.indices.contains(i), changed != markups[i] {
+            pushUndo(.markups(markups))
+            liftedMarkup = nil
+            // Redraws with it back in.
+            markups[i] = changed
+        } else {
+            liftedMarkup = nil
+            redraw()
+        }
+    }
+
+    /// Starts a drag of the selected redaction: one undo step for the whole drag.
+    func beginRedactionEdit() {
+        guard selectedRedaction != nil else { return }
+        pushUndo(.redactions(redactions))
+    }
+
+    /// Moves or resizes the selected redaction while it is dragged (no undo step: `beginRedactionEdit` made one).
+    /// Kept at least a pixel big and on the image.
+    func setSelectedRedaction(_ r: Redaction) {
+        guard case .redaction(let i)? = selection, redactions.indices.contains(i) else { return }
+        let rect = r.rect.standardized.intersection(imageBounds)
+        guard !rect.isNull, rect.width >= 1, rect.height >= 1 else { return }
+        redactions[i] = Redaction(rect: rect, style: r.style)
+    }
+
+    /// Ends a redaction drag; a drag that changed nothing takes its undo step back.
+    func endRedactionEdit(original: Redaction) {
+        guard selectedRedaction == original, case .redactions? = undoSteps.last else { return }
+        undoSteps.removeLast()
+    }
+
+    /// Drops a redaction drag (a second finger landed): the redaction goes back where it was.
+    func cancelRedactionEdit(original: Redaction) {
+        setSelectedRedaction(original)
+        endRedactionEdit(original: original)
+    }
+
+    /// Deletes the selected drawing or redaction, as one step.
+    func deleteSelection() {
+        switch selection {
+        case .markup(let i)? where markups.indices.contains(i):
+            cancelText()
+            pushUndo(.markups(markups))
+            selection = nil
+            markups.remove(at: i)
+        case .redaction(let i)? where redactions.indices.contains(i):
+            pushUndo(.redactions(redactions))
+            selection = nil
+            redactions.remove(at: i)
+        default:
+            selection = nil
+        }
+    }
+
+    /// Adds a copy of the selected drawing or redaction a little down and right of it, and selects the copy.
+    func duplicateSelection() {
+        let step = max(8, fullSize.width / 40)
+        switch selection {
+        case .markup(let i)? where markups.indices.contains(i):
+            pushUndo(.markups(markups))
+            markups.append(markups[i].offsetBy(dx: step, dy: -step))
+            selectMarkup(markups.count - 1)
+        case .redaction(let i)? where redactions.indices.contains(i):
+            pushUndo(.redactions(redactions))
+            let copy = redactions[i].offsetBy(dx: step, dy: -step)
+            let rect = copy.rect.intersection(imageBounds)
+            redactions.append(Redaction(rect: rect.isNull ? redactions[i].rect : rect, style: copy.style))
+            selectRedaction(redactions.count - 1)
+        default:
+            break
+        }
+    }
+
+    /// The selected drawing is a text label, so it can be retyped.
+    var canEditSelectedText: Bool {
+        if case .text? = selectedMarkup?.kind { return true }
+        return false
+    }
+
+    /// Retypes the selected label: the text field comes up with its text, and the label follows what is typed.
+    func editSelectedText() {
+        guard case .markup(let i)? = selection, markups.indices.contains(i),
+              case .text(let text, let at) = markups[i].kind else { return }
+        editingText = i
+        liftedMarkup = i
+        draftText = text
+        textSpot = at
+        redraw()
+    }
+
+    /// The colour or size slider changed: the selected drawing takes it (a highlight keeps its one size).
+    private func applyStyleToSelection() {
+        guard !syncingStyle, editingText == nil, let sel = selection, case .markup(let i) = sel,
+              markups.indices.contains(i) else { return }
+        var m = markups[i]
+        m.color = markupColor
+        if case .highlight = m.kind {} else { m.width = CGFloat(markupWidth) }
+        guard m != markups[i] else { return }
+        if styledSelection != sel {
+            pushUndo(.markups(markups))
+            styledSelection = sel
+        }
+        markups[i] = m
+    }
+
+    /// The cover control changed: the selected redaction takes it.
+    private func applyCoverToSelection() {
+        guard let sel = selection, case .redaction(let i) = sel, redactions.indices.contains(i),
+              redactions[i].style != redactStyle else { return }
+        if styledSelection != sel {
+            pushUndo(.redactions(redactions))
+            styledSelection = sel
+        }
+        redactions[i].style = redactStyle
     }
 
     /// The look the controls show now.
