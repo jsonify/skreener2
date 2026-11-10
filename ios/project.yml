@@ -46,6 +46,9 @@ targets:
     dependencies:
       - target: SkreenerShare       # embedded in the app
       - target: SkreenerEditor      # embedded in the app's Frameworks, where the extension finds it at runtime
+      # The scrolling-capture stitcher, for long screenshots (#456).
+      - package: SkreenerCore
+        product: SkreenerCore
       - package: SK1Kit
         product: SK1Tokens
       - package: SK1Kit

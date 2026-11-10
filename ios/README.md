@@ -11,6 +11,13 @@ There are two ways in. Open the **Skreener** app: its home screen shows the scre
 and has keys for the latest screenshot and for choosing any image. Or, in Photos (or any app), tap Share and choose
 **Skreener**. Both open the same editor.
 
+**Long screenshots** (#456): the app's **Long screenshot** key stitches a page taller than the screen into one image,
+as the Mac's Scrolling capture does. iOS lets no app capture other apps or scroll them, so the frames come from a
+screen recording made while scrolling (Control Centre > Screen Recording), or from several screenshots that overlap
+by a few lines. The status, navigation and tab bars are kept once; the result opens in the editor like any picture.
+`Skreener/LongScreenshot.swift` reads the recording (about ten frames a second, retrying the frames in between after a
+fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
+
 - `Skreener/`: the app (SwiftUI, the SK-1 look from [SK1Kit](https://github.com/jsonify/SK1Kit)): the home screen
   with the inbox of new screenshots, which opens the editor full screen. It reads the Photos Screenshots album and
   asks for that access only when you tap Show my screenshots or Latest screenshot. Its icon, `Skreener/Assets.xcassets/AppIcon.appiconset/AppIcon.png`, is the Mac app's icon as an opaque
@@ -106,6 +113,33 @@ open Skreener.xcodeproj
     turns charcoal, the keys dark grey with light symbols, the LCD glass a little dimmer; Save stays orange with its
     dark label. Undo (top left) with nothing to undo is greyed out. The Draw key's shapes stand on a charcoal plate.
    The home screen turns charcoal too.
+
+## Try long screenshots
+
+1. Make a recording: open Control Centre, tap Screen Recording (add it in Settings > Control Centre if missing), wait
+   for the countdown, close Control Centre, and in Settings (or Safari, Mail, any long list) scroll steadily down for
+   five to ten seconds. Stop the recording from the red pill at the top (or Control Centre). It is in Photos.
+2. Open Skreener. The tray captioned OPEN has a full-width **Long screenshot** key under Latest screenshot and Choose
+   screenshot. Tap it: a menu with **From a screen recording** and **From screenshots**.
+3. **From a screen recording**: the photo picker shows only videos. Pick the recording. A panel covers Home with
+   "READING THE RECORDING…", then "STITCHING THE RECORDING…" and a bar filling, and a **Cancel** key. Then the editor
+   opens on one tall picture: the status bar and the navigation bar once at the top, the page scrolled through without
+   repeats or gaps, the tab bar (if any) once at the bottom. Control Centre at the start and end is not in it.
+4. Again, but with Cancel during the stitching: the panel goes and Home is as before, the LCD clear.
+5. Fast flick: record a page and flick it hard once or twice in the middle. It still stitches in one piece if the
+   frames in between overlap. If a flick is too fast to follow, the editor opens on the longest part that stitched, and
+   a banner over the picture for eight seconds says scrolling went too fast, with the time span used (a tap hides it).
+6. A recording where nothing scrolls (record the Home Screen for a few seconds): no editor; the LCD reads "NOTHING
+   SCROLLED IN THIS RECORDING" with a hint about recording while scrolling.
+7. **From screenshots**: take three screenshots of a long page, scrolling down between them so each shares a few lines
+   with the one before. Pick them (the picker numbers them in the order tapped; with Photos access they are put in the
+   order they were taken). The editor opens on one tall picture. Picked bottom to top, they still stitch.
+8. Pick two screenshots of different pages: the LCD reads "SCREENSHOT 2 DOESN’T OVERLAP", the hint "Screenshot 2
+   doesn’t overlap the one before it. Take screenshots that share a few lines." Pick three where only the first two
+   overlap: the editor opens on those two, with a banner saying screenshot 3 doesn't overlap and is left out.
+9. Pick a screenshot and a photo of another size: "SCREENSHOTS MUST BE THE SAME SIZE". Pick just one: "PICK TWO OR
+   MORE SCREENSHOTS".
+10. In the editor, Save: Photos has the full-width tall PNG (up to 30 000 px tall).
 
 ## Try the extension
 
