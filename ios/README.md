@@ -185,20 +185,32 @@ open Skreener.xcodeproj
 12. **Undo** (top left) takes back the newest edit, a drawing or a redaction, whichever came last: draw an arrow,
     cover an area, then tap Undo twice: the area goes, then the arrow. A line, ellipse, pen stroke or dot is one
     step each, the same way. With nothing left, Undo greys out.
-13. Tap **Frame**: the frame and background return, with the redactions and drawings on the screenshot (drawings
+13. Drawings and covered areas stay editable, as in the system's Markup. In Draw, tap a drawing: it gets an orange
+    dashed box (an arrow or line gets a round handle at each end, a rectangle, ellipse or highlight one at each
+    corner), the strip reads "… · SELECTED · DRAG TO MOVE", and a dark menu above it offers **Duplicate** and
+    **Delete** (and **Edit** for text). Drag the drawing to move it; drag a handle to move an arrow's head or tail or
+    resize a box. Drag an arrow, line, rectangle, ellipse or label directly to move it without tapping first (a
+    highlight, and anything while Pen is picked, is tapped first). With a drawing selected, the colour key shows its
+    colour and size: pick another colour or slide the size and that drawing changes. Tap a selected label, or
+    **Edit**, to retype it in the text field; **Done** keeps the change, **✕** leaves it as it was, and Done with the
+    text emptied deletes it. **Delete** removes the drawing; a tap on nothing deselects. In Redact, tap a covered
+    area to select it: corner handles and **Duplicate** / **Delete**; drag it to move it, drag a corner to resize it,
+    and Pixelate, Blur or Solid change its cover. Each move, resize, change or delete is one Undo step, as are
+    **Clear** and **Clear drawings**.
+14. Tap **Frame**: the frame and background return, with the redactions and drawings on the screenshot (drawings
     over redactions). They are in every export too, at full size.
-14. With a full iPhone screenshot, Frame's **More** sheet has a **Clean bar** switch next to Dark (it is absent for a
+15. With a full iPhone screenshot, Frame's **More** sheet has a **Clean bar** switch next to Dark (it is absent for a
     photo, an iPad or a cropped screenshot). Turn it on: the bar at the top repaints with the time reading 9:41, full
     signal bars, full Wi-Fi and a full battery, and no carrier, notification icons or real time. It stays on in
     Redact and the draw tools, and in Save and Share at full size. Turn it off to get the original bar back. The
     app's own editor has the same switch.
-15. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The strip says "Saved to Photos" and the
+16. Tap **Save**. The first time, iOS asks to add to Photos: allow it. The strip says "Saved to Photos" and the
     full-resolution PNG is in the Photos library. If you deny, the strip says "No access to Photos" with, under it,
     to allow "Add Photos Only" for Skreener in Settings > Privacy & Security > Photos.
-16. Tap **Share** (the icon left of Save) for the system share sheet with `Skreener.png`. Tap **Copy Photo** and
+17. Tap **Share** (the icon left of Save) for the system share sheet with `Skreener.png`. Tap **Copy Photo** and
     paste into Notes or Messages: the edited picture.
-17. **Close** (top left) ends the sheet.
-18. Open the share sheet again: the frame, Dark, background, sliders, Clean bar and drawing size are as you left
+18. **Close** (top left) ends the sheet.
+19. Open the share sheet again: the frame, Dark, background, sliders, Clean bar and drawing size are as you left
     them. Change them, Close, and open the Skreener app and a screenshot: the app's editor shows the look you just set in the
     extension. A fresh install starts with iPhone frame, Dark off, the first background, Padding 48, Corners 10,
     Shadow 50%, Clean bar off and size 1×.
