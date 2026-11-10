@@ -26,8 +26,11 @@ fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
   with `SkreenerCore`, the library shared with the Mac app. The app embeds it; the extension uses it. Both hand it an
   `ImageSource` (the extension's items, or image bytes), which it loads again for each export.
 - `SkreenerShare/`: the Share Extension. Only its view controller, which hosts the editor.
-- `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios` and
-  `com.skreener.ios.share` (the framework is `com.skreener.ios.editor`); iOS 17 or later, iPhone only.
+- `SkreenerBroadcast/`: the Broadcast Upload Extension for live scrolling capture (see below). It links only
+  `SkreenerCore`, for the stitcher.
+- `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios`,
+  `com.skreener.ios.share` and `com.skreener.ios.broadcast` (the framework is `com.skreener.ios.editor`); iOS 17 or
+  later, iPhone only.
 
 The `.xcodeproj` is generated and not committed (it is in `.gitignore`). The Info.plists are
 generated from `project.yml`'s `info:` sections and ignored too: change them there. So are the `.entitlements` files
@@ -41,8 +44,10 @@ brew install xcodegen
 
 The app and the extension share the editor's last look (frame, background, sliders) through the App Group
 `group.com.skreener.ios`, which must exist for your team. Xcode's automatic signing registers it on the first build to
-a device. If signing fails over it, select each of the `Skreener` and `SkreenerShare` targets, open Signing &
-Capabilities, and add the App Groups capability with `group.com.skreener.ios` ticked.
+a device. If signing fails over it, select each of the `Skreener`, `SkreenerShare` and `SkreenerBroadcast` targets,
+open Signing & Capabilities, and add the App Groups capability with `group.com.skreener.ios` ticked. The broadcast
+extension (#456) is a new App ID, `com.skreener.ios.broadcast`, which automatic signing registers the same way; it
+uses the group to hand its long screenshots to the app.
 
 ## Build and run
 
@@ -261,6 +266,49 @@ Show my screenshots to let it see your screenshots" (or say to allow access in S
 the shortcut, say "Frame latest". Then Settings > Accessibility > Touch > Back Tap > Double Tap > the shortcut. Take a screenshot, double-tap
 the back of the phone and paste in Messages: the framed screenshot.
 
+## Live scrolling capture
+
+The home screen's **Scroll capture** key captures a long screenshot of any app (#456), like the Mac's scrolling
+capture, except that you scroll by hand: iOS lets no app scroll another. The key starts a screen broadcast to
+Skreener's Broadcast Upload Extension (`SkreenerBroadcast`); iOS shows the red recording button in the status bar while
+it runs. The extension takes about 10 frames a second and stitches them with `ScrollStitcher` from `SkreenerCore`,
+keeping the status bar, navigation bar and tab bar once. Until something scrolls, it starts again from whatever is on
+screen whenever the screen changes, so Skreener, the countdown and the switch to the other app don't end up in the
+picture. A broadcast extension may use only about 50 MB, so the finished strips go to disk as PNGs as you scroll, in
+the App Group container (`LiveCaptures/<id>/`), with a `manifest.json` once the broadcast stops; nothing leaves the
+phone. It then posts a notification. When Skreener comes back to the front (from the notification or any other way),
+the home screen joins the strips into one PNG, removes the folder and opens it in the editor, as a picked image opens.
+With an editor already open, it waits until you close it; with several finished captures, the newest (or the one
+whose notification you tapped) opens first and each of the others opens when you close the editor. The capture stops
+at 30,000 pixels, the Mac's limit too.
+
+## Try live scrolling capture
+
+1. On first launch after this change, the home screen has a **Scroll capture** key above the OPEN tray, and under it
+   "Start, then switch to any app and scroll slowly. Stop from the red status-bar button."
+2. Tap **Scroll capture**. The first time, iOS asks to allow notifications: tap Allow. Then the system's Screen
+   Broadcast sheet rises with **Skreener** chosen and no microphone switch. (If instead a small round record button
+   appears next to the key with "Tap the round button, then Start Broadcast.", tap that button.)
+3. Tap **Start Broadcast**. After the 3-2-1 countdown, the status bar's clock turns into a red pill. Close the sheet
+   (tap above it or swipe it down).
+4. Go to Safari (a long article) or Messages (a long conversation). Wait a moment, then scroll down slowly with
+   short, steady swipes; don't fling. You may pause and carry on.
+5. Tap the red pill in the status bar, then **Stop**. Within a second or two a notification says "Long screenshot
+   ready" / "Tap to edit it in Skreener."
+6. Tap the notification. Skreener opens; the LCD reads "OPENING…" briefly, then the editor shows one tall image: the
+   page from where you started to where you stopped, the status bar and Safari's toolbar (or Messages' header and
+   input bar) once each, no repeated lines. Save it: Photos has the long PNG. Close: the home screen is back, and the
+   explainer under the key is gone.
+7. Nothing scrolled: start again, open an app, don't scroll, stop. The notification says "Nothing scrolled" /
+   "Scroll slowly in the app you want to capture." Opening Skreener opens nothing.
+8. Maximum length: start, open a very long page (a long Wikipedia article) and keep scrolling slowly for a minute or
+   two. At 30,000 pixels (roughly 12 screens on a 3x iPhone) the broadcast stops by itself with an alert
+   "Reached the maximum length. Your long screenshot is saved: tap the Skreener notification to edit it.", and
+   a "Long screenshot ready (maximum length)" notification; tapping it opens the capture as in step 6.
+9. Without opening the notification: make a capture, stop, and open Skreener from the Home Screen instead: it opens
+   the capture the same way. With an editor open when a capture finishes (stop from Control Centre while Skreener
+   is in front), the banner shows and the capture opens when you tap Close.
+
 ## Privacy manifest
 
 The app has `Skreener/PrivacyInfo.xcprivacy`: it stores when it was last sent to the background in `UserDefaults`,
@@ -270,7 +318,8 @@ The extension has its own `SkreenerShare/PrivacyInfo.xcprivacy`, copied as a res
 category with `1C8F.1`: the editor framework runs inside it and reads and writes the shared defaults. Both declare no
 tracking and no collected data. The framework, `SkreenerCore` and SK1Kit use none of Apple's other required-reason APIs
 (file timestamps, system boot time, disk space, active keyboards). Add an entry, to the target that makes the call, if
-that changes.
+that changes. The broadcast extension uses none of them (no `UserDefaults`, no file timestamps), so it has no
+manifest; the app's Scroll capture key remembers in its own defaults that its explainer was seen, covered by `CA92.1`.
 
 ## Upload to TestFlight
 

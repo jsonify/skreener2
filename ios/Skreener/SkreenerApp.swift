@@ -5,6 +5,11 @@ struct SkreenerApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var library = ScreenshotLibrary()
 
+    init() {
+        // Live scrolling capture's notifications (#456) open the long screenshot when tapped.
+        LiveCaptureInbox.installNotificationDelegate()
+    }
+
     var body: some Scene {
         WindowGroup {
             HomeView(library: library, router: AppRouter.shared)

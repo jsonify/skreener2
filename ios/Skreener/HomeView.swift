@@ -78,6 +78,8 @@ struct HomeView: View {
             guard let asset = router.take() else { return }
             Task { await open(asset) }
         }
+        // A finished live scrolling capture (#456, LiveScrollCapture.swift) opens like a picked image, once no editor is up.
+        .onLiveScrollCapture(when: session == nil) { capture in await openImage { try await capture.joinedPNG() } }
 #if DEBUG
         // -SKDemoEditor (DemoLaunch.swift): the editor on a sample picture, for the Simulator screenshots.
         .task { await openDemo() }
@@ -257,6 +259,7 @@ struct HomeView: View {
                 Button("Select more") { Presenter.selectMorePhotos() }
                     .buttonStyle(.skPhoneKey(fill: true))
             }
+            ScrollCaptureKey()
             VStack(spacing: 5) {
                 SKWell(radius: SK1.Metrics.trayRadius) {
                     VStack(spacing: 4) {

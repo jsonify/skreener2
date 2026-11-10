@@ -48,7 +48,7 @@ jobs:
           cd ios
           xcodebuild build -project Skreener.xcodeproj -scheme Skreener \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
-      # xcodegen generate ran stamp_build_number.sh (project.yml's preGenCommand): the built app and extension must
+      # xcodegen generate ran stamp_build_number.sh (project.yml's preGenCommand): the built app and extensions must
       # carry its number and project.yml's MARKETING_VERSION, which App Store Connect reads from their Info.plists.
       - name: Check the version and build number
         run: |
@@ -59,7 +59,8 @@ jobs:
           test -n "$want_build"
           test -n "$want_version"
           app=build/Build/Products/Debug-iphonesimulator/Skreener.app
-          for plist in "$app/Info.plist" "$app/PlugIns/SkreenerShare.appex/Info.plist"; do
+          for plist in "$app/Info.plist" "$app/PlugIns/SkreenerShare.appex/Info.plist" \
+              "$app/PlugIns/SkreenerBroadcast.appex/Info.plist"; do
             build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
             version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
             echo "$plist: $version ($build)"

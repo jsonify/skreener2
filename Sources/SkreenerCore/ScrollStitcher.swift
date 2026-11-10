@@ -200,6 +200,8 @@ public final class ScrollStitcher: @unchecked Sendable {
     /// Whether the last frame reached the end of what has been stitched (not after scrolling back up).
     private var caughtUp = true
     private var offset = 0, contentEnd = 0
+    /// `takeRemaining()` emptied the stitcher.
+    private var finished = false
     /// Columns matched, from the left: an overlay scroll bar at the right edge fades in and moves against the content.
     private let matchWidth: Int
     private let space: CGColorSpace
@@ -217,7 +219,7 @@ public final class ScrollStitcher: @unchecked Sendable {
 
     public func add(_ frame: CGImage) -> Step {
         guard frame.width == width, frame.height == frameHeight else { return .lost }
-        if height >= Self.maxHeight { return .full }
+        if height >= Self.maxHeight || finished { return .full }
         let rows = Self.rows(frame, width: matchWidth)
         let h = frameHeight
         switch ScrollMatcher.match(lastRows, rows, hint: lastShift, bridgeBlank: caughtUp) {
@@ -275,6 +277,38 @@ public final class ScrollStitcher: @unchecked Sendable {
             ctx.draw(p, in: CGRect(x: 0, y: y, width: width, height: p.height))
         }
         return ctx.makeImage()
+    }
+
+    // MARK: Taking pieces out
+
+    /// Takes the oldest finished pieces out of the stitcher, top to bottom, for a caller that can't keep the whole
+    /// image in memory (the iPhone's broadcast extension, which writes them to disk as it goes). At least `rows` rows of
+    /// the newest pieces stay in, as a footer that appears or grows takes rows back off the bottom: keep more than the
+    /// tallest footer expected (half a frame is plenty). Nothing is taken until something has moved.
+    ///
+    /// `height` still counts what was taken, but `makeImage()` no longer includes it: a caller that takes pieces joins
+    /// them, then what `takeRemaining()` returns, top to bottom. The Mac app never takes pieces.
+    public func takeFinishedPieces(keepingLast rows: Int) -> [CGImage] {
+        var kept = 0, index = pieces.count
+        while index > 0, kept < rows {
+            index -= 1
+            kept += pieces[index].height
+        }
+        guard index > 0 else { return [] }
+        let taken = Array(pieces[..<index])
+        pieces.removeFirst(index)
+        return taken
+    }
+
+    /// Takes everything still in the stitcher, top to bottom: the pieces not yet taken and the latest footer under
+    /// them, or the first frame alone if nothing moved. The stitcher is finished after it: `add` returns `.full`.
+    public func takeRemaining() -> [CGImage] {
+        let parts = first.map { [$0] } ?? (pieces + [tail].compactMap { $0 })
+        pieces = []
+        tail = nil
+        first = nil
+        finished = true
+        return parts
     }
 
     // MARK: Pixels
