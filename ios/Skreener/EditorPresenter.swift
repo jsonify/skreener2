@@ -16,10 +16,12 @@ enum EditorPresenter {
 
     /// Presents a fresh editor on `model`, replacing any editor on screen (and anything over it, like a share sheet).
     /// `onClose` runs when the editor's Close key is tapped; it should end the session, which calls `dismiss`.
-    static func show(_ model: ShareModel, onClose: @escaping () -> Void) {
+    /// `notice`, if any, shows over the editor for a few seconds.
+    static func show(_ model: ShareModel, notice: String? = nil, onClose: @escaping () -> Void) {
         let editor = EditorViewController(rootView: ShareView(model: model,
                                                               onClose: onClose,
-                                                              onShare: { url in Presenter.share(url) }))
+                                                              onShare: { url in Presenter.share(url) }),
+                                          notice: notice)
         if let old = shown, let presenting = old.presentingViewController {
             shown = editor
             presenting.dismiss(animated: false) { present(editor) }
@@ -61,9 +63,15 @@ final class EditorViewController: UIViewController {
     override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .portrait }
 
     private let host: UIHostingController<ShareView>
+    /// A line about the picture (a long screenshot that only partly stitched, #456), shown over the editor for a
+    /// few seconds once it is up; a tap hides it sooner. It never blocks the editor.
+    private let notice: String?
+    private var noticeView: UIView?
+    private var noticeShown = false
 
-    init(rootView: ShareView) {
+    init(rootView: ShareView, notice: String? = nil) {
         host = UIHostingController(rootView: rootView)
+        self.notice = notice
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
     }
@@ -85,5 +93,57 @@ final class EditorViewController: UIViewController {
             host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         host.didMove(toParent: self)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard let notice, !noticeShown else { return }
+        noticeShown = true
+        showNotice(notice)
+    }
+
+    /// A rounded banner with the notice, over the top of the picture (clear of the top keys), gone after eight
+    /// seconds or a tap. VoiceOver reads it out.
+    private func showNotice(_ text: String) {
+        let banner = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+        banner.layer.cornerRadius = 14
+        banner.layer.cornerCurve = .continuous
+        banner.clipsToBounds = true
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        let label = UILabel()
+        label.text = text
+        label.numberOfLines = 0
+        label.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.translatesAutoresizingMaskIntoConstraints = false
+        banner.contentView.addSubview(label)
+        view.addSubview(banner)
+        let guide = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: banner.contentView.topAnchor, constant: 12),
+            label.bottomAnchor.constraint(equalTo: banner.contentView.bottomAnchor, constant: -12),
+            label.leadingAnchor.constraint(equalTo: banner.contentView.leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: banner.contentView.trailingAnchor, constant: -14),
+            banner.topAnchor.constraint(equalTo: guide.topAnchor, constant: 120),
+            banner.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
+            banner.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+        ])
+        banner.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(hideNotice)))
+        banner.alpha = 0
+        UIView.animate(withDuration: 0.25) { banner.alpha = 1 }
+        noticeView = banner
+        UIAccessibility.post(notification: .announcement, argument: text)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            self?.hideNotice()
+        }
+    }
+
+    @objc private func hideNotice() {
+        guard let banner = noticeView else { return }
+        noticeView = nil
+        UIView.animate(withDuration: 0.25, animations: { banner.alpha = 0 },
+                       completion: { _ in banner.removeFromSuperview() })
     }
 }

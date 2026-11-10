@@ -45,7 +45,11 @@ targets:
         buildPhase: resources
     dependencies:
       - target: SkreenerShare       # embedded in the app
+      - target: SkreenerBroadcast   # embedded in the app: live scrolling capture (#456)
       - target: SkreenerEditor      # embedded in the app's Frameworks, where the extension finds it at runtime
+      # The scrolling-capture stitcher, for long screenshots (#456).
+      - package: SkreenerCore
+        product: SkreenerCore
       - package: SK1Kit
         product: SK1Tokens
       - package: SK1Kit
@@ -126,6 +130,42 @@ targets:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsImageWithMaxCount: 1
 
+  # Live scrolling capture of any app (#456): a Broadcast Upload Extension that stitches the screen's frames while the
+  # user scrolls and leaves the long screenshot in the App Group container for the app. It links SkreenerCore only (the
+  # stitcher), to stay well inside a broadcast extension's memory limit of about 50 MB. It uses no required-reason API
+  # (no UserDefaults, no file timestamps), so it has no privacy manifest.
+  SkreenerBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - SkreenerBroadcast
+    dependencies:
+      - package: SkreenerCore
+        product: SkreenerCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.skreener.ios.broadcast
+        PRODUCT_NAME: SkreenerBroadcast
+        # Not an app: only extension-safe APIs.
+        APPLICATION_EXTENSION_API_ONLY: YES
+    entitlements:
+      path: SkreenerBroadcast/SkreenerBroadcast.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.skreener.ios
+    info:
+      path: SkreenerBroadcast/Info.plist
+      properties:
+        CFBundleDisplayName: Skreener
+        # XcodeGen writes 1.0 and 1 otherwise, whatever the build settings say.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          NSExtensionAttributes:
+            RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+
   # The editor (the Share Extension's screens, drawing and export), as a framework so the app can use it too (#408).
   # The extension links it without embedding; the app embeds it. Xcode generates its Info.plist (no gitignored file
   # to add) from the same MARKETING_VERSION and CURRENT_PROJECT_VERSION as the app's, as App Store Connect requires.
@@ -155,6 +195,7 @@ schemes:
       targets:
         Skreener: all
         SkreenerShare: all
+        SkreenerBroadcast: all
         SkreenerEditor: all
     run:
       config: Debug

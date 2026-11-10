@@ -21,6 +21,14 @@ struct HomeView: View {
     /// What went wrong last, shown on the LCD until the next action.
     @State private var failure: String?
     @State private var picked: PhotosPickerItem?
+    /// More about the failure, shown as the hint under the LCD.
+    @State private var failureDetail: String?
+    /// A long screenshot being made (#456), with its panel over the screen.
+    @State private var longShot: LongShotRun?
+    @State private var pickingRecording = false
+    @State private var pickingScreenshots = false
+    @State private var pickedRecording: PhotosPickerItem?
+    @State private var pickedScreenshots: [PhotosPickerItem] = []
 
     var body: some View {
         VStack(spacing: 10) {
@@ -45,18 +53,33 @@ struct HomeView: View {
         // The chassis fills the screen; the content stays inside the safe area.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { SKChassisFill() }
-        .disabled(opening)
+        .disabled(opening || longShot != nil)
+        .overlay {
+            if let longShot { LongShotProgressView(run: longShot) }
+        }
         .onChange(of: session?.id) { showEditor() }
         .onChange(of: picked) { _, item in
             guard let item else { return }
             picked = nil
             Task { await open(item) }
         }
+        .onChange(of: pickedRecording) { _, item in
+            guard let item else { return }
+            pickedRecording = nil
+            makeLongShot(fromRecording: item)
+        }
+        .onChange(of: pickedScreenshots) { _, items in
+            guard !items.isEmpty else { return }
+            pickedScreenshots = []
+            makeLongShot(fromScreenshots: items)
+        }
         // Initial too: an intent may have asked before this screen existed.
         .onChange(of: router.request?.id, initial: true) {
             guard let asset = router.take() else { return }
             Task { await open(asset) }
         }
+        // A finished live scrolling capture (#456, LiveScrollCapture.swift) opens like a picked image, once no editor is up.
+        .onLiveScrollCapture(when: session == nil) { capture in await openImage { try await capture.joinedPNG() } }
 #if DEBUG
         // -SKDemoEditor (DemoLaunch.swift): the editor on a sample picture, for the Simulator screenshots.
         .task { await openDemo() }
@@ -71,7 +94,7 @@ struct HomeView: View {
             return
         }
         let id = session.id
-        EditorPresenter.show(session.model, onClose: {
+        EditorPresenter.show(session.model, notice: session.notice, onClose: {
             if self.session?.id == id { self.session = nil }
         })
     }
@@ -164,6 +187,7 @@ struct HomeView: View {
     }
 
     private var hint: String? {
+        if let failureDetail { return failureDetail }
         switch library.access {
         case .notAsked, .full:
             return nil
@@ -235,15 +259,19 @@ struct HomeView: View {
                 Button("Select more") { Presenter.selectMorePhotos() }
                     .buttonStyle(.skPhoneKey(fill: true))
             }
+            ScrollCaptureKey()
             VStack(spacing: 5) {
                 SKWell(radius: SK1.Metrics.trayRadius) {
-                    HStack(spacing: 4) {
-                        Button("Latest screenshot") { Task { await openLatest() } }
-                            .buttonStyle(.skPhoneKey(library.access == .notAsked ? .cream : .orange, fill: true))
-                        PhotosPicker(selection: $picked, matching: .images) {
-                            Text("Choose screenshot")
+                    VStack(spacing: 4) {
+                        HStack(spacing: 4) {
+                            Button("Latest screenshot") { Task { await openLatest() } }
+                                .buttonStyle(.skPhoneKey(library.access == .notAsked ? .cream : .orange, fill: true))
+                            PhotosPicker(selection: $picked, matching: .images) {
+                                Text("Choose screenshot")
+                            }
+                            .buttonStyle(.skPhoneKey(fill: true))
                         }
-                        .buttonStyle(.skPhoneKey(fill: true))
+                        longShotKey
                     }
                     .padding(.horizontal, 5)
                     .padding(.top, 5)
@@ -254,15 +282,41 @@ struct HomeView: View {
         }
     }
 
+    /// Long screenshot (#456): a menu of where the frames come from, each opening the system photo picker (no Photos
+    /// access needed). A recording is handed over as it is (`.current`), not converted first; screenshots keep the
+    /// order they were picked in, and `photoLibrary` gives their identifiers for sorting them by date.
+    private var longShotKey: some View {
+        Menu {
+            Button { pickingRecording = true } label: {
+                Label("From a screen recording", systemImage: "record.circle")
+            }
+            Button { pickingScreenshots = true } label: {
+                Label("From screenshots", systemImage: "square.stack")
+            }
+        } label: {
+            Text("Long screenshot")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.skPhoneKey(fill: true))
+        .accessibilityHint(Text("Stitches a screen recording or overlapping screenshots into one tall image."))
+        .photosPicker(isPresented: $pickingRecording, selection: $pickedRecording, matching: .videos,
+                      preferredItemEncoding: .current)
+        .photosPicker(isPresented: $pickingScreenshots, selection: $pickedScreenshots, maxSelectionCount: 30,
+                      selectionBehavior: .ordered, matching: .images, preferredItemEncoding: .current,
+                      photoLibrary: .shared())
+    }
+
     // MARK: Opening
 
     private func showScreenshots() async {
         failure = nil
+        failureDetail = nil
         await library.requestAccess()
     }
 
     private func openLatest() async {
         failure = nil
+        failureDetail = nil
         await library.requestAccess()
         // Denied: the LCD says so.
         guard library.canRead else { return }
@@ -290,6 +344,7 @@ struct HomeView: View {
     private func openImage(reading read: () async throws -> Data) async {
         guard !opening else { return }
         failure = nil
+        failureDetail = nil
         opening = true
         let data = try? await read()
         opening = false
@@ -297,12 +352,96 @@ struct HomeView: View {
             failure = "COULD NOT OPEN THE IMAGE"
             return
         }
+        await openEditor(on: .data(data))
+    }
+
+    /// Shows `source` in a fresh editor, with `notice` over it for a few seconds.
+    private func openEditor(on source: ImageSource, notice: String? = nil) async {
         // The system photo picker may still be going away (it runs out of process); the editor is presented once it
         // is gone, as presenting during its dismissal left the editor's keys outside the safe area (#440).
         await Presenter.waitUntilSettled()
         let model = ShareModel()
-        model.load(source: .data(data))
-        session = EditorSession(model: model)
+        model.load(source: source)
+        session = EditorSession(model: model, notice: notice)
+    }
+
+    // MARK: Long screenshot
+
+    private func makeLongShot(fromRecording item: PhotosPickerItem) {
+        makeLongShot("READING THE RECORDING…") { run in
+            guard let movie = try await item.loadTransferable(type: PickedMovie.self) else {
+                throw LongShotError.unreadableRecording
+            }
+            defer { movie.remove() }
+            try Task.checkCancellation()
+            run.title = "STITCHING THE RECORDING…"
+            return try await LongShotMaker.fromRecording(at: movie.url, progress: run.reporter(from: 0))
+        }
+    }
+
+    private func makeLongShot(fromScreenshots items: [PhotosPickerItem]) {
+        let ordered = Self.inShootingOrder(items)
+        makeLongShot("READING SCREENSHOTS…") { run in
+            guard ordered.count >= 2 else { throw LongShotError.tooFewScreenshots }
+            var files: [Data] = []
+            for (index, item) in ordered.enumerated() {
+                try Task.checkCancellation()
+                guard let data = try? await item.loadTransferable(type: Data.self) else {
+                    throw LongShotError.unreadableScreenshot(index + 1)
+                }
+                files.append(data)
+                run.progress = 0.3 * Double(index + 1) / Double(ordered.count)
+            }
+            run.title = "STITCHING SCREENSHOTS…"
+            return try await LongShotMaker.fromScreenshots(files, progress: run.reporter(from: 0.3))
+        }
+    }
+
+    /// Runs `work` with the progress panel up, then opens the long screenshot in the editor, or shows on the LCD why
+    /// there is none. Cancel stops it and shows nothing.
+    private func makeLongShot(_ title: String, _ work: @escaping @MainActor (LongShotRun) async throws -> LongShot) {
+        guard longShot == nil, !opening else { return }
+        failure = nil
+        failureDetail = nil
+        let run = LongShotRun(title: title)
+        longShot = run
+        run.task = Task {
+            do {
+                let shot = try await work(run)
+                try Task.checkCancellation()
+                longShot = nil
+                await openEditor(on: LongShotMaker.source(shot.png), notice: shot.notice)
+            } catch is CancellationError {
+                longShot = nil
+            } catch let error as LongShotError {
+                longShot = nil
+                failure = error.title
+                failureDetail = error.detail
+            } catch {
+                longShot = nil
+                failure = Task.isCancelled ? nil : LongShotError.couldNotEncode.title
+            }
+        }
+    }
+
+    /// Screenshots sorted by when they were taken, which is top to bottom when taken while scrolling. Their dates are
+    /// only readable with Photos access (never asked for here); without it, or for any item without one, they stay in
+    /// the order they were picked.
+    private static func inShootingOrder(_ items: [PhotosPickerItem]) -> [PhotosPickerItem] {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else { return items }
+        let ids = items.compactMap(\.itemIdentifier)
+        guard ids.count == items.count else { return items }
+        var dates: [String: Date] = [:]
+        PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil).enumerateObjects { asset, _, _ in
+            if let date = asset.creationDate { dates[asset.localIdentifier] = date }
+        }
+        guard dates.count == Set(ids).count else { return items }
+        return items.enumerated().sorted { a, b in
+            let da = dates[a.element.itemIdentifier ?? ""] ?? .distantPast
+            let db = dates[b.element.itemIdentifier ?? ""] ?? .distantPast
+            return da == db ? a.offset < b.offset : da < db
+        }.map(\.element)
     }
 }
 
@@ -310,6 +449,8 @@ struct HomeView: View {
 struct EditorSession: Identifiable {
     let id = UUID()
     let model: ShareModel
+    /// Shown over the editor for a few seconds (a long screenshot that only partly stitched).
+    var notice: String? = nil
 }
 
 /// A screenshot in the inbox, cropped to a phone-shaped cell.
