@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.21.0](https://github.com/jsonify/skreener2/compare/v1.20.0...v1.21.0) (2026-11-12)
+
+
+### Features
+
+* **ios:** scrolling capture on iPhone ([#456](https://github.com/jsonify/skreener2/issues/456)) ([#457](https://github.com/jsonify/skreener2/issues/457)) ([d377b32](https://github.com/jsonify/skreener2/commit/d377b3207dbace8c6839b759ca904262c76d73a1))
+* **ios:** select, move, resize, restyle and delete drawings and redactions ([#440](https://github.com/jsonify/skreener2/issues/440)) ([#455](https://github.com/jsonify/skreener2/issues/455)) ([0275ed5](https://github.com/jsonify/skreener2/commit/0275ed546f7b90f79a8ada68aa0d6219d1e2dd33))
+
+
+### Bug Fixes
+
+* **capture:** copy split lines separately from Copy to Clipboard ([#334](https://github.com/jsonify/skreener2/issues/334)) ([#458](https://github.com/jsonify/skreener2/issues/458)) ([34a4130](https://github.com/jsonify/skreener2/commit/34a4130471670453d3ce146b79659a399f115b7a))
+* **core:** Safe Check finds keys in hyphenated groups, also when wrapped onto two lines ([#440](https://github.com/jsonify/skreener2/issues/440)) ([#449](https://github.com/jsonify/skreener2/issues/449)) ([3cdf0f5](https://github.com/jsonify/skreener2/commit/3cdf0f561ec67fbf4f5d8c0919c3b45853de42e9))
+
 ## [1.20.0](https://github.com/jsonify/skreener2/compare/v1.19.0...v1.20.0) (2026-11-09)
 
 
