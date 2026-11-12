@@ -149,7 +149,8 @@ Menu Bar → Expanded).
 - **Capture Text** recognizes the text in an area on your Mac, using Apple's Vision framework. The text opens in a
   small scratch pad where you can fix it up or join the lines, then you copy it. **Split into Lines**
   (Shift-Option-I, the toolbar or the context menu) selects each line of the selection, or of all the text, on its
-  own; Command-C then copies each line as its own clipboard entry, with the first line on top.
+  own; Command-C, or **Copy to Clipboard** (Command-Return), then copies each line as its own clipboard entry, with
+  the first line on top.
   Capture more text while it is open and it is added on a new line at the cursor.
   **Speak** (Option-Command-S, in the scratch pad) reads the selection, or all the text, aloud in a voice that
   matches its language; it turns into **Stop** until the speech ends.

@@ -9,7 +9,7 @@ import SkreenerCore
 /// With formatting kept, the text is rich (#326): headings, lists, bold, italic, code and colors, with a toolbar above
 /// it, and copying turns what is shown back into Markdown, clean text and HTML.
 /// Split into Lines (⇧⌥I) turns the selection into one selection per line (#334); ⌘C then copies each line as its own
-/// clipboard entry, first line on top.
+/// clipboard entry, first line on top, and Copy to Clipboard (⌘Return) does the same before closing.
 final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDelegate, NSMenuItemValidation {
     @MainActor private static var current: TextScratchPad?
 
@@ -138,7 +138,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
         // The main key, orange; its corner arrow (or a press and hold) opens the other two copies.
         let copy = RetroUI.key("Copy to Clipboard", variant: .orange, height: 28, target: self, action: #selector(copyAndClose))
         copy.variantMenu = { copyMenu }
-        copy.toolTip = "Copy all the text and close (⌘Return). The corner arrow (or press and hold) has Copy as Markdown and Copy Plain Text Only."
+        copy.toolTip = "Copy all the text and close (⌘Return); after Split into Lines, each line as its own entry. The corner arrow (or press and hold) has Copy as Markdown and Copy Plain Text Only."
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
@@ -244,6 +244,11 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     @objc private func copyPlainOnlyAndClose() { copy(.plainOnly) }
 
     private func copy(_ kind: TextRecognizer.CopyKind) {
+        // After Split into Lines, Copy to Clipboard copies each line on its own, like ⌘C, then closes (#334).
+        if kind == .standard, textView.selectedRanges.count > 1 {
+            copySeparately(thenClose: true)
+            return
+        }
         separateCopy?.cancel()
         let formatted = self.formatted   // closing forgets it
         var text = textView.string
@@ -302,8 +307,9 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
     }
 
     /// Copies each selected range as its own clipboard entry, from the last to the first, so the newest entry in a
-    /// clipboard manager is the first line and the clipboard ends up holding it. The pad stays open.
-    private func copySeparately() {
+    /// clipboard manager is the first line and the clipboard ends up holding it. The pad stays open until the last
+    /// entry is written, then closes with `thenClose`.
+    private func copySeparately(thenClose: Bool = false) {
         separateCopy?.cancel()
         let ns = textView.string as NSString
         let lines = textView.selectedRanges.map(\.rangeValue).sorted { $0.location < $1.location }
@@ -321,6 +327,7 @@ final class TextScratchPad: NSWindowController, NSWindowDelegate, NSTextViewDele
             }
             guard !Task.isCancelled else { return }
             Sound.play("Pop")
+            if thenClose { self.close() }
             Notifier.confirm("Copied \(order.count) lines separately")
         }
     }
