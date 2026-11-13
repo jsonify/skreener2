@@ -29,8 +29,8 @@ fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
 - `SkreenerBroadcast/`: the Broadcast Upload Extension for live scrolling capture (see below). It links only
   `SkreenerCore`, for the stitcher.
 - `SkreenerControls/`: the widget extension with the **Frame Latest** control for Control Center and the Action
-  button (#439; iOS 18 and later, the app stays on 17). `Shared/` holds the control's intent, which is in the app too,
-  so the app runs it.
+  button (#439; iOS 18 and later, the app stays on 17). `Shared/` holds the control's intent, which is in the app too;
+  it is a `LiveActivityIntent` so that iOS runs it in the app, not in the extension.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios`,
   `com.skreener.ios.share`, `com.skreener.ios.broadcast` and `com.skreener.ios.controls` (the framework is `com.skreener.ios.editor`); iOS 17 or
   later, iPhone only.
@@ -287,7 +287,8 @@ what Frame Latest Screenshot does with Then = Copy, Safe Check gate included, wi
 with something to cover opens in the editor instead). Add it: open Control Center, tap **+** (top left), **Add a
 Control**, search for Skreener and tap **Frame Latest**. On an iPhone with an Action button: Settings > Action Button,
 swipe to **Controls**, choose Skreener > Frame Latest. The control shows nothing when it is done: paste to see the
-framed screenshot.
+framed screenshot. It frames the newest screenshot saved in Photos: dismiss iOS's screenshot preview first (swipe the
+thumbnail away, or tap ✓ > Save to Photos), or it frames the one before.
 
 ## Live scrolling capture
 
@@ -357,7 +358,8 @@ manifest; the app's Scroll capture key remembers in its own defaults that its ex
 
 ## Upload from GitHub Actions
 
-`.github/workflows/testflight.yml` archives and uploads without a Mac. It runs by itself on every merge to `main` that
+`.github/workflows/testflight.yml` archives and uploads on the owner's Mac, registered as a self-hosted runner (see
+**Self-hosted runner** below), with that Mac's selected Xcode. It runs by itself on every merge to `main` that
 changes `ios/`, `Sources/SkreenerCore/` or `Package.swift` (a Mac-only or docs-only merge uploads nothing). To upload
 another branch, or `main` again: Actions tab > **TestFlight** > **Run workflow**, pick the branch, **Run workflow**. It stamps its own build number and signs with Xcode's cloud-managed certificates
 through an App Store Connect API key, so no certificate or profile is kept in the repository. The run's summary names the
@@ -378,6 +380,28 @@ Setup, once:
    Then delete the downloaded `.p8` or keep it somewhere private: whoever has it can upload builds for the team.
 
 To revoke CI's access, revoke the key on the same App Store Connect page.
+
+### Self-hosted runner
+
+The TestFlight job asks for a runner labelled `self-hosted` and `macOS`; every other workflow stays on GitHub's runners.
+While no such runner is online (the Mac is off, asleep or the runner is stopped), uploads wait in the queue, for up to
+a day, then fail.
+
+Setup, once, on the Mac:
+
+1. Ideally make a separate standard macOS user for the runner (System Settings > Users & Groups), so builds can't
+   reach your own files and keychain. Install Xcode (signed in to nothing is fine: signing uses the API key) and
+   Homebrew, run `xcode-select -p` to check the Xcode it uses, and `brew install xcodegen`.
+2. On GitHub: the repository's **Settings > Actions > Runners > New self-hosted runner**, choose macOS and the Mac's
+   architecture, and run the commands shown, in that user's account. Accept the default labels (they include
+   `self-hosted` and `macOS`).
+3. Install it as a service so it starts at login: `./svc.sh install && ./svc.sh start` in the runner folder.
+4. The repository is public, so in **Settings > Actions > General > Approval for running fork pull request
+   workflows from contributors**, choose **Require approval for all external contributors**. A pull request from a
+   fork runs its own copy of the workflows, and one that changed `runs-on` could otherwise run code on this Mac.
+
+Check: Actions tab > **TestFlight** > **Run workflow** on `main`. The run's job page names the Mac's runner, and the
+build appears under TestFlight after processing.
 
 CI builds the project for the iOS Simulator in `.github/workflows/ios.yml` on every change, with warnings as errors.
 

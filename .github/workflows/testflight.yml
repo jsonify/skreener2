@@ -2,7 +2,9 @@ name: TestFlight
 
 # Archives the iOS app and uploads it to App Store Connect, where the build shows up under TestFlight. It runs on every
 # push to main (a merged PR) that changes what goes into the iOS app, the same paths as ios.yml; run it by hand from the
-# Actions tab (Run workflow) for any other branch or to upload again. Signing is Xcode's automatic, cloud-managed signing through an App Store
+# Actions tab (Run workflow) for any other branch or to upload again. It runs on the owner's own Mac, registered as a
+# self-hosted runner (ios/README.md, "Self-hosted runner"), not on GitHub's Macs; it waits in the queue while that Mac
+# is off or asleep. Signing is Xcode's automatic, cloud-managed signing through an App Store
 # Connect API key, so no certificate or profile is stored here; see ios/README.md ("Upload from GitHub Actions") for the
 # one-time setup of the key and these repository secrets:
 #   ASC_KEY_ID         the API key's Key ID
@@ -29,7 +31,8 @@ concurrency:
 
 jobs:
   upload:
-    runs-on: macos-latest
+    # The owner's Mac: a self-hosted runner gets the self-hosted and macOS labels when it is registered.
+    runs-on: [self-hosted, macOS]
     timeout-minutes: 45
     env:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -45,14 +48,17 @@ jobs:
           done
           exit "$missing"
       - uses: actions/checkout@v4
-      # The same Xcode as ios.yml builds with.
-      - name: Select newest Xcode
+      # The Mac's own selected Xcode (xcode-select -p), as the owner builds with: no sudo, which a runner can't answer.
+      # Homebrew's folders are added to PATH, since a runner service may start without them.
+      - name: Toolchain
         run: |
-          NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
-          sudo xcode-select -s "$NEWEST"
+          for dir in /opt/homebrew/bin /usr/local/bin; do
+            if [ -d "$dir" ]; then echo "$dir" >> "$GITHUB_PATH"; fi
+          done
+          xcode-select -p
           xcodebuild -version
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: command -v xcodegen || brew install xcodegen
       # Local.xcconfig carries the Team, as on the owner's Mac; xcodegen stamps the build number.
       - name: Generate the project
         run: |
