@@ -43,8 +43,11 @@ targets:
       # The privacy manifest (UserDefaults: "last sent to the background", and the shared last look) is a resource, copied into the app.
       - path: Skreener/PrivacyInfo.xcprivacy
         buildPhase: resources
+      # The Control Center control's intent, also in SkreenerControls, so the system runs it here in the app (#439).
+      - Shared
     dependencies:
       - target: SkreenerShare       # embedded in the app
+      - target: SkreenerControls    # embedded in the app: the Control Center control (#439), iOS 18 and later
       - target: SkreenerBroadcast   # embedded in the app: live scrolling capture (#456)
       - target: SkreenerEditor      # embedded in the app's Frameworks, where the extension finds it at runtime
       # The scrolling-capture stitcher, for long screenshots (#456).
@@ -166,6 +169,33 @@ targets:
           NSExtensionAttributes:
             RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
 
+  # The Frame Latest control for Control Center and the Action button (#439): a widget extension with one
+  # ControlWidget. Controls need iOS 18, so only this target does; the app stays on iOS 17, where iOS skips it. Its
+  # button runs FrameLatestControlIntent, whose file (Shared/) is in the app too, so the action runs in the app: the
+  # extension reads no defaults and needs no App Group or privacy manifest.
+  SkreenerControls:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - SkreenerControls
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.skreener.ios.controls
+        PRODUCT_NAME: SkreenerControls
+        # Not an app: only extension-safe APIs.
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: SkreenerControls/Info.plist
+      properties:
+        CFBundleDisplayName: Skreener
+        # XcodeGen writes 1.0 and 1 otherwise, whatever the build settings say.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
   # The editor (the Share Extension's screens, drawing and export), as a framework so the app can use it too (#408).
   # The extension links it without embedding; the app embeds it. Xcode generates its Info.plist (no gitignored file
   # to add) from the same MARKETING_VERSION and CURRENT_PROJECT_VERSION as the app's, as App Store Connect requires.
@@ -196,6 +226,7 @@ schemes:
         Skreener: all
         SkreenerShare: all
         SkreenerBroadcast: all
+        SkreenerControls: all
         SkreenerEditor: all
     run:
       config: Debug

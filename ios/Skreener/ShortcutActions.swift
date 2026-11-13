@@ -36,6 +36,31 @@ struct FrameLatestScreenshotIntent: AppIntent, ForegroundContinuableIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> {
+        let png = try await FrameLatest.run(then: then) { text in
+            try await requestToContinueInForeground(FrameLatest.dialog(text))
+        }
+        return .result(value: IntentFile(data: png, filename: "Skreener.png", type: .png))
+    }
+}
+
+/// The Control Center control's action (#439) runs in the app: the extension only shows the control. It frames and
+/// copies, as Frame Latest Screenshot with Then = Copy does, Safe Check gate included.
+extension FrameLatestControlIntent: ForegroundContinuableIntent {
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        _ = try await FrameLatest.run(then: .copy) { text in
+            try await requestToContinueInForeground(FrameLatest.dialog(text))
+        }
+        return .result()
+    }
+}
+
+/// What Frame Latest Screenshot and the control do: frame the newest screenshot in the last look, gated by Safe Check.
+@MainActor
+enum FrameLatest {
+    /// Frames the newest screenshot, does `then` with it and returns the PNG. `continueInForeground` asks to bring
+    /// Skreener to the front with that question (the calling intent's `requestToContinueInForeground`).
+    static func run(then: FrameThen, continueInForeground: (String) async throws -> Void) async throws -> Data {
         let asset = try LatestScreenshot.asset()
         guard let data = try? await ScreenshotLibrary.imageData(for: asset) else {
             throw ShortcutError.couldNotRead
@@ -45,7 +70,7 @@ struct FrameLatestScreenshotIntent: AppIntent, ForegroundContinuableIntent {
         // The Safe Check gate: anything found goes to the editor, where the findings show as they do on any open.
         let found = await QuickFrame.findings(in: source)
         if found > 0 {
-            try await requestToContinueInForeground(Self.dialog(ShortcutError.gateQuestion(found)))
+            try await continueInForeground(ShortcutError.gateQuestion(found))
             AppRouter.shared.open(asset)
             throw ShortcutError.safeCheck(found)
         }
@@ -61,16 +86,16 @@ struct FrameLatestScreenshotIntent: AppIntent, ForegroundContinuableIntent {
                 throw ShortcutError.couldNotSave
             }
         case .share:
-            try await requestToContinueInForeground(Self.dialog("Open Skreener to share the framed screenshot?"))
+            try await continueInForeground("Open Skreener to share the framed screenshot?")
             let url = try QuickFrame.shareFile(png)
             await Presenter.shareWhenActive(url)
         case .nothing:
             break
         }
-        return .result(value: IntentFile(data: png, filename: "Skreener.png", type: .png))
+        return png
     }
 
-    private static func dialog(_ text: String) -> IntentDialog {
+    static func dialog(_ text: String) -> IntentDialog {
         IntentDialog(LocalizedStringResource(stringLiteral: text))
     }
 }
