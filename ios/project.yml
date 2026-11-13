@@ -166,8 +166,9 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
-          NSExtensionAttributes:
-            RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+          # Directly under NSExtension, as in Xcode's template: App Store Connect rejects the upload (error 90362,
+          # "The key was not specified") when it is inside NSExtensionAttributes.
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
 
   # The Frame Latest control for Control Center and the Action button (#439): a widget extension with one
   # ControlWidget. Controls need iOS 18, so only this target does; the app stays on iOS 17, where iOS skips it. Its

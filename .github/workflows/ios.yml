@@ -67,3 +67,11 @@ jobs:
             test "$build" = "$want_build"
             test "$version" = "$want_version"
           done
+      # App Store Connect reads RPBroadcastProcessMode directly under NSExtension and rejects the upload otherwise
+      # (error 90362), which a simulator build never reports.
+      - name: Check the broadcast extension's process mode
+        run: |
+          plist=ios/build/Build/Products/Debug-iphonesimulator/Skreener.app/PlugIns/SkreenerBroadcast.appex/Info.plist
+          mode=$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:RPBroadcastProcessMode' "$plist")
+          echo "RPBroadcastProcessMode: $mode"
+          test "$mode" = RPBroadcastProcessModeSampleBuffer
