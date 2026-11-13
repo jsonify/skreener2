@@ -357,7 +357,8 @@ manifest; the app's Scroll capture key remembers in its own defaults that its ex
 
 ## Upload from GitHub Actions
 
-`.github/workflows/testflight.yml` archives and uploads without a Mac. It runs by itself on every merge to `main` that
+`.github/workflows/testflight.yml` archives and uploads on the owner's Mac, registered as a self-hosted runner (see
+**Self-hosted runner** below), with that Mac's selected Xcode. It runs by itself on every merge to `main` that
 changes `ios/`, `Sources/SkreenerCore/` or `Package.swift` (a Mac-only or docs-only merge uploads nothing). To upload
 another branch, or `main` again: Actions tab > **TestFlight** > **Run workflow**, pick the branch, **Run workflow**. It stamps its own build number and signs with Xcode's cloud-managed certificates
 through an App Store Connect API key, so no certificate or profile is kept in the repository. The run's summary names the
@@ -378,6 +379,28 @@ Setup, once:
    Then delete the downloaded `.p8` or keep it somewhere private: whoever has it can upload builds for the team.
 
 To revoke CI's access, revoke the key on the same App Store Connect page.
+
+### Self-hosted runner
+
+The TestFlight job asks for a runner labelled `self-hosted` and `macOS`; every other workflow stays on GitHub's runners.
+While no such runner is online (the Mac is off, asleep or the runner is stopped), uploads wait in the queue, for up to
+a day, then fail.
+
+Setup, once, on the Mac:
+
+1. Ideally make a separate standard macOS user for the runner (System Settings > Users & Groups), so builds can't
+   reach your own files and keychain. Install Xcode (signed in to nothing is fine: signing uses the API key) and
+   Homebrew, run `xcode-select -p` to check the Xcode it uses, and `brew install xcodegen`.
+2. On GitHub: the repository's **Settings > Actions > Runners > New self-hosted runner**, choose macOS and the Mac's
+   architecture, and run the commands shown, in that user's account. Accept the default labels (they include
+   `self-hosted` and `macOS`).
+3. Install it as a service so it starts at login: `./svc.sh install && ./svc.sh start` in the runner folder.
+4. The repository is public, so in **Settings > Actions > General > Approval for running fork pull request
+   workflows from contributors**, choose **Require approval for all external contributors**. A pull request from a
+   fork runs its own copy of the workflows, and one that changed `runs-on` could otherwise run code on this Mac.
+
+Check: Actions tab > **TestFlight** > **Run workflow** on `main`. The run's job page names the Mac's runner, and the
+build appears under TestFlight after processing.
 
 CI builds the project for the iOS Simulator in `.github/workflows/ios.yml` on every change, with warnings as errors.
 
