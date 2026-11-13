@@ -1,18 +1,31 @@
 import AppIntents
 
 /// The action of the Frame Latest control in Control Center and on the Action button (#439). It must run in the app,
-/// where `perform()` frames and copies the newest screenshot (ios/Skreener/ShortcutActions.swift); the extension only
-/// shows the control. A control's plain `AppIntent` runs in the widget extension's process, even with its file in the
-/// app too: on a phone, the control lit up and copied nothing. iOS runs a `LiveActivityIntent` in the app's process
-/// when the app has it, so this is one, though it starts no Live Activity. Run there in the background, it still
-/// copied nothing (iOS doesn't let a background app write to the pasteboard), so it also opens the app: the copy is
-/// made in the foreground, and the home screen's LCD says what happened. This file is in both targets.
-struct FrameLatestControlIntent: LiveActivityIntent {
+/// in the foreground, where `perform()` frames and copies the newest screenshot (ios/Skreener/ShortcutActions.swift):
+/// iOS takes a pasteboard write only from the app on screen. The extension only shows the control.
+///
+/// What didn't work on a phone: a plain `AppIntent` ran in the widget extension and copied nothing; a
+/// `LiveActivityIntent` ran in the app but in the background, so the copy was refused, and iOS ignored its
+/// `openAppWhenRun`. An `OpenIntent` is how Apple has a control open its app: iOS brings the app up and runs `perform()`
+/// there. Its `target` says what to do, with one choice. This file is in both targets, as an `OpenIntent` must be.
+struct FrameLatestControlIntent: OpenIntent {
     static let title: LocalizedStringResource = "Frame Latest Screenshot and Copy"
     static let description = IntentDescription("Opens Skreener, frames your newest screenshot with the look you used last and copies it. If Safe Check finds something private on it, Skreener opens it in the editor instead.")
-    static let openAppWhenRun = true
     /// Shortcuts already has Frame Latest Screenshot, which does the same with more choices.
     static let isDiscoverable = false
 
+    @Parameter(title: "Action", default: .frameLatest)
+    var target: ControlAction
+
     init() {}
+}
+
+/// What the control asks the app to do: an `OpenIntent` needs a target.
+enum ControlAction: String, AppEnum {
+    case frameLatest
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Skreener action"
+    static let caseDisplayRepresentations: [ControlAction: DisplayRepresentation] = [
+        .frameLatest: "Frame Latest Screenshot and Copy",
+    ]
 }

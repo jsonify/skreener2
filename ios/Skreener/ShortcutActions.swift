@@ -44,19 +44,15 @@ struct FrameLatestScreenshotIntent: AppIntent, ForegroundContinuableIntent {
     }
 }
 
-/// The Control Center control's action (#439) runs in the app, which it opens: the extension only shows the control. It
-/// frames and copies, as Frame Latest Screenshot with Then = Copy does, Safe Check gate included, and reports on the
-/// home screen's LCD instead of throwing, as Control Center shows no errors.
-extension FrameLatestControlIntent: ForegroundContinuableIntent {
+/// The Control Center control's action (#439) runs in the app, which iOS brings up for it (an `OpenIntent`): the
+/// extension only shows the control. It frames and copies, as Frame Latest Screenshot with Then = Copy does, Safe Check
+/// gate included, and reports on the home screen's LCD instead of throwing, as Control Center shows no errors.
+extension FrameLatestControlIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
-        // The pasteboard takes the copy only from the app in the foreground, which `openAppWhenRun` brings up. Should
-        // it not be up within two seconds, ask to bring it up.
+        // The pasteboard takes the copy only once the app is active; it is on its way up. Wait up to two seconds.
         for _ in 0..<20 where UIApplication.shared.applicationState != .active {
             try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-        if UIApplication.shared.applicationState != .active {
-            try await requestToContinueInForeground(FrameLatest.dialog("Open Skreener to copy your framed screenshot?"))
         }
         await FrameLatest.copyForControl()
         return .result()
