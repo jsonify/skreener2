@@ -28,8 +28,11 @@ fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
 - `SkreenerShare/`: the Share Extension. Only its view controller, which hosts the editor.
 - `SkreenerBroadcast/`: the Broadcast Upload Extension for live scrolling capture (see below). It links only
   `SkreenerCore`, for the stitcher.
+- `SkreenerControls/`: the widget extension with the **Frame Latest** control for Control Center and the Action
+  button (#439; iOS 18 and later, the app stays on 17). `Shared/` holds the control's intent, which is in the app too,
+  so the app runs it.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios`,
-  `com.skreener.ios.share` and `com.skreener.ios.broadcast` (the framework is `com.skreener.ios.editor`); iOS 17 or
+  `com.skreener.ios.share`, `com.skreener.ios.broadcast` and `com.skreener.ios.controls` (the framework is `com.skreener.ios.editor`); iOS 17 or
   later, iPhone only.
 
 The `.xcodeproj` is generated and not committed (it is in `.gitignore`). The Info.plists are
@@ -47,7 +50,8 @@ The app and the extension share the editor's last look (frame, background, slide
 a device. If signing fails over it, select each of the `Skreener`, `SkreenerShare` and `SkreenerBroadcast` targets,
 open Signing & Capabilities, and add the App Groups capability with `group.com.skreener.ios` ticked. The broadcast
 extension (#456) is a new App ID, `com.skreener.ios.broadcast`, which automatic signing registers the same way; it
-uses the group to hand its long screenshots to the app.
+uses the group to hand its long screenshots to the app. The controls extension (#439), `com.skreener.ios.controls`, is one more App ID,
+registered the same way; it needs no App Group.
 
 ## Build and run
 
@@ -277,6 +281,13 @@ Show my screenshots to let it see your screenshots" (or say to allow access in S
 **Back Tap.** In the Shortcuts app, tap **+**, add the Frame Latest Screenshot action (search for Skreener) and name
 the shortcut, say "Frame latest". Then Settings > Accessibility > Touch > Back Tap > Double Tap > the shortcut. Take a screenshot, double-tap
 the back of the phone and paste in Messages: the framed screenshot.
+
+**Control Center and the Action button** (iOS 18 and later). Skreener has a **Frame Latest** control: one tap does
+what Frame Latest Screenshot does with Then = Copy, Safe Check gate included, without opening Skreener (a screenshot
+with something to cover opens in the editor instead). Add it: open Control Center, tap **+** (top left), **Add a
+Control**, search for Skreener and tap **Frame Latest**. On an iPhone with an Action button: Settings > Action Button,
+swipe to **Controls**, choose Skreener > Frame Latest. The control shows nothing when it is done: paste to see the
+framed screenshot.
 
 ## Live scrolling capture
 

@@ -9,6 +9,7 @@ ios/*.xcodeproj
 ios/Skreener/Info.plist
 ios/SkreenerShare/Info.plist
 ios/SkreenerBroadcast/Info.plist
+ios/SkreenerControls/Info.plist
 # And the entitlements, from `entitlements:`.
 ios/Skreener/Skreener.entitlements
 ios/SkreenerShare/SkreenerShare.entitlements
