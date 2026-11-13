@@ -17,7 +17,7 @@ enum Presenter {
     }
 
     /// The root view controller of the app's window.
-    private static func root() -> UIViewController? {
+    static func root() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
         return scene?.keyWindow?.rootViewController

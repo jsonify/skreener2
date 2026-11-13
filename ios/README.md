@@ -30,7 +30,8 @@ fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
   `SkreenerCore`, for the stitcher.
 - `SkreenerControls/`: the widget extension with the **Frame Latest** control for Control Center and the Action
   button (#439; iOS 18 and later, the app stays on 17). `Shared/` holds the control's intent, which is in the app too;
-  it is a `LiveActivityIntent` so that iOS runs it in the app, not in the extension.
+  it is a `LiveActivityIntent` so that iOS runs it in the app, not in the extension, and it opens the app
+  (`openAppWhenRun`), as iOS takes a copy to the pasteboard only from an app in the foreground.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios`,
   `com.skreener.ios.share`, `com.skreener.ios.broadcast` and `com.skreener.ios.controls` (the framework is `com.skreener.ios.editor`); iOS 17 or
   later, iPhone only.
@@ -283,11 +284,12 @@ the shortcut, say "Frame latest". Then Settings > Accessibility > Touch > Back T
 the back of the phone and paste in Messages: the framed screenshot.
 
 **Control Center and the Action button** (iOS 18 and later). Skreener has a **Frame Latest** control: one tap does
-what Frame Latest Screenshot does with Then = Copy, Safe Check gate included, without opening Skreener (a screenshot
-with something to cover opens in the editor instead). Add it: open Control Center, tap **+** (top left), **Add a
+what Frame Latest Screenshot does with Then = Copy, Safe Check gate included (a screenshot with something to cover
+opens in the editor instead). It opens Skreener to do it, as iOS lets only the app on screen copy: the LCD reads
+FRAMING… and then FRAMED AND COPIED, with the time the copied screenshot was taken; swipe back to your app and paste. Add it: open Control Center, tap **+** (top left), **Add a
 Control**, search for Skreener and tap **Frame Latest**. On an iPhone with an Action button: Settings > Action Button,
-swipe to **Controls**, choose Skreener > Frame Latest. The control shows nothing when it is done: paste to see the
-framed screenshot. It frames the newest screenshot saved in Photos: dismiss iOS's screenshot preview first (swipe the
+swipe to **Controls**, choose Skreener > Frame Latest. If it can't (no Photos access, no screenshots), the LCD says
+why. It frames the newest screenshot saved in Photos: dismiss iOS's screenshot preview first (swipe the
 thumbnail away, or tap ✓ > Save to Photos), or it frames the one before.
 
 ## Live scrolling capture

@@ -7,51 +7,84 @@ import UIKit
 /// controller. SwiftUI's `fullScreenCover` let the editor's keys slide under the status bar, the Dynamic Island and the
 /// home indicator on a real iPhone; UIKit's presentation keeps them inside the safe area, as in the extension.
 ///
-/// `HomeView` stays the source of truth: it calls `show` when it has a new editor session and `dismiss` when the
-/// session ends. One editor at a time: showing another replaces the one on screen.
+/// `HomeView` stays the source of truth for which editor should be up: it calls `show` when it has a new editor session
+/// and `dismiss` when the session ends. One editor at a time: showing another replaces the one on screen. Close does
+/// not wait for `HomeView`, though: it dismisses its own editor straight away, then tells `HomeView` (#439). When Close
+/// went only through `HomeView`'s state, an editor that a second open had already replaced in that state (two quick
+/// opens, such as two taps on the Frame Latest control) stayed on screen with a Close that did nothing.
 @MainActor
 enum EditorPresenter {
-    /// The editor on screen, if any.
+    /// The editor that should be on screen, if any (it may still be waiting to be presented).
     private static weak var shown: EditorViewController?
 
     /// Presents a fresh editor on `model`, replacing any editor on screen (and anything over it, like a share sheet).
-    /// `onClose` runs when the editor's Close key is tapped; it should end the session, which calls `dismiss`.
-    /// `notice`, if any, shows over the editor for a few seconds.
+    /// The editor's Close key dismisses it, then runs `onClose`, which should end the session (`dismiss` then finds
+    /// nothing left to do). `notice`, if any, shows over the editor for a few seconds.
     static func show(_ model: ShareModel, notice: String? = nil, onClose: @escaping () -> Void) {
+        let ref = EditorRef()
         let editor = EditorViewController(rootView: ShareView(model: model,
-                                                              onClose: onClose,
+                                                              onClose: {
+                                                                  if let editor = ref.editor { close(editor) }
+                                                                  onClose()
+                                                              },
                                                               onShare: { url in Presenter.share(url) }),
                                           notice: notice)
-        if let old = shown, let presenting = old.presentingViewController {
-            shown = editor
-            presenting.dismiss(animated: false) { present(editor) }
-        } else {
-            shown = editor
-            present(editor)
-        }
+        ref.editor = editor
+        shown = editor
+        present(editor)
     }
 
-    /// Dismisses the editor on screen, if any, with whatever is over it.
+    /// Dismisses the editor `HomeView` showed last, if it is still up or on its way, with whatever is over it.
     static func dismiss() {
         guard let editor = shown else { return }
-        shown = nil
-        if let presenting = editor.presentingViewController {
-            presenting.dismiss(animated: true)
+        close(editor)
+    }
+
+    /// Dismisses `editor` (and anything over it, like a share sheet), whether or not it is still the one `HomeView`
+    /// wants: its Close must always work.
+    private static func close(_ editor: EditorViewController) {
+        if shown === editor { shown = nil }
+        guard let presenting = editor.presentingViewController, !editor.isBeingDismissed else { return }
+        presenting.dismiss(animated: true)
+    }
+
+    /// The first editor in the window's chain of presented controllers, if any.
+    private static func onScreen() -> EditorViewController? {
+        var controller = Presenter.root()
+        while let current = controller {
+            if let editor = current as? EditorViewController { return editor }
+            controller = current.presentedViewController
         }
+        return nil
     }
 
     /// Presents `editor` from the top view controller once no presentation is coming or going: the window may not be
-    /// up yet (a Shortcut launched the app), or a sheet such as the system photo picker may still be going away.
-    /// Presenting during the photo picker's dismissal is what put the editor's keys outside the safe area on a real
-    /// iPhone (#440). After about two seconds it presents anyway, from the last controller that is not being
-    /// dismissed (`Presenter.top()`); it gives up if the editor was replaced or dismissed meanwhile.
+    /// up yet (a Shortcut launched the app), a sheet such as the system photo picker may still be going away, or the
+    /// editor it replaces may still be coming up. Presenting during the photo picker's dismissal is what put the
+    /// editor's keys outside the safe area on a real iPhone (#440); dismissing an editor that is still being presented
+    /// fails, which left the old editor up. Any editor already up is dismissed first, once settled. After about two
+    /// seconds it goes ahead anyway, from the last controller that is not being dismissed (`Presenter.top()`); an old
+    /// editor that would not go stays under the new one, its Close still working. It gives up if the editor was
+    /// replaced or dismissed meanwhile.
     private static func present(_ editor: EditorViewController) {
         Task { @MainActor in
             await Presenter.waitUntilSettled(limit: 2)
-            guard shown === editor, let top = Presenter.top() else { return }
+            guard shown === editor else { return }
+            if let old = onScreen(), old !== editor, let presenting = old.presentingViewController {
+                presenting.dismiss(animated: false)
+                await Presenter.waitUntilSettled(limit: 1)
+                guard shown === editor else { return }
+            }
+            guard let top = Presenter.top() else { return }
             top.present(editor, animated: true)
         }
     }
+}
+
+/// Lets the editor's Close reach its own controller, which is made after the view that holds the Close.
+@MainActor
+private final class EditorRef {
+    weak var editor: EditorViewController?
 }
 
 /// The editor's full-screen controller: the SwiftUI editor pinned to its edges, as `ShareViewController` pins it in
