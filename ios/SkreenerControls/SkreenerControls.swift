@@ -27,7 +27,7 @@ struct FrameLatestControl: ControlWidget {
     }
 }
 
-/// The app runs the action (the intent is in both targets); this body only keeps the extension's copy complete.
+/// The app runs the action (a `LiveActivityIntent` in both targets); this body only keeps the extension's copy complete.
 extension FrameLatestControlIntent {
     func perform() async throws -> some IntentResult {
         .result()

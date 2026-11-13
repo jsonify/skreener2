@@ -29,8 +29,8 @@ fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
 - `SkreenerBroadcast/`: the Broadcast Upload Extension for live scrolling capture (see below). It links only
   `SkreenerCore`, for the stitcher.
 - `SkreenerControls/`: the widget extension with the **Frame Latest** control for Control Center and the Action
-  button (#439; iOS 18 and later, the app stays on 17). `Shared/` holds the control's intent, which is in the app too,
-  so the app runs it.
+  button (#439; iOS 18 and later, the app stays on 17). `Shared/` holds the control's intent, which is in the app too;
+  it is a `LiveActivityIntent` so that iOS runs it in the app, not in the extension.
 - `project.yml`: the [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec. Bundle IDs are `com.skreener.ios`,
   `com.skreener.ios.share`, `com.skreener.ios.broadcast` and `com.skreener.ios.controls` (the framework is `com.skreener.ios.editor`); iOS 17 or
   later, iPhone only.
@@ -287,7 +287,8 @@ what Frame Latest Screenshot does with Then = Copy, Safe Check gate included, wi
 with something to cover opens in the editor instead). Add it: open Control Center, tap **+** (top left), **Add a
 Control**, search for Skreener and tap **Frame Latest**. On an iPhone with an Action button: Settings > Action Button,
 swipe to **Controls**, choose Skreener > Frame Latest. The control shows nothing when it is done: paste to see the
-framed screenshot.
+framed screenshot. It frames the newest screenshot saved in Photos: dismiss iOS's screenshot preview first (swipe the
+thumbnail away, or tap ✓ > Save to Photos), or it frames the one before.
 
 ## Live scrolling capture
 
