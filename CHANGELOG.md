@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.22.0](https://github.com/jsonify/skreener2/compare/v1.21.0...v1.22.0) (2026-11-13)
+
+
+### Features
+
+* **ios:** Frame Latest control for Control Center and the Action button ([#439](https://github.com/jsonify/skreener2/issues/439)) ([#459](https://github.com/jsonify/skreener2/issues/459)) ([d052707](https://github.com/jsonify/skreener2/commit/d0527077bc2020c51dd52366487d326d02592250))
+
+
+### Bug Fixes
+
+* **ios:** TestFlight uploads, the Frame Latest control's action, and a self-hosted Mac for TestFlight ([#439](https://github.com/jsonify/skreener2/issues/439), [#456](https://github.com/jsonify/skreener2/issues/456)) ([#461](https://github.com/jsonify/skreener2/issues/461)) ([6351e8c](https://github.com/jsonify/skreener2/commit/6351e8c1f586174935b80afcc9fdb16f20577a54))
+
 ## [1.21.0](https://github.com/jsonify/skreener2/compare/v1.20.0...v1.21.0) (2026-11-12)
 
 
