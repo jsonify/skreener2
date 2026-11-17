@@ -54,6 +54,8 @@ struct RedactCanvas: View {
                 }
                 touches(view: view)
                     .frame(width: view.width, height: view.height)
+                // Each covered area is a VoiceOver element over the canvas (#451); they take no touches.
+                ItemElements(items: model.redactionElements(shown: shown), view: view)
                 if edit == nil, let selected {
                     SelectionMenu(items: [
                         .init(title: "Duplicate") { model.duplicateSelection() },
@@ -63,6 +65,9 @@ struct RedactCanvas: View {
             }
             .frame(width: view.width, height: view.height, alignment: .topLeading)
             .clipped()
+            .onChange(of: model.selection) {
+                if let say = model.selectionAnnouncement { VoiceOverSay.announce(say) }
+            }
         }
     }
 

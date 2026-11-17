@@ -8,7 +8,8 @@ public enum QuickFrame {
     /// How many things Safe Check finds in the image, with the same on-device scan the editor runs as it opens. An
     /// image that can't be loaded finds nothing (rendering it then fails on its own).
     public static func findings(in source: ImageSource) async -> Int {
-        guard let image = try? await source.load() else { return 0 }
+        // Safe Check reads a bounded copy; its boxes are fractions of the image, so only the count is used here.
+        guard let image = try? await source.load(within: ImageLoader.recognitionBudget) else { return 0 }
         let size = CGSize(width: image.width, height: image.height)
         return await TextFinder.scanLeaks(image, size: size).count
     }

@@ -100,4 +100,49 @@ final class MarkupEditingTests: XCTestCase {
         XCTAssertEqual(Redaction.index(at: CGPoint(x: 5, y: 20), in: [r, other], tolerance: 6), 0)
         XCTAssertNil(Redaction.index(at: CGPoint(x: 200, y: 200), in: [r, other], tolerance: 6))
     }
+
+    func testNudgeDistanceIsTwoPercentOfShorterSide() {
+        XCTAssertEqual(Nudge.distance(imageSize: CGSize(width: 1000, height: 2000)), 20, accuracy: 0.001)
+        XCTAssertEqual(Nudge.distance(imageSize: CGSize(width: 3000, height: 500)), 10, accuracy: 0.001)
+        XCTAssertEqual(Nudge.distance(imageSize: CGSize(width: 10, height: 10)), 1, "never less than a pixel")
+    }
+
+    func testNudgeDirectionsAreAsTheyLookOnScreen() {
+        let size = CGSize(width: 1000, height: 1000)
+        let box = CGRect(x: 400, y: 400, width: 100, height: 100)
+        XCTAssertEqual(Nudge.up.offset(for: box, imageSize: size), CGVector(dx: 0, dy: 20), "up is +y")
+        XCTAssertEqual(Nudge.down.offset(for: box, imageSize: size), CGVector(dx: 0, dy: -20))
+        XCTAssertEqual(Nudge.left.offset(for: box, imageSize: size), CGVector(dx: -20, dy: 0))
+        XCTAssertEqual(Nudge.right.offset(for: box, imageSize: size), CGVector(dx: 20, dy: 0))
+    }
+
+    func testNudgeStopsAtTheImageEdge() {
+        let size = CGSize(width: 1000, height: 1000)
+        XCTAssertEqual(Nudge.right.offset(for: CGRect(x: 890, y: 0, width: 100, height: 50), imageSize: size).dx, 10,
+                       "only the 10 px left to the edge")
+        XCTAssertEqual(Nudge.right.offset(for: CGRect(x: 900, y: 0, width: 100, height: 50), imageSize: size), .zero)
+        XCTAssertEqual(Nudge.left.offset(for: CGRect(x: 0, y: 10, width: 100, height: 50), imageSize: size), .zero)
+        XCTAssertEqual(Nudge.up.offset(for: CGRect(x: 0, y: 950, width: 10, height: 50), imageSize: size), .zero)
+        XCTAssertEqual(Nudge.down.offset(for: CGRect(x: 0, y: 5, width: 10, height: 50), imageSize: size).dy, -5)
+    }
+
+    func testNudgeOfAFlatOrEmptyBoundsAndOversizedBounds() {
+        let size = CGSize(width: 1000, height: 1000)
+        let flat = CGRect(x: 100, y: 100, width: 200, height: 0)
+        XCTAssertEqual(Nudge.up.offset(for: flat, imageSize: size).dy, 20, "an arrow's bounds can be flat")
+        XCTAssertEqual(Nudge.up.offset(for: .null, imageSize: size), .zero)
+        let wide = CGRect(x: -50, y: 0, width: 1200, height: 10)
+        XCTAssertEqual(Nudge.right.offset(for: wide, imageSize: size).dx, 20, "wider than the image: not held back")
+    }
+
+    func testNudgedMarkupAndRedactionMoveByTheOffset() {
+        let size = CGSize(width: 500, height: 800)
+        let m = Markup(.rectangle(CGRect(x: 100, y: 100, width: 50, height: 50)))
+        let v = Nudge.right.offset(for: m.selectionBounds(imageWidth: 500), imageSize: size)
+        XCTAssertEqual(m.offsetBy(dx: v.dx, dy: v.dy).kind, .rectangle(CGRect(x: 110, y: 100, width: 50, height: 50)))
+        let r = Redaction(rect: CGRect(x: 0, y: 0, width: 40, height: 40), style: .solid)
+        XCTAssertEqual(Nudge.left.offset(for: r.rect, imageSize: size), .zero)
+        let w = Nudge.up.offset(for: r.rect, imageSize: size)
+        XCTAssertEqual(r.offsetBy(dx: w.dx, dy: w.dy).rect, CGRect(x: 0, y: 10, width: 40, height: 40))
+    }
 }

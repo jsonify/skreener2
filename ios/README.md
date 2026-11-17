@@ -25,6 +25,12 @@ fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
 - `SkreenerEditor/`: the editor as a framework: the screens, redact and draw canvases, rendering and export. It draws
   with `SkreenerCore`, the library shared with the Mac app. The app embeds it; the extension uses it. Both hand it an
   `ImageSource` (the extension's items, or image bytes), which it loads again for each export.
+  How much of the picture it keeps depends on the host (#441): the extension has about 120 MB, so its items are
+  decoded at 4096 px on the long side at most (`PixelBudget.shareExtension`); the app has no such limit and keeps up
+  to 8192 px on the long side and 40 megapixels (`PixelBudget.app`), so a 48 MP camera photo is saved at about
+  7300 x 5480 and an iPad screenshot untouched. Both decode straight to that size, with the EXIF orientation applied.
+  The on-screen preview (1600 px) and the OCR behind Safe Check and Find (4096 px) read smaller copies, so a big photo
+  does not make them slower. Long screenshots are never shrunk.
 - `SkreenerShare/`: the Share Extension. Only its view controller, which hosts the editor.
 - `SkreenerBroadcast/`: the Broadcast Upload Extension for live scrolling capture (see below). It links only
   `SkreenerCore`, for the stitcher.
@@ -88,7 +94,8 @@ open Skreener.xcodeproj
 5. Tap a screenshot in the grid. The LCD reads "OPENING…" (longer if it is in iCloud only), then the editor fills the
    screen with that screenshot. At the top, the same header as the home screen ("SK-1 SKREENER" at the left, the
    speaker grille at the right); under it a row of keys: **Close** and **Undo** (greyed out) at the left, a
-   **Share** key (the share icon) and the orange **Save** key, its label dark, at the right. All of them sit
+   **Text in picture** key (a viewfinder around lines of text), a **Share** key (the share icon) and the orange
+   **Save** key, its label dark, at the right. All of them sit
    below the status bar and the Dynamic Island, easy to tap; the cream (or charcoal) chassis still fills the screen
    to its edges. There is no Copy key. Under them, a slim LCD strip; then the picture, as big as it fits; then the
    bottom row, above the home indicator: a tray of four tool keys, **Frame** (lit), **Draw** (an arrow with a small
@@ -111,6 +118,11 @@ open Skreener.xcodeproj
     asks first, like Show my screenshots.) Close.
 11. Tap **Choose screenshot**: the system photo picker opens, showing only images, without asking for any access.
     Pick one: it opens in the editor. Close.
+    Big photos keep their resolution in the app (#441): pick a 48 MP photo (a camera photo from an iPhone 14 Pro or
+    later in 48 MP mode, or any large photo), tap **Save**, then in Photos open the saved picture and swipe up
+    (or tap the i): its size is above 4096 px on the long side (about 7300 x 5480 for a 48 MP photo). Safe Check and
+    Find still answer quickly. Now share the same photo from Photos to Skreener (the extension) and Save: that PNG
+    stays at 4096 px on its long side.
 12. The editor starts with the style you used last: open any screenshot again and the frame, Dark, background and
     sliders, and the drawing size in the colour key, are as you left them (redactions and drawings start empty). Now set a different frame and background,
     Close, and share a screenshot from Photos to Skreener (see below): the extension starts with that same look.
@@ -118,6 +130,45 @@ open Skreener.xcodeproj
     turns charcoal, the keys dark grey with light symbols, the LCD glass a little dimmer; Save stays orange with its
     dark label. Undo (top left) with nothing to undo is greyed out. The Draw key's shapes stand on a charcoal plate.
    The home screen turns charcoal too.
+14. Presets (#441): set a look (say Browser, Dark, a background, Padding 80), tap **Frame** again, then **More**. At the
+    top of FRAME OPTIONS, under PRESETS, tap the **+** key: an alert "Save look as a preset" with a name already filled
+    in ("Browser · Sky"). Change it to "Blog" and tap **Save**: a "Blog" chip appears, pressed in because the picture
+    shows that look. Change the frame and background, and the chip pops out; tap **Blog**: the frame, Dark, background
+    and sliders go back (the address and the drawing size stay), the chip is pressed in again. Save a second look
+    under another name; saving under "Blog" again (any capitals) replaces the first, as the alert says. Touch and hold
+    a chip: **Rename** (type a new name, **Rename**; a name another preset has is refused), **Update to current look**
+    (the chip now stands for what the picture shows) and **Delete** (red; the chip goes). Save 12: the **+** key then
+    says to delete one first. Close, open another screenshot, and the presets are there. Share a screenshot to
+    Skreener from Photos: the same presets show in its Frame options, and one saved there shows in the app. Applying
+    a preset is not an Undo step.
+
+## Try text actions
+
+Text actions (#441) take the text out of a screenshot: copy it, open a link, add a date to Calendar. Use a screenshot
+of a message or an invitation with a link, a date and time (say "Dinner with Sam, Friday 7:30 PM"), a phone number and
+an email, in the app or the extension.
+
+1. In the editor, tap the **Text in picture** key at the top, left of Share. A sheet rises with "TEXT" and a ✕. It says
+   "Reading text…" for a moment if Safe Check has not finished (the screenshot is read once; opening the sheet does
+   not read it again).
+2. The sheet shows an orange **Copy all** key; then, each only if the picture has some, **Links**, **Dates**, **Phone
+   numbers** and **Emails**; then "ALL TEXT" with the whole text. Nothing found at all: "No text found in this
+   picture."
+3. Tap **Copy all**: "Copied" shows at the top for two seconds. Paste into Notes: every line, top to bottom.
+4. **Links**: each link, with **Open** and **Copy**. In the app, **Open** opens it in Safari. In the extension there is
+   no Open key, only **Copy**, because an extension can't open links. **Copy** puts the address in the clipboard
+   ("Copied").
+5. **Dates**: each date found, written out ("Fri, Nov 20, 2026, 7:30 PM"), with the rest of its line under it (the
+   event's name), and **Add to Calendar**. Tap it: Calendar's New Event screen opens over the sheet with that name, the
+   date and time, and one hour as its length; a date without a time is an all-day event. Tap **Add** to save it, or
+   **Cancel**: either way you are back in the sheet. Calendar asks for no permission on iOS 17.
+6. **Phone numbers** and **Emails**: each with **Copy**. A link, number or email that shows twice in the picture is
+   listed once.
+7. Touch and hold in "ALL TEXT": the text can be selected and copied in part.
+8. Privacy: close the sheet, tap **Redact**, cover the line with the email by dragging over it, and open **Text in
+   picture** again: that line is gone from Copy all, the lists and All text. **Undo** the redaction and open the sheet:
+   it is back.
+9. Open the sheet while Frame's **More** or Redact's **Find** sheet is up: that one closes and the Text sheet follows.
 
 ## Try long screenshots
 
@@ -236,6 +287,17 @@ open Skreener.xcodeproj
     area to select it: corner handles and **Duplicate** / **Delete**; drag it to move it, drag a corner to resize it,
     and Pixelate, Blur or Solid change its cover. Each move, resize, change or delete is one Undo step, as are
     **Clear** and **Clear drawings**.
+    With VoiceOver, every drawing and covered area is reachable too: turn VoiceOver on (Settings > Accessibility >
+    VoiceOver, or triple-click the side button if you have set that up), open Draw and draw an arrow, then swipe
+    right over the picture until VoiceOver reads "Arrow, red" (a label reads "Text, 'Hello', blue", a covered area
+    "Covered area, pixelate"; they come in the order they were drawn). Swipe up or down to hear the actions: **Select**,
+    **Delete**, **Duplicate**, **Move up**, **Move down**, **Move left**, **Move right** (and **Edit text** for a
+    label). Pick **Move right** a few times: the arrow moves by a small fixed step (2% of the picture's shorter
+    side) each time, says "Moved right", and stops at the picture's edge ("Can't move right, at the edge"). Pick
+    **Delete**: it says "Deleted Arrow, red". Then tap **Undo**: the arrow comes back, and Undo again takes back
+    each move, one per step. Selecting says "Selected Arrow, red". Drawing with a finger and the tool keys work as before.
+    In Redact, the covered areas read and act the same way. Pinch to zoom and the handles are the same size and
+    as easy to grab as at fit.
 14. Tap **Frame**: the frame and background return, with the redactions and drawings on the screenshot (drawings
     over redactions). They are in every export too, at full size.
 15. With a full iPhone screenshot, Frame's **More** sheet has a **Clean bar** switch next to Dark (it is absent for a
@@ -248,8 +310,10 @@ open Skreener.xcodeproj
     to allow "Add Photos Only" for Skreener in Settings > Privacy & Security > Photos.
 17. Tap **Share** (the icon left of Save) for the system share sheet with `Skreener.png`. Tap **Copy Photo** and
     paste into Notes or Messages: the edited picture.
-18. **Close** (top left) ends the sheet.
-19. Open the share sheet again: the frame, Dark, background, sliders, Clean bar and drawing size are as you left
+18. **Text in picture** (left of Share) shows the text in the screenshot to copy, with Copy for links, numbers and
+    emails and Add to Calendar for dates; there is no Open for links here. See Try text actions above.
+19. **Close** (top left) ends the sheet.
+20. Open the share sheet again: the frame, Dark, background, sliders, Clean bar and drawing size are as you left
     them. Change them, Close, and open the Skreener app and a screenshot: the app's editor shows the look you just set in the
     extension. A fresh install starts with iPhone frame, Dark off, the first background, Padding 48, Corners 10,
     Shadow 50%, Clean bar off and size 1×.
@@ -288,9 +352,14 @@ The home screen's **Scroll capture** key captures a long screenshot of any app (
 capture, except that you scroll by hand: iOS lets no app scroll another. The key starts a screen broadcast to
 Skreener's Broadcast Upload Extension (`SkreenerBroadcast`); iOS shows the red recording button in the status bar while
 it runs. The extension takes about 10 frames a second and stitches them with `ScrollStitcher` from `SkreenerCore`,
-keeping the status bar, navigation bar and tab bar once. Until something scrolls, it starts again from whatever is on
-screen whenever the screen changes, so Skreener, the countdown and the switch to the other app don't end up in the
-picture. A broadcast extension may use only about 50 MB, so the finished strips go to disk as PNGs as you scroll, in
+keeping the status bar, navigation bar and tab bar once. The status bar (the top 62 points on an iPhone with a notch or
+Dynamic Island, 24 on others) always comes from the first frame and is left out of the matching, as its clock, the
+red pill and a Live Activity change while the content scrolls. Until something scrolls, it starts again from whatever
+is on screen whenever the screen changes, so Skreener, Control Centre and the switch to the other app don't end up in
+the picture. ReplayKit sends a frame only when the screen changes, so the first scroll counts once the screen has
+settled: 0.4 s after the last change, after a pause in frames, or after 0.6 s of steady scrolling. If nothing scrolled,
+the notification adds a line of counts (frames used of those sent, still, moved, early, lost, reseeds, frame size) for
+TestFlight testing; it can be removed once live capture is known to work. A broadcast extension may use only about 50 MB, so the finished strips go to disk as PNGs as you scroll, in
 the App Group container (`LiveCaptures/<id>/`), with a `manifest.json` once the broadcast stops; nothing leaves the
 phone. It then posts a notification. When Skreener comes back to the front (from the notification or any other way),
 the home screen joins the strips into one PNG, removes the folder and opens it in the editor, as a picked image opens.
@@ -302,12 +371,14 @@ at 30,000 pixels, the Mac's limit too.
 
 1. On first launch after this change, the home screen has a **Scroll capture** key above the OPEN tray, and under it
    "Start, then switch to any app and scroll slowly. Stop from the red status-bar button."
-2. Tap **Scroll capture**. The first time, iOS asks to allow notifications: tap Allow. Then the system's Screen
-   Broadcast sheet rises with **Skreener** chosen and no microphone switch. (If instead a small round record button
-   appears next to the key with "Tap the round button, then Start Broadcast.", tap that button.)
-3. Tap **Start Broadcast**. After the 3-2-1 countdown, the status bar's clock turns into a red pill. Close the sheet
-   (tap above it or swipe it down).
-4. Go to Safari (a long article) or Messages (a long conversation). Wait a moment, then scroll down slowly with
+2. Tap **Scroll capture**. The first time, iOS asks to allow notifications: tap Allow. Then the system's sheet rises
+   with **Skreener** chosen and no microphone switch: on iOS 26 it is called **Screen Sharing**, on earlier versions
+   **Screen Broadcast**. (If instead a small round record button appears next to the key with "Tap the round button,
+   then Start Broadcast.", tap that button.)
+3. Tap **Start Sharing** (iOS 26) or **Start Broadcast** (earlier). After the 3-2-1 countdown, the status bar's clock
+   turns into a red pill. Close the sheet (tap above it or swipe it down).
+4. Go to Safari (a long article) or Messages (a long conversation). Nothing shows during the capture apart from the red
+   pill, and it only starts once you are in the other app and scrolling. Wait a moment, then scroll down slowly with
    short, steady swipes; don't fling. You may pause and carry on.
 5. Tap the red pill in the status bar, then **Stop**. Within a second or two a notification says "Long screenshot
    ready" / "Tap to edit it in Skreener."
@@ -316,7 +387,8 @@ at 30,000 pixels, the Mac's limit too.
    input bar) once each, no repeated lines. Save it: Photos has the long PNG. Close: the home screen is back, and the
    explainer under the key is gone.
 7. Nothing scrolled: start again, open an app, don't scroll, stop. The notification says "Nothing scrolled" /
-   "Scroll slowly in the app you want to capture." Opening Skreener opens nothing.
+   "Scroll slowly in the app you want to capture.", then a line of counts such as "(frames 40 of 52 · still 3 ·
+   moved 0 · early 0 · lost 6 · reseeds 6 · 1179×2556)". Opening Skreener opens nothing.
 8. Maximum length: start, open a very long page (a long Wikipedia article) and keep scrolling slowly for a minute or
    two. At 30,000 pixels (roughly 12 screens on a 3x iPhone) the broadcast stops by itself with an alert
    "Reached the maximum length. Your long screenshot is saved: tap the Skreener notification to edit it.", and

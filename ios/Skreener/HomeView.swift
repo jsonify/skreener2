@@ -18,7 +18,7 @@ struct HomeView: View {
     @State private var session: EditorSession?
     /// An image is being read (from iCloud, maybe).
     @State private var opening = false
-    /// What went wrong last, shown on the LCD until the next action.
+    /// What went wrong last, or what the Frame Latest control did (#439), shown on the LCD until the next action.
     @State private var failure: String?
     @State private var picked: PhotosPickerItem?
     /// More about the failure, shown as the hint under the LCD.
@@ -77,6 +77,12 @@ struct HomeView: View {
         .onChange(of: router.request?.id, initial: true) {
             guard let asset = router.take() else { return }
             Task { await open(asset) }
+        }
+        // The Frame Latest control's result (#439), also from before this screen existed.
+        .onChange(of: router.reportCount, initial: true) {
+            guard router.reportCount > 0 else { return }
+            failure = router.lastReport?.title
+            failureDetail = router.lastReport?.detail
         }
         // A finished live scrolling capture (#456, LiveScrollCapture.swift) opens like a picked image, once no editor is up.
         .onLiveScrollCapture(when: session == nil) { capture in await openImage { try await capture.joinedPNG() } }

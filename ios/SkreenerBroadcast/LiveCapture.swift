@@ -26,14 +26,26 @@ final class LiveCapture: @unchecked Sendable {
 
     /// Seconds between the frames used.
     private static let interval = 0.1
-    /// Still frames needed after a reseed before a movement starts the capture: the screen settled in the app the user
-    /// scrolls, rather than an animation (Control Centre going away, an app opening).
-    private static let stableBeforeStart = 2
+    /// Until something has scrolled, a movement starts the capture only once the screen has settled in the app the
+    /// user scrolls, rather than during an animation (the sheet or Control Centre going away, an app opening), so
+    /// none of those end up at the top of the picture. ReplayKit sends a frame only when the screen changes, so a still
+    /// screen can't be told from still frames, which may never come (#456). It counts as settled when this many seconds
+    /// of frame time have passed since the stitcher last started again...
+    private static let settle = 0.4
+    /// ...or when no frame came for this long before the movement: nothing changed on screen in between...
+    private static let pause = 0.3
+    /// ...or when the content has kept moving forward for this long: a slow drag begun straight after the switch to
+    /// the app. The system's animations are over sooner.
+    private static let sustained = 0.6
 
     // Guarded by `lock` (`offer` runs on ReplayKit's queue, the rest on `queue`).
     private let lock = NSLock()
     private var busy = false
     private var lastTime = CMTime.invalid
+    /// The time of the last frame ReplayKit sent, used or not, and whether a pause came since the last frame used.
+    private var lastReceived: Double?
+    private var paused = false
+    private var received = 0
 
     // Used on `queue` only.
     private let queue = DispatchQueue(label: "com.skreener.ios.broadcast.stitch", qos: .userInitiated)
@@ -43,7 +55,13 @@ final class LiveCapture: @unchecked Sendable {
     private var stitcher: ScrollStitcher?
     /// Something has scrolled since the last reseed: the capture is under way and its strips are on disk.
     private var stitched = false
-    private var stableFrames = 0
+    /// The frame time of the last reseed, and of the first of the forward movements since it, if the last frames moved.
+    private var seededAt = 0.0
+    private var movingSince: Double?
+    /// What happened to the frames, for the "Nothing scrolled" notification: the owner tests through TestFlight and
+    /// can send only screenshots (#456). `early` counts movements before the screen settled (also in `moved`).
+    private var counts = (frames: 0, still: 0, moved: 0, early: 0, lost: 0, reseeds: 0)
+    private var frameSize = ""
     /// The pixels per point, guessed from the frame's width (see `seed`).
     private var scale = 3
     private var strips: [String] = []
@@ -69,17 +87,24 @@ final class LiveCapture: @unchecked Sendable {
     func offer(_ sample: CMSampleBuffer) {
         guard let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
         let time = CMSampleBufferGetPresentationTimeStamp(sample)
+        // ReplayKit stamps every frame; the wall clock stands in for a frame without a time.
+        let seconds = time.isValid ? time.seconds : Date().timeIntervalSinceReferenceDate
         lock.lock()
+        received += 1
+        if let lastReceived, seconds - lastReceived >= Self.pause { paused = true }
+        lastReceived = seconds
         let due = !busy && (!lastTime.isValid || !time.isValid || (time - lastTime).seconds >= Self.interval)
+        let afterPause = paused
         if due {
             busy = true
             lastTime = time
+            paused = false
         }
         lock.unlock()
         guard due else { return }
         let frame = Frame(pixels: pixels)
         queue.async {
-            autoreleasepool { self.process(frame.pixels) }
+            autoreleasepool { self.process(frame.pixels, at: seconds, afterPause: afterPause) }
             self.lock.lock()
             self.busy = false
             self.lock.unlock()
@@ -98,26 +123,39 @@ final class LiveCapture: @unchecked Sendable {
         let pixels: CVPixelBuffer
     }
 
-    private func process(_ pixels: CVPixelBuffer) {
+    private func process(_ pixels: CVPixelBuffer, at time: Double, afterPause: Bool) {
         guard !finished, !failed else { return }
         let image = CIImage(cvPixelBuffer: pixels)
         guard let frame = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: space) else { return }
+        counts.frames += 1
         // A frame of another size (the phone turned) starts again until something has scrolled, and is ignored after.
         guard let stitcher, frame.width == stitcher.width, frame.height == stitcher.frameHeight else {
-            if !stitched { seed(frame) }
+            if !stitched { seed(frame, at: time) }
             return
         }
         switch stitcher.add(frame) {
         case .unchanged:
-            stableFrames += 1
+            counts.still += 1
+            movingSince = nil
         case .lost:
-            // Before anything scrolled, the screen changed (Skreener, Control Centre, the countdown, then the app):
-            // start again from what is on screen now. After, the user scrolled too fast or the content changed: the
-            // next frames may match again.
-            if !stitched { seed(frame) }
+            // Before anything scrolled, the screen changed (Skreener, Control Centre, then the app): start again from
+            // what is on screen now. After, the user scrolled too fast or the content changed: the next frames may
+            // match again.
+            counts.lost += 1
+            if !stitched { seed(frame, at: time) }
         case .moved(let shift):
+            counts.moved += 1
             if !stitched {
-                guard shift > 0, stableFrames >= Self.stableBeforeStart else { return seed(frame) }
+                // The first change after the broadcast starts is always leaving Skreener's sheet or Control Centre.
+                let settled = counts.reseeds > 0
+                    && (afterPause || time - seededAt >= Self.settle || time - (movingSince ?? time) >= Self.sustained)
+                guard shift > 0, settled else {
+                    counts.early += 1
+                    let since = shift > 0 ? movingSince ?? time : nil
+                    seed(frame, at: time)
+                    movingSince = since
+                    return
+                }
                 stitched = true
             }
             write(stitcher.takeFinishedPieces(keepingLast: stitcher.frameHeight / 2))
@@ -128,13 +166,24 @@ final class LiveCapture: @unchecked Sendable {
         }
     }
 
-    /// Starts the capture again from `frame`. The scroll bar at the right edge (about 12 points) is left out of the
-    /// matching. The scale is the frame width over about 400 points, which gives 3 or 2 for every iPhone (1179 / 393,
-    /// 750 / 375, 828 / 414, 1080 / 360...).
-    private func seed(_ frame: CGImage) {
+    /// Starts the capture again from `frame`, taken at `time`. The scroll bar at the right edge (about 12 points) is
+    /// left out of the matching. The scale is the frame width over about 400 points, which gives 3 or 2 for every
+    /// iPhone (1179 / 393, 750 / 375, 828 / 414, 1080 / 360...).
+    ///
+    /// The status bar is left out of the matching too, and always comes from the first frame: its clock, the
+    /// recording pill and a Live Activity in the Dynamic Island change while the content scrolls, and would otherwise
+    /// hide the navigation bar under them from `ScrollStitcher`'s header search. On an iPhone with a notch or a Dynamic
+    /// Island (taller than 2:1) the status bar is 44 to 62 points tall, so 62 are ignored; on the others (and iPad),
+    /// 20 to 24, so 24. Ignoring a little of the navigation bar under it does no harm: that stays put, so it comes from
+    /// the first frame either way. Turned sideways, an iPhone shows no status bar.
+    private func seed(_ frame: CGImage, at time: Double) {
+        if stitcher != nil { counts.reseeds += 1 }
         scale = max(1, Int((Double(frame.width) / 400).rounded()))
-        stitcher = ScrollStitcher(first: frame, ignoreRight: 12 * scale)
-        stableFrames = 0
+        let statusBar = frame.height <= frame.width ? 0 : frame.height > 2 * frame.width ? 62 : 24
+        stitcher = ScrollStitcher(first: frame, ignoreRight: 12 * scale, ignoreTop: statusBar * scale)
+        frameSize = "\(frame.width)×\(frame.height)"
+        seededAt = time
+        movingSince = nil
     }
 
     // MARK: Saving
@@ -187,7 +236,7 @@ final class LiveCapture: @unchecked Sendable {
             if failed {
                 notify(title: "Couldn't save the long screenshot", body: "There may not be enough space on the iPhone.")
             } else {
-                notify(title: "Nothing scrolled", body: "Scroll slowly in the app you want to capture.")
+                notify(title: "Nothing scrolled", body: "Scroll slowly in the app you want to capture.\n" + diagnostics)
             }
             return
         }
@@ -204,6 +253,17 @@ final class LiveCapture: @unchecked Sendable {
         }
         notify(title: reachedMaximum ? "Long screenshot ready (maximum length)" : "Long screenshot ready",
                body: "Tap to edit it in Skreener.", captureID: id)
+    }
+
+    /// A short line of what happened to the frames, for the owner's TestFlight tests (#456); it can go once live
+    /// capture is known to work on many phones.
+    private var diagnostics: String {
+        lock.lock()
+        let sent = received
+        lock.unlock()
+        let size = frameSize.isEmpty ? "no frames" : frameSize
+        return "(frames \(counts.frames) of \(sent) · still \(counts.still) · moved \(counts.moved) · early "
+            + "\(counts.early) · lost \(counts.lost) · reseeds \(counts.reseeds) · \(size))"
     }
 
     /// Posts a notification now, waiting a little for it to be accepted: iOS may end the extension soon after the

@@ -187,7 +187,7 @@ public final class ShareModel: ObservableObject {
 
     var canExport: Bool { phase == .ready && !busy }
 
-    /// Where the image comes from. Kept so an export can reload the full image: the decoded one (up to 4096 px) is
+    /// Where the image comes from. Kept so an export can reload the full image: the decoded one (up to the source's `PixelBudget`) is
     /// dropped after the preview is made, since holding both would cost memory the extension may not have.
     private var imageSource: ImageSource?
     /// The screenshot at preview size.
@@ -582,6 +582,31 @@ public final class ShareModel: ObservableObject {
         }
     }
 
+    /// Moves the selected drawing or redaction one `Nudge` (VoiceOver's Move up / down / left / right), as one undo step.
+    /// Returns false, changing nothing, when it is already at that edge of the image or a label is being typed.
+    @discardableResult
+    func nudgeSelection(_ direction: Nudge) -> Bool {
+        guard textSpot == nil else { return false }
+        switch selection {
+        case .markup(let i)? where markups.indices.contains(i):
+            let m = markups[i]
+            let v = direction.offset(for: m.selectionBounds(imageWidth: Int(fullSize.width)), imageSize: fullSize)
+            guard v != .zero else { return false }
+            pushUndo(.markups(markups))
+            markups[i] = m.offsetBy(dx: v.dx, dy: v.dy)
+            return true
+        case .redaction(let i)? where redactions.indices.contains(i):
+            let r = redactions[i]
+            let v = direction.offset(for: r.rect, imageSize: fullSize)
+            guard v != .zero else { return false }
+            pushUndo(.redactions(redactions))
+            redactions[i] = r.offsetBy(dx: v.dx, dy: v.dy)
+            return true
+        default:
+            return false
+        }
+    }
+
     /// The selected drawing is a text label, so it can be retyped.
     var canEditSelectedText: Bool {
         if case .text? = selectedMarkup?.kind { return true }
@@ -629,6 +654,82 @@ public final class ShareModel: ObservableObject {
     private var look: Look {
         Look(frame: frameChoice.name, dark: dark, background: backgroundChoice, padding: padding,
              cornerRadius: cornerRadius, shadow: shadow, cleanBar: cleanBar, markupWidth: markupWidth)
+    }
+
+    // MARK: Presets (#441)
+
+    /// The saved looks, shared with the app or the extension through the App Group. A look change is not part of the
+    /// undo history, so applying a preset is not either.
+    @Published private(set) var presets = LookPresets.load()
+
+    /// Reads the presets again, as the app or the extension may have saved some since this editor opened.
+    func reloadPresets() {
+        presets = LookPresets.load()
+    }
+
+    /// Whether the controls show `preset`'s look.
+    func isCurrent(_ preset: LookPreset) -> Bool {
+        preset.look.sameStyle(as: look)
+    }
+
+    /// A name for Save to offer: the frame and background as the LCD strip shows them, e.g. "iPhone · Sky".
+    var suggestedPresetName: String {
+        var name = frameChoice.title
+        if let fill = backgroundChoice { name += " · " + Background.presets[fill].name }
+        return presets.freeName(name)
+    }
+
+    /// Applies a preset's frame, Dark, background, padding, corners, shadow and Clean bar. The drawing size and the
+    /// browser's address stay.
+    func apply(_ preset: LookPreset) {
+        let l = preset.look
+        frameChoice = FrameChoice(name: l.frame)
+        dark = l.dark
+        backgroundChoice = Self.backgroundChoices.contains(l.background) ? l.background : Look.standard.background
+        padding = l.padding
+        cornerRadius = l.cornerRadius
+        shadow = l.shadow
+        cleanBar = l.cleanBar
+    }
+
+    /// Saves the current look as `name`. Returns a notice to show when that did not work, else nil.
+    func savePreset(named name: String) -> String? {
+        var list = LookPresets.load()
+        defer { presets = list }
+        switch list.add(look, as: name) {
+        case .added, .replaced: list.save()
+        case .full: return "You can keep \(LookPresets.limit) presets. Delete one first."
+        case .invalidName: return "A preset needs a name."
+        default: break
+        }
+        return nil
+    }
+
+    /// Returns a notice to show when the rename did not work, else nil.
+    func renamePreset(_ name: String, to newName: String) -> String? {
+        var list = LookPresets.load()
+        defer { presets = list }
+        switch list.rename(name, to: newName) {
+        case .renamed: list.save()
+        case .nameTaken: return "There is a preset with that name already."
+        case .invalidName: return "A preset needs a name."
+        default: break
+        }
+        return nil
+    }
+
+    func updatePreset(_ name: String) {
+        var list = LookPresets.load()
+        list.update(name, to: look)
+        list.save()
+        presets = list
+    }
+
+    func deletePreset(_ name: String) {
+        var list = LookPresets.load()
+        list.delete(name)
+        list.save()
+        presets = list
     }
 
     /// Remembers the look for the next editor, here or in the app or extension. It is a few bytes, so no debounce.

@@ -178,3 +178,52 @@ extension Redaction {
         }
     }
 }
+
+/// A one-step move of a drawing or redaction by a fixed amount, for VoiceOver's Move up / down / left / right (#451).
+/// Directions are as the picture shows them: up is towards the top of the image (+y in image pixels, bottom-left origin).
+public enum Nudge: CaseIterable, Sendable {
+    case up, down, left, right
+
+    /// A nudge is this share of the image's shorter side.
+    public static let fraction: CGFloat = 0.02
+
+    /// How far one nudge moves, in image pixels: 2% of the shorter side, at least one pixel.
+    public static func distance(imageSize: CGSize) -> CGFloat {
+        max(1, min(imageSize.width, imageSize.height) * fraction)
+    }
+
+    /// The direction's unit vector in image pixels (y up).
+    public var unit: CGVector {
+        switch self {
+        case .up: return CGVector(dx: 0, dy: 1)
+        case .down: return CGVector(dx: 0, dy: -1)
+        case .left: return CGVector(dx: -1, dy: 0)
+        case .right: return CGVector(dx: 1, dy: 0)
+        }
+    }
+
+    /// What VoiceOver calls it: "up", "down", "left", "right".
+    public var name: String {
+        switch self {
+        case .up: return "up"
+        case .down: return "down"
+        case .left: return "left"
+        case .right: return "right"
+        }
+    }
+
+    /// How far `bounds` can move in this direction, as (dx, dy) in image pixels: one nudge, cut short so `bounds`
+    /// stays inside the image. Zero when it is already at that edge. Along an axis where it is bigger than the image
+    /// it can't be kept inside, so it moves by the full nudge.
+    public func offset(for bounds: CGRect, imageSize: CGSize) -> CGVector {
+        let step = Nudge.distance(imageSize: imageSize)
+        let b = bounds.standardized
+        guard !b.isNull, !b.isInfinite else { return .zero }
+        var dx = unit.dx * step, dy = unit.dy * step
+        if dx > 0, b.width <= imageSize.width { dx = max(0, min(dx, imageSize.width - b.maxX)) }
+        if dx < 0, b.width <= imageSize.width { dx = min(0, max(dx, -b.minX)) }
+        if dy > 0, b.height <= imageSize.height { dy = max(0, min(dy, imageSize.height - b.maxY)) }
+        if dy < 0, b.height <= imageSize.height { dy = min(0, max(dy, -b.minY)) }
+        return CGVector(dx: dx, dy: dy)
+    }
+}

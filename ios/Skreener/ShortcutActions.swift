@@ -1,6 +1,7 @@
 import AppIntents
 import Photos
 import SkreenerEditor
+import UIKit
 import UniformTypeIdentifiers
 
 // The Shortcuts actions (#439): Siri, Spotlight, the Shortcuts app and Back Tap run them. They read the newest
@@ -177,6 +178,19 @@ enum ShortcutError: Error, CustomLocalizedStringResourceConvertible {
         case .safeCheck(let n):
             return "Safe Check found \(Self.things(n)) to cover, so nothing was handed on. Cover \(n == 1 ? "it" : "them") "
                 + "in Skreener's editor."
+        }
+    }
+
+    /// A few words for the home screen's LCD, over `message`.
+    var title: String {
+        switch self {
+        case .notAsked: return "TAP SHOW MY SCREENSHOTS"
+        case .denied: return "PHOTOS ACCESS IS OFF"
+        case .noneSelected: return "NO SCREENSHOTS SELECTED"
+        case .noScreenshots: return "NO SCREENSHOTS YET"
+        case .couldNotRead: return "COULD NOT READ THE SCREENSHOT"
+        case .couldNotRender, .safeCheck: return "COULD NOT FRAME THE SCREENSHOT"
+        case .couldNotSave: return "COULD NOT SAVE"
         }
     }
 

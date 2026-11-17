@@ -6,7 +6,8 @@ import SwiftUI
 enum SelectionReach {
     /// A tap this close to a drawing selects it.
     static let tap: CGFloat = 22
-    /// A drag starting this close to the selected one's handle drags the handle.
+    /// A drag starting this close to the selected one's handle drags the handle: a 52 pt target around the 16 pt dot,
+    /// above Apple's 44 pt. Both are in view points, so they stay the same at any pinch zoom (#443, #451).
     static let handle: CGFloat = 26
     /// A drag starting this close to a drawing moves it.
     static let grab: CGFloat = 14
