@@ -20,6 +20,8 @@ public struct ShareView: View {
     let onClose: () -> Void
     /// Shows the system share sheet for the PNG file; the hosting view controller does it.
     let onShare: (URL) -> Void
+    /// Opens a link from the Text sheet; nil in the Share Extension, which can't open links (Copy only).
+    let onOpenURL: ((URL) -> Void)?
     @State private var zoom = PreviewZoom()
     /// The bottom row shows the lit tool's options.
     @State private var showsOptions = false
@@ -27,15 +29,19 @@ public struct ShareView: View {
     @State private var showsMore = false
     /// Redact's Find sheet.
     @State private var showsFind = false
+    /// The Text in picture sheet (#441).
+    @State private var showsText = false
     /// The Draw key's shapes are fanned out above it.
     @State private var showsShapes = false
     /// The shape the Draw key shows and picks: the last one used.
     @State private var lastShape = EditorTool.arrow
 
-    public init(model: ShareModel, onClose: @escaping () -> Void, onShare: @escaping (URL) -> Void) {
+    public init(model: ShareModel, onClose: @escaping () -> Void, onShare: @escaping (URL) -> Void,
+                onOpenURL: ((URL) -> Void)? = nil) {
         self.model = model
         self.onClose = onClose
         self.onShare = onShare
+        self.onOpenURL = onOpenURL
     }
 
     public var body: some View {
@@ -83,6 +89,7 @@ public struct ShareView: View {
         .onChange(of: typing) { if typing { showsShapes = false } }
         .sheet(isPresented: $showsMore) { FrameSheet(model: model) }
         .sheet(isPresented: $showsFind) { FindSheet(model: model, finder: model.finder) }
+        .sheet(isPresented: $showsText) { TextActionsSheet(model: model, finder: model.finder, onOpenURL: onOpenURL) }
     }
 
     // MARK: Top bar
@@ -104,6 +111,11 @@ public struct ShareView: View {
             }
             .disabled(!model.canUndo || typing)
             Spacer(minLength: 8)
+            SymbolKey(symbol: "text.viewfinder", label: "Text in picture",
+                      hint: "Shows the text in the picture, to copy, open links or add dates to Calendar") {
+                showText()
+            }
+            .disabled(model.phase != .ready || typing)
             SymbolKey(symbol: "square.and.arrow.up", label: "Share",
                       hint: "Shows the share sheet, with Copy Photo to copy it") {
                 model.export(.share, share: onShare)
@@ -134,6 +146,16 @@ public struct ShareView: View {
         } else {
             ToolRow(model: model, lastShape: lastShape, onOptions: { showsOptions = true },
                     onShapes: { setShapes(!showsShapes) })
+        }
+    }
+
+    /// Shows the Text sheet. Frame's or Find's sheet is closed first, and the new one waits for it to go.
+    private func showText() {
+        guard showsMore || showsFind else { showsText = true; return }
+        closeOptions()
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            showsText = true
         }
     }
 
