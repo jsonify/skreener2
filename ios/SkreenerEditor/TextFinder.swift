@@ -55,8 +55,11 @@ final class TextFinder: ObservableObject {
 
     private var source: ImageSource?
     private var size = CGSize.zero
-    /// All the text, read the first time the search box is used. Only this is kept, never the image.
-    private var index: TextRecognizer.TextIndex?
+    /// All the text, read by Safe Check's scan on open or the first time the search box or the Text sheet needs it.
+    /// Only this is kept, never the image.
+    @Published private(set) var index: TextRecognizer.TextIndex?
+    /// The Text sheet (#441) wants the text, so it is read as soon as no other pass is running.
+    private var textWanted = false
     /// Each kind's boxes, read the first time its key is tapped.
     private var found: [Kind: [CGRect]] = [:]
 
@@ -132,7 +135,7 @@ final class TextFinder: ObservableObject {
     private enum Reading: Sendable {
         case index(TextRecognizer.TextIndex)
         case boxes(Kind, [CGRect])
-        case leaks([LeakScan.Finding])
+        case leaks([LeakScan.Finding], TextRecognizer.TextIndex?)
     }
 
     /// One OCR pass at a time; `refresh` afterwards starts the next if the search moved on meanwhile.
@@ -146,11 +149,15 @@ final class TextFinder: ObservableObject {
             switch result {
             case .index(let index): self.index = index
             case .boxes(let kind, let boxes): self.found[kind] = boxes
-            case .leaks(let findings): self.leaks = findings
+            case .leaks(let findings, let read):
+                self.leaks = findings
+                // Safe Check read the text already: the search and the Text sheet reuse it.
+                if self.index == nil { self.index = read }
             }
             self.reading = false
             self.refresh()
             if self.scanPending { self.scanForLeaks() }
+            if self.textWanted { self.readText() }
         }
     }
 
@@ -168,16 +175,33 @@ final class TextFinder: ObservableObject {
             guard let image else { return .boxes(kind, []) }
             return .boxes(kind, await TextRecognizer.boxes(in: image, size: full, matching: kind.sensitive))
         case .leaks:
-            guard let image else { return .leaks([]) }
-            return .leaks(await scanLeaks(image, size: full))
+            guard let image else { return .leaks([], nil) }
+            let (findings, read) = await LeakScan.scanReadingText(image, size: full)
+            return .leaks(padded(findings), read)
         }
     }
 
     /// Safe Check's scan of `image`, whose full size is `size`, boxes padded like the Mac's Redact. `QuickFrame` runs
     /// it without an editor (#439).
     nonisolated static func scanLeaks(_ image: CGImage, size: CGSize) async -> [LeakScan.Finding] {
-        let findings = await LeakScan.scan(image, size: size)
-        return findings.map { LeakScan.Finding(kind: $0.kind, box: $0.box.insetBy(dx: -3, dy: -2)) }
+        padded(await LeakScan.scan(image, size: size))
+    }
+
+    private nonisolated static func padded(_ findings: [LeakScan.Finding]) -> [LeakScan.Finding] {
+        findings.map { LeakScan.Finding(kind: $0.kind, box: $0.box.insetBy(dx: -3, dy: -2)) }
+    }
+
+    // MARK: Text sheet
+
+    /// Makes sure `index` gets read (#441), without a second OCR pass when Safe Check's scan has it or will have it.
+    func readText() {
+        textWanted = true
+        guard index == nil, source != nil, !reading else { return }
+        if leaks == nil {
+            scanForLeaks()
+        } else {
+            read(.index)
+        }
     }
 
     // MARK: Safe Check
