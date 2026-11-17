@@ -656,6 +656,82 @@ public final class ShareModel: ObservableObject {
              cornerRadius: cornerRadius, shadow: shadow, cleanBar: cleanBar, markupWidth: markupWidth)
     }
 
+    // MARK: Presets (#441)
+
+    /// The saved looks, shared with the app or the extension through the App Group. A look change is not part of the
+    /// undo history, so applying a preset is not either.
+    @Published private(set) var presets = LookPresets.load()
+
+    /// Reads the presets again, as the app or the extension may have saved some since this editor opened.
+    func reloadPresets() {
+        presets = LookPresets.load()
+    }
+
+    /// Whether the controls show `preset`'s look.
+    func isCurrent(_ preset: LookPreset) -> Bool {
+        preset.look.sameStyle(as: look)
+    }
+
+    /// A name for Save to offer: the frame and background as the LCD strip shows them, e.g. "iPhone · Sky".
+    var suggestedPresetName: String {
+        var name = frameChoice.title
+        if let fill = backgroundChoice { name += " · " + Background.presets[fill].name }
+        return presets.freeName(name)
+    }
+
+    /// Applies a preset's frame, Dark, background, padding, corners, shadow and Clean bar. The drawing size and the
+    /// browser's address stay.
+    func apply(_ preset: LookPreset) {
+        let l = preset.look
+        frameChoice = FrameChoice(name: l.frame)
+        dark = l.dark
+        backgroundChoice = Self.backgroundChoices.contains(l.background) ? l.background : Look.standard.background
+        padding = l.padding
+        cornerRadius = l.cornerRadius
+        shadow = l.shadow
+        cleanBar = l.cleanBar
+    }
+
+    /// Saves the current look as `name`. Returns a notice to show when that did not work, else nil.
+    func savePreset(named name: String) -> String? {
+        var list = LookPresets.load()
+        defer { presets = list }
+        switch list.add(look, as: name) {
+        case .added, .replaced: list.save()
+        case .full: return "You can keep \(LookPresets.limit) presets. Delete one first."
+        case .invalidName: return "A preset needs a name."
+        default: break
+        }
+        return nil
+    }
+
+    /// Returns a notice to show when the rename did not work, else nil.
+    func renamePreset(_ name: String, to newName: String) -> String? {
+        var list = LookPresets.load()
+        defer { presets = list }
+        switch list.rename(name, to: newName) {
+        case .renamed: list.save()
+        case .nameTaken: return "There is a preset with that name already."
+        case .invalidName: return "A preset needs a name."
+        default: break
+        }
+        return nil
+    }
+
+    func updatePreset(_ name: String) {
+        var list = LookPresets.load()
+        list.update(name, to: look)
+        list.save()
+        presets = list
+    }
+
+    func deletePreset(_ name: String) {
+        var list = LookPresets.load()
+        list.delete(name)
+        list.save()
+        presets = list
+    }
+
     /// Remembers the look for the next editor, here or in the app or extension. It is a few bytes, so no debounce.
     private func saveLook() {
         look.save()

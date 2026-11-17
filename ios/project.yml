@@ -80,6 +80,8 @@ targets:
         # Read access: asked on the first tap of Show my screenshots or Latest screenshot, never at launch.
         NSPhotoLibraryUsageDescription: Skreener shows your recent screenshots so you can edit them.
         NSPhotoLibraryAddUsageDescription: Skreener saves your edited screenshot to Photos.
+        # The Text sheet's Add to Calendar shows Calendar's new-event screen (#441); iOS 17 needs no access for it.
+        NSCalendarsWriteOnlyAccessUsageDescription: Skreener adds a date from your screenshot to Calendar when you ask.
         # The home screen has a Select more key for limited access, so iOS needn't ask on each launch.
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UILaunchScreen: {}
@@ -126,6 +128,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSPhotoLibraryAddUsageDescription: Skreener saves your edited screenshot to Photos.
+        NSCalendarsWriteOnlyAccessUsageDescription: Skreener adds a date from your screenshot to Calendar when you ask.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
@@ -212,6 +215,9 @@ targets:
         product: SK1Tokens
       - package: SK1Kit
         product: SK1UI
+      # The Text sheet's Add to Calendar (#441).
+      - sdk: EventKit.framework
+      - sdk: EventKitUI.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.skreener.ios.editor
