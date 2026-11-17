@@ -25,6 +25,12 @@ fast flick) and feeds `ScrollStitcher` from `SkreenerCore`.
 - `SkreenerEditor/`: the editor as a framework: the screens, redact and draw canvases, rendering and export. It draws
   with `SkreenerCore`, the library shared with the Mac app. The app embeds it; the extension uses it. Both hand it an
   `ImageSource` (the extension's items, or image bytes), which it loads again for each export.
+  How much of the picture it keeps depends on the host (#441): the extension has about 120 MB, so its items are
+  decoded at 4096 px on the long side at most (`PixelBudget.shareExtension`); the app has no such limit and keeps up
+  to 8192 px on the long side and 40 megapixels (`PixelBudget.app`), so a 48 MP camera photo is saved at about
+  7300 x 5480 and an iPad screenshot untouched. Both decode straight to that size, with the EXIF orientation applied.
+  The on-screen preview (1600 px) and the OCR behind Safe Check and Find (4096 px) read smaller copies, so a big photo
+  does not make them slower. Long screenshots are never shrunk.
 - `SkreenerShare/`: the Share Extension. Only its view controller, which hosts the editor.
 - `SkreenerBroadcast/`: the Broadcast Upload Extension for live scrolling capture (see below). It links only
   `SkreenerCore`, for the stitcher.
@@ -116,6 +122,11 @@ open Skreener.xcodeproj
     asks first, like Show my screenshots.) Close.
 11. Tap **Choose screenshot**: the system photo picker opens, showing only images, without asking for any access.
     Pick one: it opens in the editor. Close.
+    Big photos keep their resolution in the app (#441): pick a 48 MP photo (a camera photo from an iPhone 14 Pro or
+    later in 48 MP mode, or any large photo), tap **Save**, then in Photos open the saved picture and swipe up
+    (or tap the i): its size is above 4096 px on the long side (about 7300 x 5480 for a 48 MP photo). Safe Check and
+    Find still answer quickly. Now share the same photo from Photos to Skreener (the extension) and Save: that PNG
+    stays at 4096 px on its long side.
 12. The editor starts with the style you used last: open any screenshot again and the frame, Dark, background and
     sliders, and the drawing size in the colour key, are as you left them (redactions and drawings start empty). Now set a different frame and background,
     Close, and share a screenshot from Photos to Skreener (see below): the extension starts with that same look.
