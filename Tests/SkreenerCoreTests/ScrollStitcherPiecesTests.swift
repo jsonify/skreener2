@@ -120,4 +120,29 @@ final class ScrollStitcherPiecesTests: XCTestCase {
         guard case .full = stitcher.add(all[2]) else { return XCTFail("expected .full after takeRemaining") }
         XCTAssertTrue(stitcher.takeRemaining().isEmpty)
     }
+
+    /// Live capture on an iPhone (#456): the status bar's clock, recording pill or Live Activity changes in every frame
+    /// while the content scrolls under a static navigation bar. With the status bar's rows ignored every frame still
+    /// moves, and the status bar comes from the first frame.
+    func testChangingStatusBarStillStitches() {
+        let page = rows(1600, seed: 4), nav = rows(20, seed: 8)
+        let statusRows = 16, content = frameHeight - statusRows - nav.count
+        let steps = [30, 45, 60, 25, 80, 50]
+        var top = 0
+        var all = [image(rows(statusRows, seed: 100) + nav + page[top..<(top + content)])]
+        for (i, step) in steps.enumerated() {
+            top += step
+            all.append(image(rows(statusRows, seed: UInt32(101 + i)) + nav + page[top..<(top + content)]))
+        }
+        let stitcher = ScrollStitcher(first: all[0], ignoreRight: 0, ignoreTop: statusRows)
+        for (frame, step) in zip(all.dropFirst(), steps) {
+            guard case .moved(let shift) = stitcher.add(frame) else { return XCTFail("frame scrolled by \(step) did not move") }
+            XCTAssertEqual(shift, step)
+        }
+        XCTAssertEqual(stitcher.height, frameHeight + steps.reduce(0, +))
+        guard let joined = stitcher.makeImage() else { return XCTFail("no image") }
+        let firstTop = pixels([all[0].cropping(to: CGRect(x: 0, y: 0, width: width, height: statusRows))!])
+        let joinedTop = pixels([joined.cropping(to: CGRect(x: 0, y: 0, width: width, height: statusRows))!])
+        XCTAssertTrue(firstTop.bytes == joinedTop.bytes, "the status bar is not the first frame's")
+    }
 }

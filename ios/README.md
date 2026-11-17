@@ -362,9 +362,14 @@ The home screen's **Scroll capture** key captures a long screenshot of any app (
 capture, except that you scroll by hand: iOS lets no app scroll another. The key starts a screen broadcast to
 Skreener's Broadcast Upload Extension (`SkreenerBroadcast`); iOS shows the red recording button in the status bar while
 it runs. The extension takes about 10 frames a second and stitches them with `ScrollStitcher` from `SkreenerCore`,
-keeping the status bar, navigation bar and tab bar once. Until something scrolls, it starts again from whatever is on
-screen whenever the screen changes, so Skreener, the countdown and the switch to the other app don't end up in the
-picture. A broadcast extension may use only about 50 MB, so the finished strips go to disk as PNGs as you scroll, in
+keeping the status bar, navigation bar and tab bar once. The status bar (the top 62 points on an iPhone with a notch or
+Dynamic Island, 24 on others) always comes from the first frame and is left out of the matching, as its clock, the
+red pill and a Live Activity change while the content scrolls. Until something scrolls, it starts again from whatever
+is on screen whenever the screen changes, so Skreener, Control Centre and the switch to the other app don't end up in
+the picture. ReplayKit sends a frame only when the screen changes, so the first scroll counts once the screen has
+settled: 0.4 s after the last change, after a pause in frames, or after 0.6 s of steady scrolling. If nothing scrolled,
+the notification adds a line of counts (frames used of those sent, still, moved, early, lost, reseeds, frame size) for
+TestFlight testing; it can be removed once live capture is known to work. A broadcast extension may use only about 50 MB, so the finished strips go to disk as PNGs as you scroll, in
 the App Group container (`LiveCaptures/<id>/`), with a `manifest.json` once the broadcast stops; nothing leaves the
 phone. It then posts a notification. When Skreener comes back to the front (from the notification or any other way),
 the home screen joins the strips into one PNG, removes the folder and opens it in the editor, as a picked image opens.
@@ -376,12 +381,14 @@ at 30,000 pixels, the Mac's limit too.
 
 1. On first launch after this change, the home screen has a **Scroll capture** key above the OPEN tray, and under it
    "Start, then switch to any app and scroll slowly. Stop from the red status-bar button."
-2. Tap **Scroll capture**. The first time, iOS asks to allow notifications: tap Allow. Then the system's Screen
-   Broadcast sheet rises with **Skreener** chosen and no microphone switch. (If instead a small round record button
-   appears next to the key with "Tap the round button, then Start Broadcast.", tap that button.)
-3. Tap **Start Broadcast**. After the 3-2-1 countdown, the status bar's clock turns into a red pill. Close the sheet
-   (tap above it or swipe it down).
-4. Go to Safari (a long article) or Messages (a long conversation). Wait a moment, then scroll down slowly with
+2. Tap **Scroll capture**. The first time, iOS asks to allow notifications: tap Allow. Then the system's sheet rises
+   with **Skreener** chosen and no microphone switch: on iOS 26 it is called **Screen Sharing**, on earlier versions
+   **Screen Broadcast**. (If instead a small round record button appears next to the key with "Tap the round button,
+   then Start Broadcast.", tap that button.)
+3. Tap **Start Sharing** (iOS 26) or **Start Broadcast** (earlier). After the 3-2-1 countdown, the status bar's clock
+   turns into a red pill. Close the sheet (tap above it or swipe it down).
+4. Go to Safari (a long article) or Messages (a long conversation). Nothing shows during the capture apart from the red
+   pill, and it only starts once you are in the other app and scrolling. Wait a moment, then scroll down slowly with
    short, steady swipes; don't fling. You may pause and carry on.
 5. Tap the red pill in the status bar, then **Stop**. Within a second or two a notification says "Long screenshot
    ready" / "Tap to edit it in Skreener."
@@ -390,7 +397,8 @@ at 30,000 pixels, the Mac's limit too.
    input bar) once each, no repeated lines. Save it: Photos has the long PNG. Close: the home screen is back, and the
    explainer under the key is gone.
 7. Nothing scrolled: start again, open an app, don't scroll, stop. The notification says "Nothing scrolled" /
-   "Scroll slowly in the app you want to capture." Opening Skreener opens nothing.
+   "Scroll slowly in the app you want to capture.", then a line of counts such as "(frames 40 of 52 · still 3 ·
+   moved 0 · early 0 · lost 6 · reseeds 6 · 1179×2556)". Opening Skreener opens nothing.
 8. Maximum length: start, open a very long page (a long Wikipedia article) and keep scrolling slowly for a minute or
    two. At 30,000 pixels (roughly 12 screens on a 3x iPhone) the broadcast stops by itself with an alert
    "Reached the maximum length. Your long screenshot is saved: tap the Skreener notification to edit it.", and
