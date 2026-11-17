@@ -23,7 +23,7 @@ enum Exporter {
         let cleanBar: Bool
     }
 
-    /// Reloads the full image (up to `ImageLoader.maxPixels`), draws it and encodes a PNG. It runs off the main actor
+    /// Reloads the full image (within the source's `PixelBudget`), draws it and encodes a PNG. It runs off the main actor
     /// and lets go of the image when it returns, so only the PNG bytes stay in memory.
     static func png(_ job: Job) async throws -> Data {
         try await Task.detached(priority: .userInitiated) { () -> Data in

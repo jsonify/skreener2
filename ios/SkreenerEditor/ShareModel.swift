@@ -187,7 +187,7 @@ public final class ShareModel: ObservableObject {
 
     var canExport: Bool { phase == .ready && !busy }
 
-    /// Where the image comes from. Kept so an export can reload the full image: the decoded one (up to 4096 px) is
+    /// Where the image comes from. Kept so an export can reload the full image: the decoded one (up to the source's `PixelBudget`) is
     /// dropped after the preview is made, since holding both would cost memory the extension may not have.
     private var imageSource: ImageSource?
     /// The screenshot at preview size.

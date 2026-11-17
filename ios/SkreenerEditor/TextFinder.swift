@@ -165,8 +165,10 @@ final class TextFinder: ObservableObject {
     /// come back bottom-left origin, scaled to `size`: full-image pixels, as Redaction takes them. An image that
     /// can't be loaded reads as no text, so it isn't retried over and over.
     private nonisolated static func recognize(_ request: Request, source: ImageSource, size: CGSize) async -> Reading {
-        let image = try? await source.load()
-        let full = image.map { CGSize(width: $0.width, height: $0.height) } ?? size
+        // A bounded copy is read, not the full image: Vision scales its input down anyway, and its boxes are fractions
+        // of the image, so they are put on the full size the editor draws in, whatever the copy's size.
+        let image = try? await source.load(within: ImageLoader.recognitionBudget)
+        let full = size
         switch request {
         case .index:
             guard let image else { return .index(TextRecognizer.TextIndex(size: full)) }
