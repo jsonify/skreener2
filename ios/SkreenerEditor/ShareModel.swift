@@ -582,6 +582,31 @@ public final class ShareModel: ObservableObject {
         }
     }
 
+    /// Moves the selected drawing or redaction one `Nudge` (VoiceOver's Move up / down / left / right), as one undo step.
+    /// Returns false, changing nothing, when it is already at that edge of the image or a label is being typed.
+    @discardableResult
+    func nudgeSelection(_ direction: Nudge) -> Bool {
+        guard textSpot == nil else { return false }
+        switch selection {
+        case .markup(let i)? where markups.indices.contains(i):
+            let m = markups[i]
+            let v = direction.offset(for: m.selectionBounds(imageWidth: Int(fullSize.width)), imageSize: fullSize)
+            guard v != .zero else { return false }
+            pushUndo(.markups(markups))
+            markups[i] = m.offsetBy(dx: v.dx, dy: v.dy)
+            return true
+        case .redaction(let i)? where redactions.indices.contains(i):
+            let r = redactions[i]
+            let v = direction.offset(for: r.rect, imageSize: fullSize)
+            guard v != .zero else { return false }
+            pushUndo(.redactions(redactions))
+            redactions[i] = r.offsetBy(dx: v.dx, dy: v.dy)
+            return true
+        default:
+            return false
+        }
+    }
+
     /// The selected drawing is a text label, so it can be retyped.
     var canEditSelectedText: Bool {
         if case .text? = selectedMarkup?.kind { return true }

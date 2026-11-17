@@ -74,12 +74,17 @@ struct DrawCanvas: View {
                 }
                 touches(view: view)
                     .frame(width: view.width, height: view.height)
+                // Each drawing is a VoiceOver element over the canvas (#451); they take no touches.
+                ItemElements(items: model.markupElements(shown: shown), view: view)
                 if edit == nil, model.selectedMarkup != nil, let box {
                     SelectionMenu(items: menuItems, target: box, view: view)
                 }
             }
             .frame(width: view.width, height: view.height, alignment: .topLeading)
             .clipped()
+            .onChange(of: model.selection) {
+                if let say = model.selectionAnnouncement { VoiceOverSay.announce(say) }
+            }
         }
     }
 
