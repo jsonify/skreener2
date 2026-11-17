@@ -4,7 +4,7 @@ import SK1UI
 import SwiftUI
 
 /// The sheet's heading: a caption and a key that closes it.
-private struct SheetHeader: View {
+struct SheetHeader: View {
     let title: String
     let onClose: () -> Void
 

@@ -93,7 +93,8 @@ open Skreener.xcodeproj
 5. Tap a screenshot in the grid. The LCD reads "OPENING…" (longer if it is in iCloud only), then the editor fills the
    screen with that screenshot. At the top, the same header as the home screen ("SK-1 SKREENER" at the left, the
    speaker grille at the right); under it a row of keys: **Close** and **Undo** (greyed out) at the left, a
-   **Share** key (the share icon) and the orange **Save** key, its label dark, at the right. All of them sit
+   **Text in picture** key (a viewfinder around lines of text), a **Share** key (the share icon) and the orange
+   **Save** key, its label dark, at the right. All of them sit
    below the status bar and the Dynamic Island, easy to tap; the cream (or charcoal) chassis still fills the screen
    to its edges. There is no Copy key. Under them, a slim LCD strip; then the picture, as big as it fits; then the
    bottom row, above the home indicator: a tray of four tool keys, **Frame** (lit), **Draw** (an arrow with a small
@@ -134,6 +135,34 @@ open Skreener.xcodeproj
     says to delete one first. Close, open another screenshot, and the presets are there. Share a screenshot to
     Skreener from Photos: the same presets show in its Frame options, and one saved there shows in the app. Applying
     a preset is not an Undo step.
+
+## Try text actions
+
+Text actions (#441) take the text out of a screenshot: copy it, open a link, add a date to Calendar. Use a screenshot
+of a message or an invitation with a link, a date and time (say "Dinner with Sam, Friday 7:30 PM"), a phone number and
+an email, in the app or the extension.
+
+1. In the editor, tap the **Text in picture** key at the top, left of Share. A sheet rises with "TEXT" and a ✕. It says
+   "Reading text…" for a moment if Safe Check has not finished (the screenshot is read once; opening the sheet does
+   not read it again).
+2. The sheet shows an orange **Copy all** key; then, each only if the picture has some, **Links**, **Dates**, **Phone
+   numbers** and **Emails**; then "ALL TEXT" with the whole text. Nothing found at all: "No text found in this
+   picture."
+3. Tap **Copy all**: "Copied" shows at the top for two seconds. Paste into Notes: every line, top to bottom.
+4. **Links**: each link, with **Open** and **Copy**. In the app, **Open** opens it in Safari. In the extension there is
+   no Open key, only **Copy**, because an extension can't open links. **Copy** puts the address in the clipboard
+   ("Copied").
+5. **Dates**: each date found, written out ("Fri, Nov 20, 2026, 7:30 PM"), with the rest of its line under it (the
+   event's name), and **Add to Calendar**. Tap it: Calendar's New Event screen opens over the sheet with that name, the
+   date and time, and one hour as its length; a date without a time is an all-day event. Tap **Add** to save it, or
+   **Cancel**: either way you are back in the sheet. Calendar asks for no permission on iOS 17.
+6. **Phone numbers** and **Emails**: each with **Copy**. A link, number or email that shows twice in the picture is
+   listed once.
+7. Touch and hold in "ALL TEXT": the text can be selected and copied in part.
+8. Privacy: close the sheet, tap **Redact**, cover the line with the email by dragging over it, and open **Text in
+   picture** again: that line is gone from Copy all, the lists and All text. **Undo** the redaction and open the sheet:
+   it is back.
+9. Open the sheet while Frame's **More** or Redact's **Find** sheet is up: that one closes and the Text sheet follows.
 
 ## Try long screenshots
 
@@ -264,8 +293,10 @@ open Skreener.xcodeproj
     to allow "Add Photos Only" for Skreener in Settings > Privacy & Security > Photos.
 17. Tap **Share** (the icon left of Save) for the system share sheet with `Skreener.png`. Tap **Copy Photo** and
     paste into Notes or Messages: the edited picture.
-18. **Close** (top left) ends the sheet.
-19. Open the share sheet again: the frame, Dark, background, sliders, Clean bar and drawing size are as you left
+18. **Text in picture** (left of Share) shows the text in the screenshot to copy, with Copy for links, numbers and
+    emails and Add to Calendar for dates; there is no Open for links here. See Try text actions above.
+19. **Close** (top left) ends the sheet.
+20. Open the share sheet again: the frame, Dark, background, sliders, Clean bar and drawing size are as you left
     them. Change them, Close, and open the Skreener app and a screenshot: the app's editor shows the look you just set in the
     extension. A fresh install starts with iPhone frame, Dark off, the first background, Padding 48, Corners 10,
     Shadow 50%, Clean bar off and size 1×.

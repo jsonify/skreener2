@@ -27,7 +27,8 @@ enum EditorPresenter {
                                                                   if let editor = ref.editor { close(editor) }
                                                                   onClose()
                                                               },
-                                                              onShare: { url in Presenter.share(url) }),
+                                                              onShare: { url in Presenter.share(url) },
+                                                              onOpenURL: { url in UIApplication.shared.open(url) }),
                                           notice: notice)
         ref.editor = editor
         shown = editor
