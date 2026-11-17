@@ -292,6 +292,17 @@ an email, in the app or the extension.
     area to select it: corner handles and **Duplicate** / **Delete**; drag it to move it, drag a corner to resize it,
     and Pixelate, Blur or Solid change its cover. Each move, resize, change or delete is one Undo step, as are
     **Clear** and **Clear drawings**.
+    With VoiceOver, every drawing and covered area is reachable too: turn VoiceOver on (Settings > Accessibility >
+    VoiceOver, or triple-click the side button if you have set that up), open Draw and draw an arrow, then swipe
+    right over the picture until VoiceOver reads "Arrow, red" (a label reads "Text, 'Hello', blue", a covered area
+    "Covered area, pixelate"; they come in the order they were drawn). Swipe up or down to hear the actions: **Select**,
+    **Delete**, **Duplicate**, **Move up**, **Move down**, **Move left**, **Move right** (and **Edit text** for a
+    label). Pick **Move right** a few times: the arrow moves by a small fixed step (2% of the picture's shorter
+    side) each time, says "Moved right", and stops at the picture's edge ("Can't move right, at the edge"). Pick
+    **Delete**: it says "Deleted Arrow, red". Then tap **Undo**: the arrow comes back, and Undo again takes back
+    each move, one per step. Selecting says "Selected Arrow, red". Drawing with a finger and the tool keys work as before.
+    In Redact, the covered areas read and act the same way. Pinch to zoom and the handles are the same size and
+    as easy to grab as at fit.
 14. Tap **Frame**: the frame and background return, with the redactions and drawings on the screenshot (drawings
     over redactions). They are in every export too, at full size.
 15. With a full iPhone screenshot, Frame's **More** sheet has a **Clean bar** switch next to Dark (it is absent for a
