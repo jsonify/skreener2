@@ -62,4 +62,25 @@ final class ScrollMatcherTests: XCTestCase {
         let a = frame(page(rows: height, seed: 1), top: 0), b = frame(page(rows: height, seed: 2), top: 0)
         XCTAssertEqual(ScrollMatcher.match(a, b), .lost)
     }
+
+    /// An iPhone status bar whose clock or Live Activity changes between frames (#456): with its rows ignored, the
+    /// navigation bar under it is still found as header and the content still matches.
+    func testChangingStatusBarIsIgnored() {
+        let nav = page(rows: 16, seed: 7), content = page(rows: 400)
+        let prev = frame(ArraySlice(page(rows: 12, seed: 11) + nav + content[0..<(height - 28)]))
+        let new = frame(ArraySlice(page(rows: 12, seed: 12) + nav + content[30..<(height - 28 + 30)]))
+        guard case let .moved(shift, top, bottom) = ScrollMatcher.match(prev, new, ignoreTop: 12) else {
+            return XCTFail("expected a move, got \(ScrollMatcher.match(prev, new, ignoreTop: 12))")
+        }
+        XCTAssertEqual(shift, 30)
+        XCTAssertTrue((28...30).contains(top), "header \(top)")
+        XCTAssertEqual(bottom, 0)
+    }
+
+    func testOnlyTheStatusBarChangedIsUnchanged() {
+        let rest = page(rows: height - 12)
+        let prev = frame(ArraySlice(page(rows: 12, seed: 11) + rest))
+        let new = frame(ArraySlice(page(rows: 12, seed: 12) + rest))
+        XCTAssertEqual(ScrollMatcher.match(prev, new, ignoreTop: 12), .unchanged)
+    }
 }

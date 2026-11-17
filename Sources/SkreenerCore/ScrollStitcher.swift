@@ -77,10 +77,14 @@ public enum ScrollMatcher {
     /// out for this pair of frames alone, so a header that appears, shrinks or grows a shadow later is still caught.
     /// `hint` (the previous shift) is scored first, which usually lets the full search stop early. `bridgeBlank` allows
     /// the guess across blank stretches below; only safe when `prev` reached the end of what has been stitched.
-    public static func match(_ prev: ScrollRows, _ new: ScrollRows, hint: Int? = nil, bridgeBlank: Bool = true) -> ScrollMatch {
+    /// `ignoreTop` rows at the top always count as header, whatever they show, and are never compared: an iPhone's status
+    /// bar, where the clock, the recording pill or a Live Activity changes while the content under it scrolls. The row
+    /// under them goes with them, as its detail carries their edge. At most an eighth of the rows are ignored.
+    public static func match(_ prev: ScrollRows, _ new: ScrollRows, hint: Int? = nil, bridgeBlank: Bool = true,
+                             ignoreTop: Int = 0) -> ScrollMatch {
         let h = min(prev.count, new.count)
         let same = sameRow * ScrollRows.bins
-        var header = 0
+        var header = ignoreTop > 0 ? min(ignoreTop, h / 8) + 1 : 0
         while header < h && prev.diff(header, new, header) < same { header += 1 }
         if header == h { return .unchanged }
         var footer = 0
@@ -204,10 +208,16 @@ public final class ScrollStitcher: @unchecked Sendable {
     private var finished = false
     /// Columns matched, from the left: an overlay scroll bar at the right edge fades in and moves against the content.
     private let matchWidth: Int
+    /// Rows at the top that are always header, taken from the first frame, and never matched (see `init`).
+    private let ignoreTop: Int
     private let space: CGColorSpace
 
-    public init(first frame: CGImage, ignoreRight: Int) {
+    /// `ignoreRight` columns at the right edge are left out of the matching (an overlay scroll bar). `ignoreTop` rows at
+    /// the top are always kept from the first frame and left out of the matching too, for a status bar that changes
+    /// while the content scrolls (the iPhone's live capture, #456); the Mac passes 0.
+    public init(first frame: CGImage, ignoreRight: Int, ignoreTop: Int = 0) {
         width = frame.width
+        self.ignoreTop = max(0, ignoreTop)
         frameHeight = frame.height
         height = frame.height
         let matched = ignoreRight < frame.width / 2 ? frame.width - ignoreRight : frame.width
@@ -222,7 +232,8 @@ public final class ScrollStitcher: @unchecked Sendable {
         if height >= Self.maxHeight || finished { return .full }
         let rows = Self.rows(frame, width: matchWidth)
         let h = frameHeight
-        switch ScrollMatcher.match(lastRows, rows, hint: lastShift, bridgeBlank: caughtUp) {
+        switch ScrollMatcher.match(lastRows, rows, hint: lastShift, bridgeBlank: caughtUp,
+                                   ignoreTop: ignoreTop) {
         case .unchanged:
             return .unchanged
         case .lost:
