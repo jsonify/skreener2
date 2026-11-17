@@ -93,7 +93,7 @@ enum ImageLoader {
         }
         let loaded: Loaded = try await withCheckedThrowingContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, error in
-                if let image = item.flatMap { decode($0, budget: budget) } {
+                if let image = item.flatMap({ decode($0, budget: budget) }) {
                     continuation.resume(returning: Loaded(image: image))
                 } else {
                     continuation.resume(throwing: error ?? LoadError.noImage)
