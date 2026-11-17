@@ -60,7 +60,7 @@ jobs:
           test -n "$want_version"
           app=build/Build/Products/Debug-iphonesimulator/Skreener.app
           for plist in "$app/Info.plist" "$app/PlugIns/SkreenerShare.appex/Info.plist" \
-              "$app/PlugIns/SkreenerBroadcast.appex/Info.plist" "$app/PlugIns/SkreenerControls.appex/Info.plist"; do
+              "$app/PlugIns/SkreenerBroadcast.appex/Info.plist"; do
             build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
             version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
             echo "$plist: $version ($build)"

@@ -44,26 +44,7 @@ struct FrameLatestScreenshotIntent: AppIntent, ForegroundContinuableIntent {
     }
 }
 
-/// The Control Center control's action (#439) runs in the app, which it opens: the extension only shows the control. It
-/// frames and copies, as Frame Latest Screenshot with Then = Copy does, Safe Check gate included, and reports on the
-/// home screen's LCD instead of throwing, as Control Center shows no errors.
-extension FrameLatestControlIntent: ForegroundContinuableIntent {
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        // The pasteboard takes the copy only from the app in the foreground, which `openAppWhenRun` brings up. Should
-        // it not be up within two seconds, ask to bring it up.
-        for _ in 0..<20 where UIApplication.shared.applicationState != .active {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-        if UIApplication.shared.applicationState != .active {
-            try await requestToContinueInForeground(FrameLatest.dialog("Open Skreener to copy your framed screenshot?"))
-        }
-        await FrameLatest.copyForControl()
-        return .result()
-    }
-}
-
-/// What Frame Latest Screenshot and the control do: frame the newest screenshot in the last look, gated by Safe Check.
+/// What Frame Latest Screenshot does: frame the newest screenshot in the last look, gated by Safe Check.
 @MainActor
 enum FrameLatest {
     /// Frames the newest screenshot, does `then` with it and returns the PNG. `continueInForeground` asks to bring
@@ -97,38 +78,6 @@ enum FrameLatest {
             break
         }
         return png
-    }
-
-    /// The control's action, with the app in the foreground: frames the newest screenshot and copies it, or opens it
-    /// in the editor if Safe Check finds anything. The LCD says which, or why neither.
-    static func copyForControl() async {
-        let router = AppRouter.shared
-        router.report(AppRouter.Report(title: "FRAMING…", detail: nil))
-        do {
-            let (asset, source) = try await latest()
-            if await QuickFrame.findings(in: source) > 0 {
-                router.report(nil)
-                router.open(asset)
-                return
-            }
-            guard let png = try? await QuickFrame.png(source) else { throw ShortcutError.couldNotRender }
-            QuickFrame.copy(png)
-            router.report(AppRouter.Report(title: "FRAMED AND COPIED", detail: copiedDetail(asset)))
-        } catch let error as ShortcutError {
-            router.report(AppRouter.Report(title: error.title, detail: error.message))
-        } catch {
-            router.report(AppRouter.Report(title: ShortcutError.couldNotRender.title, detail: nil))
-        }
-    }
-
-    /// When the copied screenshot was taken, so it is plain which one was copied (a screenshot still in the preview
-    /// after it is taken is not in Photos yet).
-    private static func copiedDetail(_ asset: PHAsset) -> String {
-        guard let date = asset.creationDate else { return "Your newest screenshot is on the clipboard: paste it anywhere." }
-        let when = Calendar.current.isDateInToday(date)
-            ? date.formatted(date: .omitted, time: .shortened)
-            : date.formatted(date: .abbreviated, time: .shortened)
-        return "Your newest screenshot (\(when)) is on the clipboard: paste it anywhere."
     }
 
     /// The newest screenshot and its bytes.
