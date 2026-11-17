@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 
 /// What VoiceOver says about a drawing or a redaction (#451).
+@MainActor
 enum ItemLabel {
     /// "Arrow, red", "Text, 'Hello', blue".
     static func markup(_ m: Markup) -> String {
@@ -147,20 +148,20 @@ extension ShareModel {
             select: { select() },
             delete: {
                 select()
-                deleteSelection()
+                self.deleteSelection()
                 VoiceOverSay.announce("Deleted \(label)")
             },
             duplicate: {
                 select()
-                duplicateSelection()
+                self.duplicateSelection()
             },
             nudge: { d in
                 select()
-                VoiceOverSay.announce(nudgeSelection(d) ? "Moved \(d.name)" : "Can't move \(d.name), at the edge")
+                VoiceOverSay.announce(self.nudgeSelection(d) ? "Moved \(d.name)" : "Can't move \(d.name), at the edge")
             },
             editText: editText ? {
                 select()
-                editSelectedText()
+                self.editSelectedText()
             } : nil)
     }
 
