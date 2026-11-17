@@ -18,7 +18,7 @@ private struct SheetHeader: View {
     }
 }
 
-/// Frame's More sheet (#440), on the chassis: the backgrounds, the Padding, Corners and Shadow sliders (with a
+/// Frame's More sheet (#440), on the chassis: the Presets (#441), the backgrounds, the Padding, Corners and Shadow sliders (with a
 /// background), Clean bar (when the screenshot has a status bar Skreener knows) and Dark (for every frame but None),
 /// and the address for Browser. The preview stays usable above it.
 struct FrameSheet: View {
@@ -31,6 +31,7 @@ struct FrameSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 SheetHeader(title: "Frame options") { dismiss() }
+                PresetsSection(model: model)
                 SKCaption("Background")
                 // Wraps onto more lines rather than scrolling sideways.
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: SKPhoneMetrics.face, maximum: SKPhoneMetrics.face),

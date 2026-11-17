@@ -123,6 +123,17 @@ open Skreener.xcodeproj
     turns charcoal, the keys dark grey with light symbols, the LCD glass a little dimmer; Save stays orange with its
     dark label. Undo (top left) with nothing to undo is greyed out. The Draw key's shapes stand on a charcoal plate.
    The home screen turns charcoal too.
+14. Presets (#441): set a look (say Browser, Dark, a background, Padding 80), tap **Frame** again, then **More**. At the
+    top of FRAME OPTIONS, under PRESETS, tap the **+** key: an alert "Save look as a preset" with a name already filled
+    in ("Browser · Sky"). Change it to "Blog" and tap **Save**: a "Blog" chip appears, pressed in because the picture
+    shows that look. Change the frame and background, and the chip pops out; tap **Blog**: the frame, Dark, background
+    and sliders go back (the address and the drawing size stay), the chip is pressed in again. Save a second look
+    under another name; saving under "Blog" again (any capitals) replaces the first, as the alert says. Touch and hold
+    a chip: **Rename** (type a new name, **Rename**; a name another preset has is refused), **Update to current look**
+    (the chip now stands for what the picture shows) and **Delete** (red; the chip goes). Save 12: the **+** key then
+    says to delete one first. Close, open another screenshot, and the presets are there. Share a screenshot to
+    Skreener from Photos: the same presets show in its Frame options, and one saved there shows in the app. Applying
+    a preset is not an Undo step.
 
 ## Try long screenshots
 
