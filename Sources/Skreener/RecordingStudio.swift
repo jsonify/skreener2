@@ -34,6 +34,8 @@ struct StudioSettings: Codable, Equatable {
     var edits: [TimelineEdit] = []
     /// Smoothing, size and hiding when idle (#382).
     var cursor = CursorSettings()
+    /// The size and format Export makes (#386).
+    var exportPreset = ExportPreset.original
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -57,6 +59,7 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.audio { s.audio = v }
         if let v = saved.edits { s.edits = v }
         if let v = saved.cursor { s.cursor = v }
+        if let v = saved.exportPreset.flatMap(ExportPreset.init(rawValue:)) { s.exportPreset = v }
         return s
     }
 
@@ -85,6 +88,7 @@ struct StudioSettings: Codable, Equatable {
         var audio: AudioSettings?
         var edits: [TimelineEdit]?
         var cursor: CursorSettings?
+        var exportPreset: String?
     }
 
     /// These settings without the zoom, audio and edit ones: what changes the background and effects (`StudioCompositor.zoomed`).
@@ -179,20 +183,24 @@ struct StudioLayout: Equatable {
     /// The layout for a video of `videoSize` pixels recorded at `pixelsPerPoint`: without a background the canvas is
     /// the video; with one, the video plus `padding` points on every side, grown to the aspect ratio (as the screenshot
     /// editor does, `Background.canvas`), then scaled down to fit `maxPixels` and rounded to even numbers like a
-    /// recording (`RecordingGeometry.videoSize`).
-    static func make(videoSize: CGSize, pixelsPerPoint: CGFloat, background: StudioBackground?,
+    /// recording (`RecordingGeometry.videoSize`). With a `frame` (an export preset's, #386) the canvas is that size
+    /// instead, and the video with its padding is scaled to fit inside it, centered.
+    static func make(videoSize: CGSize, pixelsPerPoint: CGFloat, background: StudioBackground?, frame: CGSize? = nil,
                      maxPixels: Int = ScreenRecorder.maxPixels) -> StudioLayout {
         let video = CGRect(origin: .zero, size: videoSize)
-        guard let background else {
+        var full = video
+        if let background {
+            let margin = CGFloat(max(background.padding, 0)) * pixelsPerPoint
+            full = Background.canvas(around: video, margin: margin, aspect: background.background.aspect)
+        } else if frame == nil {
             return StudioLayout(canvas: videoSize, content: video, pointScale: pixelsPerPoint, videoSize: videoSize)
         }
-        let margin = CGFloat(max(background.padding, 0)) * pixelsPerPoint
-        let b = background.background
-        let full = Background.canvas(around: video, margin: margin, aspect: b.aspect)
-        let canvas = RecordingGeometry.videoSize(area: full.size, backingScale: 1, maxPixels: maxPixels)
+        let canvas = RecordingGeometry.videoSize(area: frame ?? full.size, backingScale: 1, maxPixels: maxPixels)
         // One scale for both axes, so the video isn't stretched; rounding to even numbers leaves under a pixel over.
         let k = min(canvas.width / max(full.width, 1), canvas.height / max(full.height, 1))
-        let content = CGRect(x: (video.minX - full.minX) * k, y: (video.minY - full.minY) * k,
+        let dx = (canvas.width - full.width * k) / 2, dy = (canvas.height - full.height * k) / 2
+        let content = CGRect(x: (video.minX - full.minX) * k + (frame == nil ? 0 : dx),
+                             y: (video.minY - full.minY) * k + (frame == nil ? 0 : dy),
                              width: video.width * k, height: video.height * k)
         return StudioLayout(canvas: canvas, content: content, pointScale: pixelsPerPoint * k, videoSize: videoSize)
     }
@@ -260,7 +268,8 @@ final class StudioCompositor: @unchecked Sendable {
         self.settings = settings
         self.scale = scale
         layout = StudioLayout.make(videoSize: project.videoSize, pixelsPerPoint: project.pixelScale,
-                                   background: settings.backgroundOn ? settings.background : nil)
+                                   background: settings.backgroundOn ? settings.background : nil,
+                                   frame: settings.exportPreset.frame)
         // The smoothed path is what the cursor, the spotlight and a zoom that follows the pointer all use.
         let events = CursorMotion.smoothed(events, settings.cursor.smoothing)
         overlay = EffectsOverlay(style: settings.effects, spotlight: settings.spotlight, videoSize: project.videoSize,
@@ -287,7 +296,7 @@ final class StudioCompositor: @unchecked Sendable {
     }
 
     /// Whether frames are composed (on a canvas, or zoomed) rather than drawn over the recording.
-    var composes: Bool { settings.backgroundOn || settings.zooms }
+    var composes: Bool { settings.backgroundOn || settings.zooms || settings.exportPreset.frame != nil }
 
     /// Whether this draws anything but the recording itself (a background, a zoom, or effects).
     var changesTheVideo: Bool { composes || overlay.drawsAnything }
