@@ -15,6 +15,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         var microphone = Preferences.recordMicrophone
         var showsCursor = Preferences.recordShowsCursor
         var fps = Preferences.recordFrameRate
+        /// Off keeps system audio and the microphone on separate tracks (Record for editing, #385).
+        var mixesAudio = true
     }
 
     /// H.264 can't encode frames much bigger than 4K, so larger areas are scaled down to fit.
@@ -43,6 +45,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
     private var micInput: AVAssetWriterInput?
+    private var mixesAudio = true
+    /// What each audio track holds, in the order they are in the file.
+    private var sources: [AudioSource] = []
     private var sessionStarted = false
     private var finished = false
     // Pausing drops samples; on resume, later samples are shifted back by the time spent paused.
@@ -128,6 +133,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             self.videoInput = video
             self.audioInput = systemAudio
             self.micInput = mic
+            self.mixesAudio = options.mixesAudio
+            self.sources = (systemAudio != nil ? [.system] : []) + (mic != nil ? [.microphone] : [])
             self.stream = stream
             self.display = display
             self.frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(1, options.fps)))
@@ -176,6 +183,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         default: return false
         }
     }
+
+    /// What each audio track of the file holds, in track order (empty before `start`). Not from the recorder's queue.
+    var audioSources: [AudioSource] { queue.sync { sources } }
 
     func setPaused(_ on: Bool) {
         queue.async { [self] in
@@ -339,7 +349,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
             queue.async { [self] in
                 guard let writer = self.writer else { return }
                 guard writer.status == .completed else { report(.failure(writer.error ?? RecordingError.writerFailed)); return }
-                guard audioInput != nil, micInput != nil else { report(.success(url)); return }
+                guard audioInput != nil, micInput != nil, mixesAudio else { report(.success(url)); return }
                 // Players that only play the first audio track would miss the mic, so both are mixed into one.
                 Task { [self] in
                     do { try await AudioMixer.mixAudioTracks(of: self.url) } catch {

@@ -27,6 +27,9 @@ struct RecordingProject: Codable, Equatable {
     var style: EffectsStyle
     /// Where the finished MP4 (effects drawn in) was saved, once it was.
     var exported: String?
+    /// What each audio track of the clean video holds, in track order (#385): system audio and the microphone are kept
+    /// apart so the editor can clean up the voice alone. Nil for recordings made before that (one mixed track).
+    var audioTracks: [AudioSource]?
 
     var videoSize: CGSize { CGSize(width: videoWidth, height: videoHeight) }
     /// Video pixels per screen point.

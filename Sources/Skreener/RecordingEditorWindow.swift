@@ -114,6 +114,23 @@ import SkreenerCore
     /// While a section is dragged: the sections before the drag, and what the drag is called for Undo.
     private var zoomDrag: (before: [ZoomSection], name: String)?
 
+    // Audio (#385)
+    private let presetPopup = RetroUI.stepper(tip: "What is done to your voice when exporting", target: nil, action: nil)
+    private let noisePopup = RetroUI.stepper(tip: "How much background noise is taken out of the microphone", target: nil,
+                                             action: nil)
+    private let micSlider = NSSlider(value: 1, minValue: 0, maxValue: AudioSettings.maxVolume, target: nil, action: nil)
+    private let systemSlider = NSSlider(value: 1, minValue: 0, maxValue: AudioSettings.maxVolume, target: nil, action: nil)
+    private let micVolumeLabel = RetroUI.hint()
+    private let systemVolumeLabel = RetroUI.hint()
+    private var micRow = NSView(), systemRow = NSView()
+    private let audioHint = RetroUI.hint(wraps: true)
+    /// The clean video's audio tracks, for the preview's volumes, once loaded.
+    private var previewAudioTracks: [AVAssetTrack] = []
+    /// What each audio track holds.
+    private var audioSources: [AudioSource] { AudioFinisher.sources(project.audioTracks, trackCount: previewAudioTracks.count) }
+    private var hasVoice: Bool { audioSources.contains { $0 != .system } }
+    private var hasSystemAudio: Bool { audioSources.contains(.system) }
+
     // Export bar
     private let exportButton = RetroUI.key("Export", variant: .orange)
     private let cancelButton = RetroUI.key("Cancel")
@@ -185,7 +202,11 @@ import SkreenerCore
         let asset = generator.asset
         Task { [weak self] in
             let seconds = (try? await asset.load(.duration).seconds) ?? 0
+            let audio = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             guard let self else { return }
+            self.previewAudioTracks = audio
+            self.refreshAudioControls()
+            self.updatePreviewMix()
             self.duration = seconds.isFinite ? max(seconds, 0) : 0
             self.scrubber.maxValue = max(self.duration, 0.01)
             self.zoomTrack.duration = self.duration
@@ -227,7 +248,8 @@ import SkreenerCore
         setUpZoomTrack()
 
         // The inspector, scrolling when the window is too short for it.
-        let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom())
+        let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom()
+                                    + [RetroGroove()] + buildAudio())
         inspector.orientation = .vertical
         inspector.alignment = .leading
         inspector.spacing = 8
@@ -444,6 +466,33 @@ import SkreenerCore
 
     private static func levelTag(_ level: Double) -> Int { Int((level * 100).rounded()) }
 
+    private func buildAudio() -> [NSView] {
+        setUp(presetPopup, AudioPreset.allCases.enumerated().map { ($1.name, $0) }, action: #selector(audioOptionPicked(_:)))
+        setUp(noisePopup, NoiseRemoval.allCases.enumerated().map { ($1.name, $0) }, action: #selector(audioOptionPicked(_:)))
+        for (slider, tip) in [(micSlider, "Microphone volume"), (systemSlider, "System audio volume")] {
+            slider.controlSize = .small
+            slider.isContinuous = true
+            slider.toolTip = tip
+            slider.setAccessibilityLabel(tip)
+            slider.target = self; slider.action = #selector(volumeChanged(_:))
+            slider.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        }
+        for label in [micVolumeLabel, systemVolumeLabel] {
+            label.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        }
+        audioHint.preferredMaxLayoutWidth = 290
+        micRow = row("Voice", [micSlider, micVolumeLabel])
+        systemRow = row("System", [systemSlider, systemVolumeLabel])
+        return [
+            header("Audio"),
+            row("Preset", [presetPopup]),
+            row("Noise", [noisePopup]),
+            micRow,
+            systemRow,
+            audioHint,
+        ]
+    }
+
     private func setUpZoomTrack() {
         zoomTrack.onSelect = { [weak self] index in self?.selectZoom(index) }
         zoomTrack.onDragBegan = { [weak self] _ in
@@ -505,6 +554,7 @@ import SkreenerCore
         [clickColor, clickSizePopup].forEach { $0.isEnabled = e.clicks && hasClicks && !exporting }
         [keySizePopup, keyPositionPopup].forEach { $0.isEnabled = e.keystrokes && hasKeys && !exporting }
 
+        refreshAudioControls()
         refreshZoomControls()
     }
 
@@ -543,6 +593,52 @@ import SkreenerCore
         window.isDocumentEdited = settings != saved
     }
 
+    private func refreshAudioControls() {
+        let exporting = exportTask != nil
+        let a = settings.audio
+        presetPopup.selectItem(withTag: AudioPreset.allCases.firstIndex(of: a.preset) ?? 0)
+        noisePopup.selectItem(withTag: NoiseRemoval.allCases.firstIndex(of: a.noiseRemoval) ?? 0)
+        micSlider.doubleValue = a.micVolume
+        systemSlider.doubleValue = a.systemVolume
+        micVolumeLabel.stringValue = AudioSettings.percent(a.micVolume)
+        systemVolumeLabel.stringValue = AudioSettings.percent(a.systemVolume)
+        let voiceControls: [NSControl] = [presetPopup, noisePopup, micSlider]
+        voiceControls.forEach { $0.isEnabled = hasVoice && !exporting }
+        systemSlider.isEnabled = hasSystemAudio && !exporting
+        // A recording from before #385 has one mixed track: its slider is the whole sound's.
+        ((micRow as? NSStackView)?.arrangedSubviews.first as? NSTextField)?.stringValue = audioSources == [.mixed] ? "Volume" : "Voice"
+        micRow.isHidden = !hasVoice
+        systemRow.isHidden = !hasSystemAudio
+        if previewAudioTracks.isEmpty {
+            audioHint.stringValue = "This recording has no sound."
+        } else if !hasVoice {
+            audioHint.stringValue = "No microphone was recorded, so there's no voice to clean up."
+        } else {
+            var text = a.preset.detail
+            if a.noiseRemoval == .high && !VoiceIsolation.isAvailable {
+                text += " Voice Isolation isn't available on this Mac, so High noise removal uses the noise gate only."
+            } else if a.noiseRemoval != .off {
+                text += a.noiseRemoval == .high ? " Voice Isolation keeps your voice and takes out the background."
+                    : " The background noise is turned down between words."
+            }
+            if a.preset != .off || a.noiseRemoval != .off { text += " You hear it after Export; volumes play now." }
+            audioHint.stringValue = text
+        }
+    }
+
+    /// The preview plays each track at its volume (presets and noise removal are applied at export).
+    private func updatePreviewMix() {
+        guard let item = player.currentItem, !previewAudioTracks.isEmpty else { return }
+        let a = settings.audio
+        let mix = AVMutableAudioMix()
+        mix.inputParameters = zip(previewAudioTracks, audioSources).map { track, source in
+            let p = AVMutableAudioMixInputParameters(track: track)
+            p.setVolume(Float(source == .system ? a.systemVolume : a.micVolume), at: .zero)
+            return p
+        }
+        item.audioMix = mix
+    }
+
     /// The wallpaper item shows whether there is a still wallpaper; the custom and picture items show the current ones.
     private func refreshPictureItems(_ bg: Background) {
         let items = fillPopup.menu?.items ?? []
@@ -578,6 +674,8 @@ import SkreenerCore
             compositor = Self.previewCompositor(project: project, events: events, folder: folder, settings: settings)
             refreshControls()
         }
+        refreshAudioControls()
+        updatePreviewMix()
         redraw()
     }
 
@@ -605,6 +703,22 @@ import SkreenerCore
         case autoZoomSwitch: settings.autoZoom = on
         default: break
         }
+    }
+
+    @objc private func audioOptionPicked(_ popup: PillPopUp) {
+        let i = popup.selectedTag()
+        switch popup {
+        case presetPopup where AudioPreset.allCases.indices.contains(i): settings.audio.preset = AudioPreset.allCases[i]
+        case noisePopup where NoiseRemoval.allCases.indices.contains(i): settings.audio.noiseRemoval = NoiseRemoval.allCases[i]
+        default: break
+        }
+    }
+
+    @objc private func volumeChanged(_ slider: NSSlider) {
+        // Snaps to 100% near it, so as recorded is easy to get back to.
+        var v = AudioSettings.clamped(slider.doubleValue)
+        if abs(v - 1) < 0.04 { v = 1 }
+        if slider === micSlider { settings.audio.micVolume = v } else { settings.audio.systemVolume = v }
     }
 
     @objc private func fillPicked() {
@@ -920,19 +1034,32 @@ import SkreenerCore
         let full = StudioCompositor(project: project, events: events, folder: folder, settings: settings)
         let box = ExportProgress()
         exportProgress = box
+        let sources = project.audioTracks
         exportTask = Task { [weak self] in
             var failure: Error?
+            var outcome = AudioFinisher.Outcome()
             do {
+                // Made next to the recording, which is replaced only once the video and its audio are both done.
+                let fm = FileManager.default
+                let dir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
+                defer { try? fm.removeItem(at: dir) }
+                let made = dir.appendingPathComponent(target.lastPathComponent)
                 if full.changesTheVideo {
-                    try await RecordingRenderer.render(folder: folder, fps: fps, compositor: full, to: target) { box.set($0) }
+                    try await RecordingRenderer.render(folder: folder, fps: fps, compositor: full, to: made) { box.set($0 * 0.85) }
                 } else {
                     // Nothing to draw: the clean video is the finished one.
-                    try Self.replace(target, with: folder.appendingPathComponent(RecordingProject.videoFile))
+                    try fm.copyItem(at: folder.appendingPathComponent(RecordingProject.videoFile), to: made)
                 }
+                try Task.checkCancellation()
+                box.set(0.9)
+                // The voice cleaned up, the volumes set and the tracks mixed into one (#385).
+                outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio)
+                try Task.checkCancellation()
+                try Self.replace(target, with: made)
             } catch {
                 failure = error
             }
-            self?.exportFinished(settings: settings, target: target, error: failure)
+            self?.exportFinished(settings: settings, target: target, error: failure, audio: outcome)
         }
         refreshExporting()
         progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -967,7 +1094,8 @@ import SkreenerCore
         refreshControls()
     }
 
-    private func exportFinished(settings exported: StudioSettings, target: URL, error: Error?) {
+    private func exportFinished(settings exported: StudioSettings, target: URL, error: Error?,
+                                audio: AudioFinisher.Outcome = AudioFinisher.Outcome()) {
         exportTask = nil
         exportProgress = nil
         progressTimer?.invalidate(); progressTimer = nil
@@ -994,6 +1122,10 @@ import SkreenerCore
         }
         refreshControls()
         window.close()
+        if audio.isolationUnavailable {
+            Notifier.problem("Voice Isolation couldn't run",
+                             detail: "The background noise was only turned down between words (the noise gate).")
+        }
         // Then as after recording: Compress when that is on, the library, and a new preview.
         Task { @MainActor in
             await RecordingController.compress(target)
