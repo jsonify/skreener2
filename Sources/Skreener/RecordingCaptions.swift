@@ -45,11 +45,12 @@ enum Captions {
                 let tooLong = c.text.count + 1 + text.count > maxCharacters
                 if w.start - lastEnd > maxGap || tooLong || w.end - c.start > maxDuration { close() }
             }
-            if current == nil {
-                current = Caption(start: w.start, end: w.end, text: text)
+            if var c = current {
+                c.text += " " + text
+                c.end = max(c.end, w.end)
+                current = c
             } else {
-                current?.text += " " + text
-                current?.end = max(current?.end ?? w.end, w.end)
+                current = Caption(start: w.start, end: w.end, text: text)
             }
             lastEnd = w.end
             if let last = text.last, ".?!".contains(last) { close() }
