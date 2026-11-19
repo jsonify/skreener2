@@ -31,6 +31,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     /// Called on the recorder's queue for each video frame written, with its time in the video (seconds from the
     /// first frame, time paused left out). Set it before `start`.
     var onFrame: (@Sendable (Double) -> Void)?
+    /// The loudest microphone sample since the HUD's meter last looked (#469); fed while paused too.
+    let micLevels = MicLevelTap()
 
     private let queue = DispatchQueue(label: "com.skreener.recorder")
     private var stream: SCStream?
@@ -227,7 +229,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     // MARK: SCStreamOutput / SCStreamDelegate (on `queue`, or ScreenCaptureKit's own queue for errors)
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard sampleBuffer.isValid, !paused, !finished else { return }
+        guard sampleBuffer.isValid, !finished else { return }
+        // The meter keeps moving while paused, so the level can be checked before resuming.
+        if #available(macOS 15.0, *), type == .microphone, let peak = Self.peak(of: sampleBuffer) {
+            micLevels.record(peak)
+        }
+        guard !paused else { return }
         switch type {
         case .screen: appendVideo(sampleBuffer)
         case .audio: appendAudio(sampleBuffer, to: audioInput)
@@ -260,6 +267,31 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         if input.isReadyForMoreMediaData, input.append(shifted) {
             lastFramePTS = pts
             onFrame?(CMTimeSubtract(pts, sessionStart).seconds)
+        }
+    }
+
+    /// The loudest sample in an audio buffer (32-bit float or 16-bit integer PCM), from 0 to 1; nil for another format.
+    private static func peak(of sb: CMSampleBuffer) -> Float? {
+        guard let format = sb.formatDescription,
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
+              asbd.mFormatID == kAudioFormatLinearPCM else { return nil }
+        let isFloat = asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0
+        guard (isFloat && asbd.mBitsPerChannel == 32) || (!isFloat && asbd.mBitsPerChannel == 16) else { return nil }
+        return try? sb.withAudioBufferList { list, _ -> Float in
+            var peak: Float = 0
+            for buffer in list {
+                guard let data = buffer.mData else { continue }
+                if isFloat {
+                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                    let samples = UnsafeBufferPointer(start: data.assumingMemoryBound(to: Float.self), count: count)
+                    peak = max(peak, MicLevel.peak(samples))
+                } else {
+                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Int16>.size
+                    let samples = UnsafeBufferPointer(start: data.assumingMemoryBound(to: Int16.self), count: count)
+                    peak = max(peak, MicLevel.peak(samples))
+                }
+            }
+            return min(1, peak)
         }
     }
 

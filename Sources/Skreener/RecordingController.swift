@@ -14,6 +14,9 @@ final class RecordingController {
     private var lcd: ElapsedLCD?
     private var pauseButton: PillButton?
     private var ticker: Timer?
+    /// The HUD's mic meter and the timer that feeds it (#469), while the microphone is recorded.
+    private var micMeter: MicLevelMeterView?
+    private var meterTimer: Timer?
     private var startedAt = Date()
     private var pausedAt: Date?
     private var pausedTotal: TimeInterval = 0
@@ -100,6 +103,9 @@ final class RecordingController {
         startedAt = Date(); pausedAt = nil; pausedTotal = 0
         tick()
         ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.tick() }
+        if micMeter != nil {
+            meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.updateMeter() }
+        }
         Task { @MainActor [weak self] in
             do {
                 try await r.start(screen: screen, rect: rect, options: options, including: keep)
@@ -302,6 +308,7 @@ final class RecordingController {
     }
 
     private func hideWindows() {
+        meterTimer?.invalidate(); meterTimer = nil; micMeter = nil
         hud?.orderOut(nil); hud = nil
         frame?.orderOut(nil); frame = nil
         dims.forEach { $0.orderOut(nil) }; dims.removeAll()
@@ -319,6 +326,13 @@ final class RecordingController {
         projectFolder = nil
         projectOutput = nil
         onStateChange?(false)
+    }
+
+    // MARK: Mic meter
+
+    private func updateMeter() {
+        guard let micMeter, let recorder else { return }
+        micMeter.meter.update(peak: recorder.micLevels.take(), at: ProcessInfo.processInfo.systemUptime)
     }
 
     // MARK: Elapsed time
@@ -386,7 +400,18 @@ final class RecordingController {
         system.toolTip = options.systemAudio ? "Recording system audio" : "Not recording system audio"
         let keys = RetroIndicator("Keys", isOn: keysOn)
         keys.toolTip = keysOn ? "Showing keystrokes in the recording" : "Not showing keystrokes"
-        let lamps = NSStackView(views: [mic, system, keys])
+        // With the microphone on, its level meter goes next to its lamp (#469).
+        var micRow: NSView = mic
+        if micOn {
+            let meter = MicLevelMeterView()
+            let row = NSStackView(views: [mic, meter])
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 8
+            micRow = row
+            micMeter = meter
+        }
+        let lamps = NSStackView(views: [micRow, system, keys])
         lamps.orientation = .vertical
         lamps.alignment = .leading
         lamps.spacing = 7
