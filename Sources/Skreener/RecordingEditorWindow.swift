@@ -128,6 +128,7 @@ import SkreenerCore
     private let markOutButton = RetroUI.key("Set Out")
     private let clearMarksButton = RetroUI.key("Clear")
     private let cutButton = RetroUI.key("Cut")
+    private let muteButton = RetroUI.key("Mute")
     private let speedPopup = RetroUI.stepper(tip: "How much faster the In–Out range plays", target: nil, action: nil)
     private let speedButton = RetroUI.key("Speed Up")
     private let idleButton = RetroUI.key("Speed Up Idle")
@@ -243,6 +244,7 @@ import SkreenerCore
                 self.editTrack.inset = self.zoomTrack.inset
             }
             self.generateZoomIfNeeded()
+            self.loadWaveform()
             self.refreshEditControls()
             self.refreshZoomControls()
             self.refreshTime()
@@ -353,7 +355,7 @@ import SkreenerCore
             editTrack.topAnchor.constraint(equalTo: zoomTrack.bottomAnchor, constant: 4),
             editTrack.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor),
             editTrack.trailingAnchor.constraint(equalTo: scrubber.trailingAnchor),
-            editTrack.heightAnchor.constraint(equalToConstant: 22),
+            editTrack.heightAnchor.constraint(equalToConstant: 30),
             inspectorScroll.topAnchor.constraint(equalTo: top, constant: 10),
             inspectorScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
             inspectorScroll.widthAnchor.constraint(equalToConstant: 306),
@@ -523,6 +525,7 @@ import SkreenerCore
             (markOutButton, "End the range at the playhead (O)", #selector(markOutPressed)),
             (clearMarksButton, "Clear the In and Out marks", #selector(clearMarks)),
             (cutButton, "Leave the In–Out range out of the video", #selector(cutRange)),
+            (muteButton, "Silence the In–Out range: the microphone and the system audio, with short fades", #selector(muteRange)),
             (speedButton, "Play the In–Out range faster (its sound is muted)", #selector(speedUpRange)),
             (idleButton, "Speed up every stretch of 3 seconds or more where nothing happens: no pointer movement, clicks or keys",
              #selector(speedUpIdle)),
@@ -542,7 +545,7 @@ import SkreenerCore
             header("Cut & Speed"),
             row("Range", [markInButton, markOutButton, clearMarksButton]),
             row("", [cutButton, speedPopup, speedButton]),
-            row("", [idleButton, removeEditButton]),
+            row("", [muteButton, idleButton, removeEditButton]),
             editHint,
         ]
     }
@@ -568,20 +571,21 @@ import SkreenerCore
         clearMarksButton.isEnabled = ready && (markIn != nil || markOut != nil)
         let range = markedRange
         cutButton.isEnabled = ready && range != nil
+        muteButton.isEnabled = ready && range != nil
         speedPopup.isEnabled = ready
         speedButton.isEnabled = ready && range != nil
         idleButton.isEnabled = ready && !events.cursor.isEmpty
         removeEditButton.isEnabled = ready && selectedEdit != nil
         var lines: [String] = []
         if let range {
-            lines.append("In \(StudioLayout.timecode(range.start)) – Out \(StudioLayout.timecode(range.end)): Cut it or Speed it up.")
+            lines.append("In \(StudioLayout.timecode(range.start)) – Out \(StudioLayout.timecode(range.end)): Cut it, Speed it up or Mute it.")
         } else if markIn != nil || markOut != nil {
             lines.append("Set the other end of the range too (I and O mark at the playhead).")
         } else {
-            lines.append("Set In and Out at the playhead (I, O), then Cut the range or Speed it up.")
+            lines.append("Set In and Out at the playhead (I, O), then Cut the range, Speed it up or Mute it.")
         }
         let t = timeline
-        if !t.isEmpty {
+        if t.changesTime {
             lines.append("Exported length \(StudioLayout.timecode(t.outputDuration)) of \(StudioLayout.timecode(duration)).")
         }
         editHint.stringValue = lines.joined(separator: " ")
@@ -638,7 +642,17 @@ import SkreenerCore
         refreshEditControls()
     }
 
+    /// Draws the recording's sound on the edit track once it has been read (#385).
+    private func loadWaveform() {
+        let url = folder.appendingPathComponent(RecordingProject.videoFile)
+        Task { [weak self] in
+            let peaks = await WaveformPeaks.load(url, buckets: 2000)
+            self?.editTrack.waveform = peaks
+        }
+    }
+
     @objc private func cutRange() { addEdit(speed: 0, name: "Cut") }
+    @objc private func muteRange() { addEdit(speed: TimelineEdit.mute, name: "Mute") }
 
     @objc private func speedUpRange() {
         let speed = Double(speedPopup.selectedTag())
@@ -662,7 +676,7 @@ import SkreenerCore
         var edits = settings.edits
         edits.remove(at: i)
         selectedEdit = nil
-        setEdits(edits, name: "Remove \(settings.edits[i].isCut ? "Cut" : "Speed Change")")
+        setEdits(edits, name: "Remove \(settings.edits[i].kind)")
     }
 
     private func buildAudio() -> [NSView] {
@@ -1245,9 +1259,13 @@ import SkreenerCore
     private func followEdits() {
         guard playing, !settings.edits.isEmpty else {
             if playing, player.rate != 0, player.rate != 1 { player.rate = 1 }
+            if player.isMuted { player.isMuted = false }
             return
         }
         let edit = timeline.edit(at: time)
+        // A muted range plays silently (the export fades in and out of it).
+        let muted = edit?.isMute ?? false
+        if player.isMuted != muted { player.isMuted = muted }
         if let edit, edit.isCut {
             time = min(edit.end, duration)
             player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
@@ -1290,7 +1308,7 @@ import SkreenerCore
                 let dir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
                 defer { try? fm.removeItem(at: dir) }
                 let made = dir.appendingPathComponent(target.lastPathComponent)
-                if full.changesTheVideo || !edits.isEmpty {
+                if full.changesTheVideo || edits.changesTime {
                     try await RecordingRenderer.render(folder: folder, fps: fps, compositor: full, to: made,
                                                        edits: edits) { box.set($0 * 0.85) }
                 } else {

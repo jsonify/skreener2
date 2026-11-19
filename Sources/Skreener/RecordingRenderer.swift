@@ -134,7 +134,7 @@ enum RecordingRenderer {
         }
         let start = CMSampleBufferGetPresentationTimeStamp(first)
         writer.startSession(atSourceTime: start)
-        let timeline = edits.flatMap { $0.isEmpty ? nil : $0 }
+        let timeline = edits.flatMap { $0.changesTime ? $0 : nil }
         let painter = FramePainter(output: frames, adaptor: adaptor, first: first, start: start, end: end,
                                    fps: Int32(rate), painting: painting, timeline: timeline, progress: progress)
         await withTaskCancellationHandler {
