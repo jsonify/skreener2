@@ -1036,10 +1036,10 @@ import SkreenerCore
         } else {
             var text = a.preset.detail
             if a.noiseRemoval == .high && !VoiceIsolation.isAvailable {
-                text += " Voice Isolation isn't available on this Mac, so High noise removal uses the noise gate only."
+                text += " Voice Isolation isn't available on this Mac, so High uses Skreener's own noise reduction and silences the pauses."
             } else if a.noiseRemoval != .off {
-                text += a.noiseRemoval == .high ? " Voice Isolation keeps your voice and takes out the background."
-                    : " The background noise is turned down between words."
+                text += a.noiseRemoval == .high ? " Voice Isolation and noise reduction take out the background, and the pauses between words go silent."
+                    : " Background hiss is reduced, and turned down further between words."
             }
             if a.preset != .off || a.noiseRemoval != .off { text += " You hear it after Export; volumes play now." }
             audioHint.stringValue = text
@@ -1597,7 +1597,7 @@ import SkreenerCore
             let isGIF = exported.exportPreset == .gif
             if audio.isolationUnavailable {
                 Notifier.problem("Voice Isolation couldn't run",
-                                 detail: "The background noise was only turned down between words (the noise gate).")
+                                 detail: "Skreener's own noise reduction and noise gate cleaned up the background instead.")
             }
             Task { @MainActor in
                 if !isGIF { await RecordingController.compress(target) }
@@ -1618,7 +1618,7 @@ import SkreenerCore
         window.close()
         if audio.isolationUnavailable {
             Notifier.problem("Voice Isolation couldn't run",
-                             detail: "The background noise was only turned down between words (the noise gate).")
+                             detail: "Skreener's own noise reduction and noise gate cleaned up the background instead.")
         }
         // Then as after recording: Compress when that is on, the library, and a new preview.
         Task { @MainActor in

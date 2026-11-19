@@ -29,8 +29,8 @@ enum AudioPreset: String, Codable, CaseIterable, Equatable {
         switch self {
         case .off: return "The microphone as recorded."
         case .level: return "Evens out loud and quiet passages and brings the voice to a standard loudness."
-        case .voice: return "Removes rumble, adds clarity and evens out the level: a clear voice for tutorials."
-        case .podcast: return "Warmer and more present, with firmer levelling: a broadcast-style voice."
+        case .voice: return "Removes rumble, adds clarity, softens harsh \"s\" sounds and brings the voice to podcast loudness: a clear voice for tutorials."
+        case .podcast: return "Warmer and more present, with firmer levelling and softer \"s\" sounds: a broadcast-style voice."
         }
     }
 }
@@ -234,6 +234,152 @@ enum Limiter {
     }
 }
 
+/// A radix-2 fast Fourier transform of a fixed size (a power of two), for `SpectralDenoiser`.
+struct FFT {
+    let size: Int
+    private let cosines: [Double], sines: [Double]
+    private let reversed: [Int]
+
+    init(size: Int) {
+        var bits = 0
+        while 1 << bits < size { bits += 1 }
+        self.size = 1 << bits
+        let n = self.size
+        cosines = (0..<max(1, n / 2)).map { cos(2 * Double.pi * Double($0) / Double(n)) }
+        sines = (0..<max(1, n / 2)).map { sin(2 * Double.pi * Double($0) / Double(n)) }
+        reversed = (0..<n).map { i in
+            var r = 0, v = i
+            for _ in 0..<bits { r = (r << 1) | (v & 1); v >>= 1 }
+            return r
+        }
+    }
+
+    /// Transforms `re` and `im` (each `size` long) in place. The inverse isn't divided by `size`.
+    func transform(_ re: inout [Double], _ im: inout [Double], inverse: Bool = false) {
+        let n = size
+        for i in 0..<n {
+            let j = reversed[i]
+            if j > i { re.swapAt(i, j); im.swapAt(i, j) }
+        }
+        let sign = inverse ? 1.0 : -1.0
+        var length = 2
+        while length <= n {
+            let half = length / 2, step = n / length
+            var start = 0
+            while start < n {
+                for k in 0..<half {
+                    let wr = cosines[k * step], wi = sign * sines[k * step]
+                    let a = start + k, b = a + half
+                    let tr = re[b] * wr - im[b] * wi, ti = re[b] * wi + im[b] * wr
+                    re[b] = re[a] - tr
+                    im[b] = im[a] - ti
+                    re[a] += tr
+                    im[a] += ti
+                }
+                start += length
+            }
+            length *= 2
+        }
+    }
+}
+
+/// Takes the steady background noise (hiss, fans, room tone) out of the voice: the noise's spectrum is measured in the
+/// quietest tenth of the track and subtracted from every moment of it, by up to `reduction` dB. Works in overlapping
+/// 2048-sample frames, like Auphonic's and Audacity's noise reduction.
+struct SpectralDenoiser: Equatable {
+    /// The most any frequency is turned down, in dB.
+    var reduction: Double
+    /// How many times the noise's power is subtracted: more than 1 so that noise varying around its average still goes.
+    var oversubtraction = 2.0
+
+    static let frameSize = 2048
+    static let hop = 512
+
+    func process(_ x: inout [Float]) {
+        let n = Self.frameSize, hop = Self.hop, bins = n / 2 + 1
+        guard !x.isEmpty else { return }
+        let fft = FFT(size: n)
+        let window = (0..<n).map { 0.5 - 0.5 * cos(2 * Double.pi * Double($0) / Double(n)) }
+        // Frames start every `hop` samples from `-n`, as if the track had `n` zeros on each side, so every sample is
+        // covered by the same number of frames.
+        let frames = (x.count + n) / hop + 1
+        func start(_ k: Int) -> Int { k * hop - n }
+        var re = [Double](repeating: 0, count: n), im = re
+
+        func load(_ k: Int) {
+            let s = start(k)
+            for i in 0..<n {
+                let j = s + i
+                re[i] = j >= 0 && j < x.count ? Double(x[j]) * window[i] : 0
+                im[i] = 0
+            }
+        }
+
+        // The noise: the average spectrum of the quietest tenth of the frames that have any sound.
+        var energies: [(frame: Int, energy: Double)] = []
+        for k in 0..<frames {
+            let s = start(k)
+            var e = 0.0
+            for i in 0..<n {
+                let j = s + i
+                if j >= 0 && j < x.count { let v = Double(x[j]) * window[i]; e += v * v }
+            }
+            if e > 0 { energies.append((k, e)) }
+        }
+        guard !energies.isEmpty else { return }
+        energies.sort { $0.energy < $1.energy }
+        let quiet = energies.prefix(max(1, energies.count / 10))
+        var noise = [Double](repeating: 0, count: bins)
+        for (k, _) in quiet {
+            load(k)
+            fft.transform(&re, &im)
+            for b in 0..<bins { noise[b] += re[b] * re[b] + im[b] * im[b] }
+        }
+        for b in 0..<bins { noise[b] /= Double(quiet.count) }
+
+        // Overlap-add of the cleaned frames: a sample is final once no later frame covers it, so it is written back
+        // into `x` (which later frames no longer read) a hop at a time.
+        var weight = [Double](repeating: 0, count: hop)
+        for p in 0..<hop {
+            for m in 0..<(n / hop) { weight[p] += window[p + m * hop] * window[p + m * hop] }
+        }
+        let floor = pow(10, -reduction / 20)
+        var pending = [Double](repeating: 0, count: n)
+        var smoothed = [Double](repeating: 0, count: bins)
+        var gain = [Double](repeating: 1, count: bins)
+        for k in 0..<frames {
+            load(k)
+            fft.transform(&re, &im)
+            for b in 0..<bins {
+                let power = re[b] * re[b] + im[b] * im[b]
+                // Smoothed a little over time so the gain doesn't flutter.
+                smoothed[b] = k == 0 ? power : 0.5 * power + 0.5 * smoothed[b]
+                let clean = min(max(1 - oversubtraction * noise[b] / max(smoothed[b], 1e-20), 0), 1)
+                gain[b] = max(clean.squareRoot(), floor)
+            }
+            for b in 0..<bins {
+                // Averaged with the neighbouring frequencies, so single bins don't ring ("musical noise").
+                let g = (gain[max(0, b - 1)] + gain[b] + gain[min(bins - 1, b + 1)]) / 3
+                re[b] *= g
+                im[b] *= g
+                if b > 0 && b < n / 2 {
+                    re[n - b] *= g
+                    im[n - b] *= g
+                }
+            }
+            fft.transform(&re, &im, inverse: true)
+            for i in 0..<n { pending[i] += re[i] / Double(n) * window[i] }
+            let s = start(k)
+            for i in 0..<hop {
+                let j = s + i
+                if j >= 0 && j < x.count { x[j] = Float(pending[i] / weight[j % hop]) }
+            }
+            for i in 0..<(n - hop) { pending[i] = pending[i + hop] }
+            for i in (n - hop)..<n { pending[i] = 0 }
+        }
+    }
+}
+
 // MARK: Loudness
 
 /// Loudness for levelling: the mean square over 400 ms blocks, gated as in ITU-R BS.1770 (blocks under -70 dB, then
@@ -270,7 +416,8 @@ enum Loudness {
 
     /// The gain in dB that brings `loudness` to `target`, at most `maxGain`. Peaks over the ceiling are left to the
     /// limiter, but never by more than 6 dB, so it doesn't have to squash the voice.
-    static func normalizingGain(loudness: Double, peak: Float, target: Double = Loudness.target) -> Double {
+    static func normalizingGain(loudness: Double, peak: Float, target: Double = Loudness.target,
+                                maxGain: Double = Loudness.maxGain) -> Double {
         var gain = min(target - loudness, maxGain)
         if peak > 0 {
             let peakDB = 20 * log10(Double(peak))
@@ -280,67 +427,98 @@ enum Loudness {
         return gain
     }
 
-    static func normalize(_ x: inout [Float], sampleRate: Double) {
+    static func normalize(_ x: inout [Float], sampleRate: Double, target: Double = Loudness.target,
+                          maxGain: Double = Loudness.maxGain) {
         guard let loudness = integrated(x, sampleRate: sampleRate) else { return }
-        let g = Float(pow(10, normalizingGain(loudness: loudness, peak: peak(x)) / 20))
+        let g = Float(pow(10, normalizingGain(loudness: loudness, peak: peak(x), target: target, maxGain: maxGain) / 20))
         for i in x.indices { x[i] *= g }
     }
 }
 
 // MARK: The voice chain
 
-/// What is done to the microphone track for a preset and noise removal setting, in order: the rumble filter, the
-/// noise gate, the EQ, the compressor and the levelling. (Voice Isolation, for High noise removal, runs before this:
+/// What is done to the microphone track for a preset and noise removal setting, in order: noise reduction, the rumble
+/// filter, the noise gate, the EQ, levelling to `preLevel` (so the compressor works the same on quiet and loud
+/// recordings), the compressor and the final levelling. (Voice Isolation, for High noise removal, runs before this:
 /// it needs Apple's audio unit, see `VoiceIsolation`.)
+///
+/// Tuned against Auphonic's processing of a real tutorial recording: -16 LUFS, silent pauses, gentle compression, a
+/// little less boxiness around 450 Hz, more clarity at 1–4 kHz, softer "s" sounds at 4–6 kHz and a little more air.
 struct VoiceChain: Equatable {
+    var denoiser: SpectralDenoiser?
     var highPass: Double?
     var gate: NoiseGate?
     var eq: [Biquad]
+    /// The level, in dB (`Loudness`), the voice is brought to before the compressor.
+    var preLevel: Double?
     var compressor: VoiceCompressor?
     var normalizes: Bool
+
+    /// The level the voice is brought to before the compressor, whose thresholds are set for it.
+    static let preLevelTarget = -23.0
+    /// Before the compressor a near-silent voice may be turned up further than at the end.
+    static let preLevelMaxGain = 40.0
 
     init(preset: AudioPreset, noiseRemoval: NoiseRemoval, sampleRate: Double) {
         let sr = sampleRate
         switch noiseRemoval {
-        case .off: gate = nil
-        case .low: gate = NoiseGate(reduction: 10)
-        case .high: gate = NoiseGate(reduction: 18)
+        case .off:
+            denoiser = nil
+            gate = nil
+        case .low:
+            denoiser = SpectralDenoiser(reduction: 10)
+            gate = NoiseGate(reduction: 20)
+        case .high:
+            denoiser = SpectralDenoiser(reduction: 15)
+            gate = NoiseGate(reduction: 40)
         }
         switch preset {
         case .off:
             highPass = noiseRemoval == .off ? nil : 70
             eq = []
+            preLevel = nil
             compressor = nil
             normalizes = false
         case .level:
             highPass = noiseRemoval == .off ? nil : 70
             eq = []
-            compressor = VoiceCompressor(threshold: -24, ratio: 2)
+            preLevel = Self.preLevelTarget
+            compressor = VoiceCompressor(threshold: -20, ratio: 2)
             normalizes = true
         case .voice:
             highPass = 80
-            eq = [Biquad.peaking(250, gain: -2, q: 1, sampleRate: sr),
-                  Biquad.peaking(3500, gain: 3, q: 1, sampleRate: sr),
-                  Biquad.highShelf(10000, gain: 1.5, sampleRate: sr)]
-            compressor = VoiceCompressor(threshold: -22, ratio: 3)
+            eq = [Biquad.peaking(450, gain: -1.5, q: 1, sampleRate: sr),
+                  Biquad.peaking(1400, gain: 2, q: 1.2, sampleRate: sr),
+                  Biquad.peaking(3200, gain: 3, q: 1.2, sampleRate: sr),
+                  Biquad.peaking(5200, gain: -8, q: 1, sampleRate: sr),
+                  Biquad.highShelf(11000, gain: 3, sampleRate: sr)]
+            preLevel = Self.preLevelTarget
+            compressor = VoiceCompressor(threshold: -20, ratio: 2)
             normalizes = true
         case .podcast:
             highPass = 90
-            eq = [Biquad.lowShelf(150, gain: 2.5, sampleRate: sr),
-                  Biquad.peaking(350, gain: -3, q: 1.2, sampleRate: sr),
-                  Biquad.peaking(4000, gain: 4, q: 0.9, sampleRate: sr),
-                  Biquad.highShelf(10000, gain: 2, sampleRate: sr)]
-            compressor = VoiceCompressor(threshold: -26, ratio: 4)
+            eq = [Biquad.lowShelf(150, gain: 2, sampleRate: sr),
+                  Biquad.peaking(400, gain: -2.5, q: 1.2, sampleRate: sr),
+                  Biquad.peaking(1400, gain: 2, q: 1.2, sampleRate: sr),
+                  Biquad.peaking(3200, gain: 3.5, q: 1.1, sampleRate: sr),
+                  Biquad.peaking(5200, gain: -8, q: 1, sampleRate: sr),
+                  Biquad.highShelf(11000, gain: 3, sampleRate: sr)]
+            preLevel = Self.preLevelTarget
+            compressor = VoiceCompressor(threshold: -23, ratio: 3)
             normalizes = true
         }
     }
 
-    var doesAnything: Bool { highPass != nil || gate != nil || !eq.isEmpty || compressor != nil || normalizes }
+    var doesAnything: Bool {
+        denoiser != nil || highPass != nil || gate != nil || !eq.isEmpty || compressor != nil || normalizes
+    }
 
     func process(_ x: inout [Float], sampleRate: Double) {
+        denoiser?.process(&x)
         if let highPass { Biquad.highPass(highPass, sampleRate: sampleRate).process(&x) }
         gate?.process(&x, sampleRate: sampleRate)
         for filter in eq { filter.process(&x) }
+        if let preLevel { Loudness.normalize(&x, sampleRate: sampleRate, target: preLevel, maxGain: Self.preLevelMaxGain) }
         compressor?.process(&x, sampleRate: sampleRate)
         if normalizes { Loudness.normalize(&x, sampleRate: sampleRate) }
     }

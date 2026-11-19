@@ -137,15 +137,83 @@ final class AudioCleanupTests: XCTestCase {
 
     func testPresetsBuildTheirChains() {
         XCTAssertFalse(VoiceChain(preset: .off, noiseRemoval: .off, sampleRate: sr).doesAnything)
-        let gateOnly = VoiceChain(preset: .off, noiseRemoval: .low, sampleRate: sr)
-        XCTAssertEqual(gateOnly.gate?.reduction, 10)
-        XCTAssertFalse(gateOnly.normalizes)
+        let noiseOnly = VoiceChain(preset: .off, noiseRemoval: .low, sampleRate: sr)
+        XCTAssertEqual(noiseOnly.gate?.reduction, 20)
+        XCTAssertEqual(noiseOnly.denoiser?.reduction, 10)
+        XCTAssertNil(noiseOnly.preLevel)
+        XCTAssertFalse(noiseOnly.normalizes)
         let voice = VoiceChain(preset: .voice, noiseRemoval: .high, sampleRate: sr)
         XCTAssertEqual(voice.highPass, 80)
-        XCTAssertEqual(voice.gate?.reduction, 18)
-        XCTAssertEqual(voice.eq.count, 3)
+        XCTAssertEqual(voice.gate?.reduction, 40)
+        XCTAssertEqual(voice.denoiser?.reduction, 15)
+        XCTAssertEqual(voice.eq.count, 5)
+        XCTAssertEqual(voice.preLevel, VoiceChain.preLevelTarget)
         XCTAssertTrue(voice.normalizes)
-        XCTAssertEqual(VoiceChain(preset: .podcast, noiseRemoval: .off, sampleRate: sr).compressor?.ratio, 4)
+        XCTAssertNil(VoiceChain(preset: .voice, noiseRemoval: .off, sampleRate: sr).denoiser)
+        XCTAssertEqual(VoiceChain(preset: .podcast, noiseRemoval: .off, sampleRate: sr).compressor?.ratio, 3)
+    }
+
+    func testVoiceEQSoftensSibilanceAndAddsClarity() {
+        let eq = VoiceChain(preset: .voice, noiseRemoval: .off, sampleRate: sr).eq
+        func response(_ f: Double) -> Double { eq.reduce(0) { $0 + $1.response(at: f, sampleRate: sr) } }
+        XCTAssertLessThan(response(450), -0.5, "less boxy")
+        XCTAssertGreaterThan(response(3000), 2, "clearer")
+        XCTAssertLessThan(response(5200), -4, "softer s sounds")
+        XCTAssertGreaterThan(response(14000), 1.5, "more air")
+    }
+
+    func testVoicePresetSilencesThePausesLikeAuphonic() {
+        // Speech-like bursts over steady hiss: 0.5 s of tone, 0.5 s of pause.
+        let hiss = noise(amplitude: 0.003, seconds: 6)
+        let tone = sine(300, amplitude: 0.05, seconds: 6)
+        var x = hiss.indices.map { hiss[$0] + ((Double($0) / sr).truncatingRemainder(dividingBy: 1) < 0.5 ? tone[$0] : 0) }
+        func gap(_ y: [Float]) -> Double {
+            let pause = Int(4.8 * sr)..<Int(4.95 * sr), speech = Int(4.1 * sr)..<Int(4.4 * sr)
+            return rmsDB(y[speech]) - rmsDB(y[pause])
+        }
+        let before = gap(x)
+        VoiceChain(preset: .voice, noiseRemoval: .high, sampleRate: sr).process(&x, sampleRate: sr)
+        XCTAssertGreaterThan(gap(x), before + 18, "pauses go nearly silent")
+        XCTAssertEqual(Loudness.integrated(x, sampleRate: sr)!, Loudness.target, accuracy: 1)
+    }
+
+    // MARK: Noise reduction
+
+    func testFFTRoundTripsAndFindsATone() {
+        let fft = FFT(size: 64)
+        var re = (0..<64).map { cos(2 * Double.pi * 5 * Double($0) / 64) }, im = [Double](repeating: 0, count: 64)
+        let original = re
+        fft.transform(&re, &im)
+        XCTAssertEqual(re[5], 32, accuracy: 1e-9)
+        XCTAssertEqual(re[59], 32, accuracy: 1e-9)
+        XCTAssertEqual(abs(re[6]) + abs(im[6]), 0, accuracy: 1e-9)
+        fft.transform(&re, &im, inverse: true)
+        for i in 0..<64 {
+            XCTAssertEqual(re[i] / 64, original[i], accuracy: 1e-9)
+            XCTAssertEqual(im[i] / 64, 0, accuracy: 1e-9)
+        }
+    }
+
+    func testDenoiserTakesOutHissAndKeepsTheVoice() {
+        // A second of hiss only, then a tone over the same hiss.
+        let hiss = noise(amplitude: 0.01, seconds: 3)
+        let tone = sine(440, amplitude: 0.2, seconds: 3)
+        var x = hiss.indices.map { hiss[$0] + ($0 >= Int(sr) ? tone[$0] : 0) }
+        let original = x
+        SpectralDenoiser(reduction: 15).process(&x)
+        XCTAssertEqual(x.count, original.count)
+        let quiet = Int(0.2 * sr)..<Int(0.8 * sr), loud = Int(1.5 * sr)..<Int(2.5 * sr)
+        XCTAssertLessThan(rmsDB(x[quiet]), rmsDB(original[quiet]) - 8, "hiss turned down")
+        XCTAssertEqual(rmsDB(x[loud]), rmsDB(original[loud]), accuracy: 1, "voice kept")
+    }
+
+    func testDenoiserLeavesSilenceAlone() {
+        var x = [Float](repeating: 0, count: 10_000)
+        SpectralDenoiser(reduction: 15).process(&x)
+        XCTAssertTrue(x.allSatisfy { $0 == 0 })
+        var empty: [Float] = []
+        SpectralDenoiser(reduction: 15).process(&empty)
+        XCTAssertTrue(empty.isEmpty)
     }
 
     func testOffLeavesTheVoiceAlone() {
