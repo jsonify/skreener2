@@ -42,6 +42,8 @@ struct StudioSettings: Codable, Equatable {
     var captionsShown = true
     /// Whether an `.srt` with the captions is saved next to the exported video.
     var captionsFile = true
+    /// Arrows, boxes, labels and the like over the video, each for a while (#383). Drawn in this order.
+    var callouts: [Callout] = []
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -69,6 +71,7 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.captions { s.captions = Captions.tidy(v) }
         if let v = saved.captionsShown { s.captionsShown = v }
         if let v = saved.captionsFile { s.captionsFile = v }
+        if let v = saved.callouts { s.callouts = Callouts.tidy(v) }
         return s
     }
 
@@ -101,6 +104,7 @@ struct StudioSettings: Codable, Equatable {
         var captions: [Caption]?
         var captionsShown: Bool?
         var captionsFile: Bool?
+        var callouts: [Callout]?
     }
 
     /// These settings without the zoom, audio and edit ones: what changes the background and effects (`StudioCompositor.zoomed`).
@@ -112,6 +116,8 @@ struct StudioSettings: Codable, Equatable {
         // Audio doesn't change the picture either.
         s.audio = AudioSettings()
         s.edits = []
+        // The callouts are drawn from the settings each frame, so moving one needn't remake the background either.
+        s.callouts = []
         return s
     }
 
@@ -308,7 +314,14 @@ final class StudioCompositor: @unchecked Sendable {
     }
 
     /// Whether frames are composed (on a canvas, or zoomed) rather than drawn over the recording.
-    var composes: Bool { settings.backgroundOn || settings.zooms || settings.exportPreset.frame != nil || showsCaptions }
+    var composes: Bool {
+        settings.backgroundOn || settings.zooms || settings.exportPreset.frame != nil || showsCaptions || !settings.callouts.isEmpty
+    }
+
+    /// The video's pixels per screen point of the recording, for sizing callouts drawn in the video's pixels.
+    var videoPointScale: CGFloat {
+        layout.pointScale * layout.videoSize.width / max(layout.content.width, 1)
+    }
 
     /// Whether captions are drawn into the frames.
     var showsCaptions: Bool { settings.captionsShown && !settings.captions.isEmpty }
@@ -397,12 +410,24 @@ final class StudioCompositor: @unchecked Sendable {
             ctx.interpolationQuality = .high
             ctx.draw(source, in: CGRect(origin: .zero, size: layout.videoSize))
         }
+        // Callouts on the content, under the pointer: all of them, or zoomed, the ones that follow the zoom.
+        drawCallouts(in: ctx, source: source, at: t) { shown == nil || $0.follows }
         // Zoomed, the effects stay on the content they belong to, but the keystroke pill stays put in the frame.
         overlay.draw(in: ctx, at: t, keystrokes: shown == nil)
         ctx.restoreGState()
         if shown != nil {
             ctx.concatenate(layout.transform())
+            drawCallouts(in: ctx, source: source, at: t) { !$0.follows }
             overlay.drawKeystrokes(in: ctx, at: t)
+        }
+    }
+
+    /// The callouts showing at `t` that `include` picks, into `ctx` in the video's pixels.
+    private func drawCallouts(in ctx: CGContext, source: CGImage?, at t: Double, include: (Callout) -> Bool) {
+        let callouts = settings.callouts
+        for i in Callouts.showing(callouts, at: t) where include(callouts[i]) {
+            Callouts.draw(callouts, index: i, opacity: Callouts.opacity(callouts[i], at: t), in: ctx,
+                          videoSize: layout.videoSize, pixelsPerPoint: videoPointScale, source: source)
         }
     }
 

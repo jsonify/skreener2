@@ -171,6 +171,23 @@ import SkreenerCore
     /// The caption showing in `captionField` (an index into `settings.captions`).
     private var shownCaption: Int?
 
+    // Callouts (#383).
+    private let calloutTrack = CalloutTrackView()
+    private let calloutKindPopup = RetroUI.stepper(tip: "What to add", target: nil, action: nil)
+    private let addCalloutButton = RetroUI.key("+ Add")
+    private let calloutField = NSTextField(string: "")
+    private let calloutColor = ColorPill()
+    private let calloutFollowSwitch = RetroSwitch()
+    private let calloutStartButton = RetroUI.key("Start Here")
+    private let calloutEndButton = RetroUI.key("End Here")
+    private let deleteCalloutButton = RetroUI.key("Delete")
+    private let calloutHint = RetroUI.hint(wraps: true)
+    private var selectedCallout: UUID?
+    /// A callout being dragged, on the track or in the preview: the callouts before it, for Undo.
+    private var calloutDrag: (before: [Callout], name: String)?
+    /// A drag in the preview: the callout, and either where it was grabbed (video pixels from its anchor) or its handle.
+    private var previewDrag: (id: UUID, grab: CGPoint?)?
+
     // Export bar
     private let exportButton = RetroUI.key("Export", variant: .orange)
     private let cancelButton = RetroUI.key("Cancel")
@@ -255,10 +272,12 @@ import SkreenerCore
             self.scrubber.maxValue = max(self.duration, 0.01)
             self.zoomTrack.duration = self.duration
             self.editTrack.duration = self.duration
+            self.calloutTrack.duration = self.duration
             // The zoom track's time scale lines up with the scrubber's track, which is inset by half its knob.
             if let cell = self.scrubber.cell as? NSSliderCell {
                 self.zoomTrack.inset = cell.knobRect(flipped: self.scrubber.isFlipped).width / 2
                 self.editTrack.inset = self.zoomTrack.inset
+                self.calloutTrack.inset = self.zoomTrack.inset
             }
             self.generateZoomIfNeeded()
             self.loadWaveform()
@@ -280,6 +299,9 @@ import SkreenerCore
         well.addSubview(preview)
         preview.onClick = { [weak self] in self?.togglePlay() }
         preview.onOptionClick = { [weak self] p in self?.aimZoom(at: p) }
+        preview.onPress = { [weak self] p in self?.pressPreview(at: p) ?? false }
+        preview.onDrag = { [weak self] p in self?.dragPreview(to: p) }
+        preview.onRelease = { [weak self] in self?.endCalloutDrag() }
 
         playButton.target = self; playButton.action = #selector(togglePlay)
         scrubber.controlSize = .small
@@ -298,7 +320,7 @@ import SkreenerCore
         // The inspector, scrolling when the window is too short for it.
         let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom()
                                     + [RetroGroove()] + buildEdits() + [RetroGroove()] + buildAudio()
-                                    + [RetroGroove()] + buildCaptions())
+                                    + [RetroGroove()] + buildCaptions() + [RetroGroove()] + buildCallouts())
         inspector.orientation = .vertical
         inspector.alignment = .leading
         inspector.spacing = 8
@@ -350,7 +372,8 @@ import SkreenerCore
         bar.alignment = .centerY
 
         setUpEditTrack()
-        [well, transport, zoomTrack, editTrack, inspectorScroll, bar].forEach {
+        setUpCalloutTrack()
+        [well, transport, zoomTrack, editTrack, calloutTrack, inspectorScroll, bar].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview($0)
         }
@@ -374,11 +397,15 @@ import SkreenerCore
             editTrack.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor),
             editTrack.trailingAnchor.constraint(equalTo: scrubber.trailingAnchor),
             editTrack.heightAnchor.constraint(equalToConstant: 30),
+            calloutTrack.topAnchor.constraint(equalTo: editTrack.bottomAnchor, constant: 4),
+            calloutTrack.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor),
+            calloutTrack.trailingAnchor.constraint(equalTo: scrubber.trailingAnchor),
+            calloutTrack.heightAnchor.constraint(equalToConstant: 30),
             inspectorScroll.topAnchor.constraint(equalTo: top, constant: 10),
             inspectorScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
             inspectorScroll.widthAnchor.constraint(equalToConstant: 306),
             inspectorScroll.bottomAnchor.constraint(equalTo: bar.topAnchor, constant: -10),
-            bar.topAnchor.constraint(equalTo: editTrack.bottomAnchor, constant: 12),
+            bar.topAnchor.constraint(equalTo: calloutTrack.bottomAnchor, constant: 12),
             bar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             bar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
             bar.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
@@ -808,6 +835,7 @@ import SkreenerCore
         refreshEditControls()
         refreshZoomControls()
         refreshCaptionControls()
+        refreshCalloutControls()
     }
 
     @objc private func exportPresetPicked() {
@@ -1013,6 +1041,279 @@ import SkreenerCore
         setCaptions(captions, name: "Delete Caption")
     }
 
+    // MARK: Callouts
+
+    private func buildCallouts() -> [NSView] {
+        setUp(calloutKindPopup, Callout.Kind.allCases.enumerated().map { ($1.name, $0) }, action: #selector(calloutKindPicked))
+        for (button, tip, action) in [
+            (addCalloutButton, "Add the callout at the playhead; then drag it in the preview, and its bar on the timeline",
+             #selector(addCallout)),
+            (calloutStartButton, "Start the selected callout at the playhead", #selector(calloutStartHere)),
+            (calloutEndButton, "End the selected callout at the playhead", #selector(calloutEndHere)),
+            (deleteCalloutButton, "Delete the selected callout", #selector(deleteCallout)),
+        ] {
+            button.toolTip = tip
+            button.target = self
+            button.action = action
+        }
+        calloutColor.toolTip = "The selected callout's color"
+        calloutColor.target = self; calloutColor.action = #selector(calloutColorChanged)
+        setUp(calloutFollowSwitch, "Follow zoom")
+        calloutFollowSwitch.toolTip = "Move with a zoom section, staying on what it points at; off, it stays put in the frame"
+        calloutField.placeholderString = "Text"
+        calloutField.font = .systemFont(ofSize: 12)
+        calloutField.cell?.sendsActionOnEndEditing = true
+        calloutField.target = self
+        calloutField.action = #selector(calloutTextChanged)
+        calloutField.setAccessibilityLabel("Callout text")
+        calloutField.widthAnchor.constraint(equalToConstant: 290).isActive = true
+        calloutHint.preferredMaxLayoutWidth = 290
+        return [
+            header("Callouts"),
+            row("Add", [calloutKindPopup, addCalloutButton]),
+            calloutField,
+            row("Color", [calloutColor]),
+            row("Follow zoom", [calloutFollowSwitch]),
+            row("", [calloutStartButton, calloutEndButton]),
+            row("", [deleteCalloutButton]),
+            calloutHint,
+        ]
+    }
+
+    private func setUpCalloutTrack() {
+        calloutTrack.onSelect = { [weak self] id in self?.selectCallout(id) }
+        calloutTrack.onDragBegan = { [weak self] _ in
+            guard let self else { return }
+            self.calloutDrag = (self.settings.callouts, "Move Callout")
+        }
+        calloutTrack.onDrag = { [weak self] id, kind, t in self?.dragCalloutTime(id, kind, to: t) }
+        calloutTrack.onDragEnded = { [weak self] in self?.endCalloutDrag() }
+        calloutTrack.onDelete = { [weak self] in self?.deleteCallout() }
+    }
+
+    private var selectedCalloutIndex: Int? { settings.callouts.firstIndex { $0.id == selectedCallout } }
+
+    private func refreshCalloutControls() {
+        let exporting = exportTask != nil
+        calloutTrack.callouts = settings.callouts
+        calloutTrack.selected = selectedCallout
+        calloutTrack.isEnabled = !exporting
+        calloutKindPopup.isEnabled = !exporting
+        addCalloutButton.isEnabled = !exporting && duration > 0
+        let selected = selectedCalloutIndex.map { settings.callouts[$0] }
+        [calloutStartButton, calloutEndButton, deleteCalloutButton, calloutColor].forEach {
+            $0.isEnabled = !exporting && selected != nil
+        }
+        calloutFollowSwitch.isEnabled = !exporting && selected != nil && selected?.kind != .blur
+        calloutFollowSwitch.state = selected?.follows ?? true ? .on : .off
+        if let c = selected { calloutColor.color = NSColor(cgColor: c.cgColor) ?? .systemRed }
+        let isText = selected?.kind == .text
+        calloutField.isHidden = !isText
+        if isText, calloutField.currentEditor() == nil { calloutField.stringValue = selected?.text ?? "" }
+        if let c = selected {
+            calloutHint.stringValue = "\(c.kind.name), \(StudioLayout.timecode(c.start))–\(StudioLayout.timecode(c.end)). "
+                + "Drag it in the preview; drag its corner or tip to resize. Drag its bar to change when it shows."
+        } else if settings.callouts.isEmpty {
+            calloutHint.stringValue = "Point things out: pick a kind and press + Add to put it on the video at the playhead."
+        } else {
+            calloutHint.stringValue = "\(settings.callouts.count) callouts. Click one in the preview or on its bar to change it."
+        }
+    }
+
+    private func selectCallout(_ id: UUID?) {
+        guard selectedCallout != id else { return }
+        if calloutField.currentEditor() != nil { window.makeFirstResponder(nil) }
+        selectedCallout = id
+        refreshCalloutControls()
+        redraw()
+    }
+
+    /// Replaces the callouts as one step Undo takes back, named `name`.
+    private func setCallouts(_ callouts: [Callout], name: String) {
+        let before = settings.callouts
+        settings.callouts = Callouts.tidy(callouts, duration: duration > 0 ? duration : nil)
+        registerCalloutUndo(before, name: name)
+        refreshCalloutControls()
+    }
+
+    private func registerCalloutUndo(_ before: [Callout], name: String) {
+        guard before != settings.callouts, let undo = window.undoManager else { return }
+        undo.registerUndo(withTarget: self, selector: #selector(restoreCallouts(_:)), object: CalloutUndoStep(before, name: name))
+        undo.setActionName(name)
+    }
+
+    @objc private func restoreCallouts(_ step: CalloutUndoStep) {
+        let current = settings.callouts
+        if let undo = window.undoManager {
+            undo.registerUndo(withTarget: self, selector: #selector(restoreCallouts(_:)), object: CalloutUndoStep(current, name: step.name))
+            undo.setActionName(step.name)
+        }
+        settings.callouts = step.callouts
+        if selectedCalloutIndex == nil { selectedCallout = nil }
+        refreshCalloutControls()
+        redraw()
+    }
+
+    /// Changes the selected callout as one undoable step.
+    private func changeSelectedCallout(_ name: String, _ change: (inout Callout) -> Void) {
+        guard let i = selectedCalloutIndex else { return }
+        var callouts = settings.callouts
+        change(&callouts[i])
+        setCallouts(callouts, name: name)
+    }
+
+    @objc private func calloutKindPicked() {}
+
+    @objc private func addCallout() {
+        guard exportTask == nil, duration > 0 else { return }
+        setPlaying(false)
+        let i = calloutKindPopup.selectedTag()
+        guard Callout.Kind.allCases.indices.contains(i) else { return }
+        let kind = Callout.Kind.allCases[i]
+        // At the pointer when it is over the recording, so the callout starts on what is being shown.
+        var point: CGPoint?
+        if let c = events.cursorState(at: time), c.visible, RecordingGeometry.contains(c.point, videoSize: project.videoSize) {
+            point = c.point
+        }
+        let start = min(time, max(0, duration - Callouts.minLength))
+        let c = Callouts.make(kind, at: start, duration: duration, videoSize: project.videoSize,
+                              pixelsPerPoint: compositor.videoPointScale, around: point)
+        selectedCallout = c.id
+        setCallouts(settings.callouts + [c], name: "Add \(kind.name)")
+        if kind == .text {
+            window.makeFirstResponder(calloutField)
+            calloutField.currentEditor()?.selectAll(nil)
+        }
+    }
+
+    @objc private func calloutTextChanged() {
+        guard let i = selectedCalloutIndex, settings.callouts[i].kind == .text else { return }
+        let text = calloutField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text != settings.callouts[i].text else { return }
+        changeSelectedCallout("Edit Callout Text") { $0.text = text }
+    }
+
+    @objc private func calloutColorChanged() {
+        guard let c = calloutColor.color.usingColorSpace(.sRGB) else { return }
+        let rgba = [Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent), Double(c.alphaComponent)]
+        changeSelectedCallout("Change Callout Color") { $0.color = rgba }
+    }
+
+    @objc private func calloutStartHere() {
+        let t = time
+        changeSelectedCallout("Move Callout Start") { $0.start = min(t, $0.end - Callouts.minLength) }
+    }
+
+    @objc private func calloutEndHere() {
+        let t = time
+        changeSelectedCallout("Move Callout End") { $0.end = max(t, $0.start + Callouts.minLength) }
+    }
+
+    @objc private func deleteCallout() {
+        guard exportTask == nil, let i = selectedCalloutIndex else { return }
+        var callouts = settings.callouts
+        callouts.remove(at: i)
+        selectedCallout = nil
+        setCallouts(callouts, name: "Delete Callout")
+    }
+
+    private func dragCalloutTime(_ id: UUID, _ kind: CalloutTrackView.Drag, to t: Double) {
+        guard let drag = calloutDrag, let i = drag.before.firstIndex(where: { $0.id == id }) else { return }
+        var callouts = drag.before
+        switch kind {
+        case .move:
+            callouts[i] = Callouts.moved(callouts[i], to: t, duration: duration)
+        case .resize(let start):
+            calloutDrag?.name = "Change Callout Timing"
+            callouts[i] = Callouts.resized(callouts[i], start: start, to: t, duration: duration)
+        }
+        settings.callouts = callouts
+    }
+
+    private func endCalloutDrag() {
+        previewDrag = nil
+        guard let drag = calloutDrag else { return }
+        calloutDrag = nil
+        registerCalloutUndo(drag.before, name: drag.name)
+    }
+
+    /// Where a point in the preview view is on the canvas (output pixels, bottom-left origin).
+    private func canvasPoint(preview p: CGPoint) -> CGPoint? {
+        let size = compositor.size, box = preview.bounds
+        let k = min(box.width / max(size.width, 1), box.height / max(size.height, 1))
+        guard k > 0, compositor.scale > 0 else { return nil }
+        let shown = CGRect(x: box.midX - size.width * k / 2, y: box.midY - size.height * k / 2,
+                           width: size.width * k, height: size.height * k)
+        return CGPoint(x: (p.x - shown.minX) / k / compositor.scale, y: (p.y - shown.minY) / k / compositor.scale)
+    }
+
+    /// A press in the preview: on a callout showing now, selects it and starts moving it (or resizing it, on its
+    /// handle). Elsewhere, deselects and leaves the click to play or pause.
+    private func pressPreview(at p: CGPoint) -> Bool {
+        guard exportTask == nil, !playing, let canvas = canvasPoint(preview: p) else { return false }
+        let crop = compositor.crop(at: time)
+        guard let hit = Callouts.hit(settings.callouts, at: canvas, time: time, layout: compositor.layout, crop: crop,
+                                     pixelsPerPoint: compositor.videoPointScale, slop: 6 / max(compositor.scale, 0.05))
+        else {
+            if selectedCallout != nil { selectCallout(nil); return true }
+            return false
+        }
+        let c = settings.callouts[hit.index]
+        selectCallout(c.id)
+        let v = Callouts.videoPoint(canvas, for: c, layout: compositor.layout, crop: crop)
+        previewDrag = (c.id, hit.handle ? nil : CGPoint(x: v.x - CGFloat(c.x), y: v.y - CGFloat(c.y)))
+        calloutDrag = (settings.callouts, hit.handle ? "Resize Callout" : "Move Callout")
+        return true
+    }
+
+    private func dragPreview(to p: CGPoint) {
+        guard let drag = previewDrag, let canvas = canvasPoint(preview: p),
+              let i = settings.callouts.firstIndex(where: { $0.id == drag.id }) else { return }
+        var c = settings.callouts[i]
+        let v = Callouts.videoPoint(canvas, for: c, layout: compositor.layout, crop: compositor.crop(at: time))
+        if let grab = drag.grab {
+            c.x = Double(v.x - grab.x)
+            c.y = Double(v.y - grab.y)
+            c = Callouts.clamped(c, videoSize: project.videoSize)
+        } else {
+            let size = project.videoSize
+            let clamped = CGPoint(x: min(max(v.x, 0), size.width), y: min(max(v.y, 0), size.height))
+            c = Callouts.resizing(c, handleTo: clamped, minSize: 8 * compositor.videoPointScale)
+        }
+        var callouts = settings.callouts
+        callouts[i] = c
+        settings.callouts = callouts
+    }
+
+    /// The selected callout's outline and handle over the preview (not in the export).
+    private func drawCalloutSelection(in ctx: CGContext) {
+        guard let i = selectedCalloutIndex else { return }
+        let c = settings.callouts[i]
+        guard time >= c.start, time < c.end else { return }
+        let layout = compositor.layout, ppp = compositor.videoPointScale
+        let transform = layout.transform(crop: c.follows ? compositor.crop(at: time) : nil)
+            .concatenating(CGAffineTransform(scaleX: compositor.scale, y: compositor.scale))
+        func flip(_ r: CGRect) -> CGRect {
+            CGRect(x: r.minX, y: layout.videoSize.height - r.maxY, width: r.width, height: r.height)
+        }
+        let box = flip(Callouts.bounds(c, pixelsPerPoint: ppp)).applying(transform).insetBy(dx: -3, dy: -3)
+        ctx.saveGState()
+        ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9))
+        ctx.setLineWidth(1)
+        ctx.setLineDash(phase: 0, lengths: [4, 3])
+        ctx.stroke(box)
+        if let h = Callouts.handle(c) {
+            let p = CGPoint(x: h.x, y: layout.videoSize.height - h.y).applying(transform)
+            let dot = CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)
+            ctx.setLineDash(phase: 0, lengths: [])
+            ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fillEllipse(in: dot)
+            ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.6))
+            ctx.strokeEllipse(in: dot)
+        }
+        ctx.restoreGState()
+    }
+
     private func refreshAudioControls() {
         let exporting = exportTask != nil
         let a = settings.audio
@@ -1090,6 +1391,7 @@ import SkreenerCore
             // Only the zoom changed (e.g. a section dragged): keep the background and effects.
             compositor = compositor.zoomed(settings)
             refreshZoomControls()
+            refreshCalloutControls()
         } else {
             compositor = Self.previewCompositor(project: project, events: events, folder: folder, settings: settings)
             refreshControls()
@@ -1124,6 +1426,7 @@ import SkreenerCore
         case captionsFileSwitch: settings.captionsFile = on
         case idleSwitch: settings.cursor.hideWhenIdle = on
         case autoZoomSwitch: settings.autoZoom = on
+        case calloutFollowSwitch: changeSelectedCallout(on ? "Follow Zoom" : "Stay Put") { $0.followsZoom = on }
         default: break
         }
     }
@@ -1281,7 +1584,7 @@ import SkreenerCore
 
     /// ⌘Z and ⇧⌘Z (not while exporting).
     private func undoKey(redo: Bool) {
-        guard exportTask == nil, zoomDrag == nil, let undo = window.undoManager else { return }
+        guard exportTask == nil, zoomDrag == nil, calloutDrag == nil, let undo = window.undoManager else { return }
         if redo {
             if undo.canRedo { undo.redo() } else { NSSound.beep() }
         } else {
@@ -1387,6 +1690,7 @@ import SkreenerCore
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         else { return }
         compositor.draw(in: ctx, source: source, at: time)
+        drawCalloutSelection(in: ctx)
         preview.image = ctx.makeImage()
     }
 
@@ -1409,6 +1713,7 @@ import SkreenerCore
         scrubber.doubleValue = time
         zoomTrack.time = time
         editTrack.time = time
+        calloutTrack.time = time
         refreshCaptionControls()
     }
 
@@ -1653,6 +1958,7 @@ import SkreenerCore
         progressTimer?.invalidate(); progressTimer = nil
         exportTask?.cancel()
         captionTask?.cancel()
+        calloutDrag = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         window.undoManager?.removeAllActions(withTarget: self)
@@ -1713,6 +2019,15 @@ private final class EditorPanel: NSWindow {
 
 /// The undo step for zoom section edits: the sections to go back to.
 /// The undo step for cuts and speed changes: the edits to go back to.
+private final class CalloutUndoStep: NSObject {
+    let callouts: [Callout]
+    let name: String
+    init(_ callouts: [Callout], name: String) {
+        self.callouts = callouts
+        self.name = name
+    }
+}
+
 private final class CaptionUndoStep: NSObject {
     let captions: [Caption]
     let name: String
@@ -1751,6 +2066,11 @@ private final class StudioPreview: NSView {
     var image: CGImage? { didSet { layer?.contents = image } }
     var onClick: (() -> Void)?
     var onOptionClick: ((CGPoint) -> Void)?
+    /// A press at a point (the view's coordinates); true when it was on a callout, which a drag then moves.
+    var onPress: ((CGPoint) -> Bool)?
+    var onDrag: ((CGPoint) -> Void)?
+    var onRelease: (() -> Void)?
+    private var dragging = false
 
     init() {
         super.init(frame: .zero)
@@ -1766,10 +2086,24 @@ private final class StudioPreview: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
         if event.modifierFlags.contains(.option) {
-            onOptionClick?(convert(event.locationInWindow, from: nil))
+            onOptionClick?(p)
+        } else if onPress?(p) == true {
+            dragging = true
         } else {
             onClick?()
         }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard dragging else { return }
+        onDrag?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard dragging else { return }
+        dragging = false
+        onRelease?()
     }
 }
