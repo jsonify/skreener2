@@ -150,6 +150,26 @@ import SkreenerCore
     private let systemVolumeLabel = RetroUI.hint()
     private var micRow = NSView(), systemRow = NSView()
     private let audioHint = RetroUI.hint(wraps: true)
+    // Fine-tuning the voice: each slider changes one part of the preset.
+    private let noiseReductionSlider = NSSlider(value: 0, minValue: 0, maxValue: VoiceTuning.maxNoiseReduction, target: nil, action: nil)
+    private let pauseSlider = NSSlider(value: 0, minValue: 0, maxValue: VoiceTuning.maxPauseSilence, target: nil, action: nil)
+    private let warmthSlider = NSSlider(value: 0, minValue: VoiceTuning.warmthRange.lowerBound,
+                                        maxValue: VoiceTuning.warmthRange.upperBound, target: nil, action: nil)
+    private let claritySlider = NSSlider(value: 0, minValue: VoiceTuning.clarityRange.lowerBound,
+                                         maxValue: VoiceTuning.clarityRange.upperBound, target: nil, action: nil)
+    private let deEssSlider = NSSlider(value: 0, minValue: VoiceTuning.deEssRange.lowerBound,
+                                       maxValue: VoiceTuning.deEssRange.upperBound, target: nil, action: nil)
+    private let airSlider = NSSlider(value: 0, minValue: VoiceTuning.airRange.lowerBound,
+                                     maxValue: VoiceTuning.airRange.upperBound, target: nil, action: nil)
+    private var tuningLabels: [NSSlider: NSTextField] = [:]
+    private let compressionPopup = RetroUI.stepper(tip: "How much loud and quiet passages are evened out", target: nil, action: nil)
+    private let loudnessPopup = RetroUI.stepper(tip: "How loud the voice ends up", target: nil, action: nil)
+    private let listenButton = RetroUI.key("Listen")
+    private let resetTuningButton = RetroUI.key("Reset")
+    private let saveVoiceButton = RetroUI.key("Save as My Voice")
+    private var tuningRows: [NSView] = []
+    private var voicePreviewTask: Task<Void, Never>?
+    private var voicePlayer: AVAudioPlayer?
     /// The clean video's audio tracks, for the preview's volumes, once loaded.
     private var previewAudioTracks: [AVAssetTrack] = []
     /// What each audio track holds.
@@ -207,7 +227,13 @@ import SkreenerCore
         self.folder = folder
         self.project = project
         self.events = events
-        let loaded = StudioSettings.load(folder: folder, project: project)
+        var loaded = StudioSettings.load(folder: folder, project: project)
+        // A recording opened for the first time starts with My Voice, when one was saved.
+        if !FileManager.default.fileExists(atPath: folder.appendingPathComponent(StudioSettings.file).path),
+           let mine = Preferences.myVoice {
+            loaded.audio.preset = .mine
+            loaded.audio.tuning = mine
+        }
         settings = loaded
         saved = loaded
         let asset = AVURLAsset(url: folder.appendingPathComponent(RecordingProject.videoFile))
@@ -741,14 +767,59 @@ import SkreenerCore
         audioHint.preferredMaxLayoutWidth = 290
         micRow = row("Voice", [micSlider, micVolumeLabel])
         systemRow = row("System", [systemSlider, systemVolumeLabel])
+        tuningRows = buildTuning()
         return [
             header("Audio"),
             row("Preset", [presetPopup]),
             row("Noise", [noisePopup]),
             micRow,
             systemRow,
-            audioHint,
+        ] + tuningRows + [audioHint]
+    }
+
+    /// The fine-tune controls: each changes one part of what the preset does, and Listen plays a sample of the result.
+    private func buildTuning() -> [NSView] {
+        let sliders: [(NSSlider, String, String)] = [
+            (noiseReductionSlider, "Hiss", "How much steady background noise (hiss, fans, room tone) is taken out"),
+            (pauseSlider, "Pauses", "How far the sound between words is turned down; high values make the pauses silent"),
+            (warmthSlider, "Warmth", "More or less low end: a fuller voice, or a thinner one"),
+            (claritySlider, "Clarity", "More or less presence in the upper mids: a clearer, more forward voice"),
+            (deEssSlider, "De-ess", "How much harsh \"s\" and \"t\" sounds are softened"),
+            (airSlider, "Air", "More or less sparkle at the top"),
         ]
+        var rows: [NSView] = [RetroLabel(caption: "Fine-tune")]
+        for (slider, name, tip) in sliders {
+            slider.controlSize = .small
+            slider.isContinuous = true
+            slider.toolTip = tip
+            slider.setAccessibilityLabel(name)
+            slider.target = self; slider.action = #selector(tuningChanged(_:))
+            slider.widthAnchor.constraint(equalToConstant: 130).isActive = true
+            let label = RetroUI.hint()
+            label.widthAnchor.constraint(equalToConstant: 52).isActive = true
+            tuningLabels[slider] = label
+            rows.append(row(name, [slider, label]))
+        }
+        setUp(compressionPopup, VoiceTuning.compressionRatios.enumerated().map { (VoiceTuning.ratioText($1), $0) },
+              action: #selector(tuningChanged(_:)))
+        setUp(loudnessPopup, [("Off", 0)] + VoiceTuning.loudnessTargets.enumerated().map { ($1.name, $0 + 1) },
+              action: #selector(tuningChanged(_:)))
+        for (button, tip, action) in [
+            (listenButton, "Play 15 seconds of your voice from the playhead with these settings", #selector(listenToVoice)),
+            (resetTuningButton, "Go back to what the preset does", #selector(resetTuning)),
+            (saveVoiceButton, "Keep these settings as the My Voice preset; new recordings start with it", #selector(saveMyVoice)),
+        ] {
+            button.toolTip = tip
+            button.target = self
+            button.action = action
+        }
+        rows += [
+            row("Levelling", [compressionPopup]),
+            row("Loudness", [loudnessPopup]),
+            row("", [listenButton, resetTuningButton]),
+            row("", [saveVoiceButton]),
+        ]
+        return rows
     }
 
     private func setUpZoomTrack() {
@@ -1323,7 +1394,38 @@ import SkreenerCore
         systemSlider.doubleValue = a.systemVolume
         micVolumeLabel.stringValue = AudioSettings.percent(a.micVolume)
         systemVolumeLabel.stringValue = AudioSettings.percent(a.systemVolume)
-        let voiceControls: [NSControl] = [presetPopup, noisePopup, micSlider]
+        let t = a.effectiveTuning
+        noiseReductionSlider.doubleValue = t.noiseReduction
+        pauseSlider.doubleValue = t.pauseSilence
+        warmthSlider.doubleValue = t.warmth
+        claritySlider.doubleValue = t.clarity
+        deEssSlider.doubleValue = t.deEss
+        airSlider.doubleValue = t.air
+        for (slider, label) in tuningLabels {
+            let v = slider.doubleValue
+            if slider === noiseReductionSlider || slider === pauseSlider || slider === deEssSlider {
+                // How far something is turned down.
+                label.stringValue = v < 0.25 ? "Off" : VoiceTuning.decibels(-v)
+            } else {
+                label.stringValue = VoiceTuning.decibels(v)
+            }
+        }
+        compressionPopup.selectItem(withTag: VoiceTuning.compressionRatios.enumerated()
+            .min { abs($0.element - t.compression) < abs($1.element - t.compression) }?.offset ?? 0)
+        loudnessPopup.selectItem(withTag: t.loudness.flatMap { l in
+            VoiceTuning.loudnessTargets.firstIndex { abs($0.value - l) < 0.5 }.map { $0 + 1 }
+        } ?? 0)
+        let listening = voicePlayer?.isPlaying == true || voicePreviewTask != nil
+        if listening != (listenButton.toolTip == "Stop listening") {
+            listenButton.setContent(title: listening ? "Stop" : "Listen", symbol: nil)
+            listenButton.toolTip = listening ? "Stop listening" : "Play 15 seconds of your voice from the playhead with these settings"
+        }
+        resetTuningButton.isEnabled = hasVoice && !exporting && a.tuning != nil
+            && a.tuning != (a.preset == .mine ? Preferences.myVoice : nil)
+        tuningRows.forEach { $0.isHidden = !hasVoice }
+        let voiceControls: [NSControl] = [presetPopup, noisePopup, micSlider, noiseReductionSlider, pauseSlider, warmthSlider,
+                                          claritySlider, deEssSlider, airSlider, compressionPopup, loudnessPopup,
+                                          listenButton, saveVoiceButton]
         voiceControls.forEach { $0.isEnabled = hasVoice && !exporting }
         systemSlider.isEnabled = hasSystemAudio && !exporting
         // A recording from before #385 has one mixed track: its slider is the whole sound's.
@@ -1337,12 +1439,13 @@ import SkreenerCore
         } else {
             var text = a.preset.detail
             if a.noiseRemoval == .high && !VoiceIsolation.isAvailable {
-                text += " Voice Isolation isn't available on this Mac, so High noise removal uses the noise gate only."
+                text += " Voice Isolation isn't available on this Mac, so High uses Skreener's own noise reduction and silences the pauses."
             } else if a.noiseRemoval != .off {
-                text += a.noiseRemoval == .high ? " Voice Isolation keeps your voice and takes out the background."
-                    : " The background noise is turned down between words."
+                text += a.noiseRemoval == .high ? " Voice Isolation and noise reduction take out the background, and the pauses between words go silent."
+                    : " Background hiss is reduced, and turned down further between words."
             }
-            if a.preset != .off || a.noiseRemoval != .off { text += " You hear it after Export; volumes play now." }
+            if a.tuning != nil && a.preset != .mine { text += " Fine-tuned." }
+            if !a.isNeutral { text += " Listen plays 15 seconds of the result; volumes play along with the preview." }
             audioHint.stringValue = text
         }
     }
@@ -1434,10 +1537,109 @@ import SkreenerCore
     @objc private func audioOptionPicked(_ popup: PillPopUp) {
         let i = popup.selectedTag()
         switch popup {
-        case presetPopup where AudioPreset.allCases.indices.contains(i): settings.audio.preset = AudioPreset.allCases[i]
-        case noisePopup where NoiseRemoval.allCases.indices.contains(i): settings.audio.noiseRemoval = NoiseRemoval.allCases[i]
+        case presetPopup where AudioPreset.allCases.indices.contains(i):
+            let preset = AudioPreset.allCases[i]
+            var a = settings.audio
+            a.preset = preset
+            // A new preset starts from what it does (My Voice from what was saved), with the noise removal chosen.
+            a.tuning = preset == .mine ? Preferences.myVoice : nil
+            if a.tuning != nil { a.tuning?.setNoise(a.noiseRemoval) }
+            settings.audio = a
+        case noisePopup where NoiseRemoval.allCases.indices.contains(i):
+            settings.audio.noiseRemoval = NoiseRemoval.allCases[i]
+            settings.audio.tuning?.setNoise(NoiseRemoval.allCases[i])
         default: break
         }
+    }
+
+    /// A fine-tune control was changed: the preset's tuning with that one change.
+    @objc private func tuningChanged(_ sender: NSControl) {
+        var t = settings.audio.effectiveTuning
+        func snapped(_ v: Double) -> Double { (v * 2).rounded() / 2 }
+        switch sender {
+        case noiseReductionSlider: t.noiseReduction = noiseReductionSlider.doubleValue.rounded()
+        case pauseSlider: t.pauseSilence = pauseSlider.doubleValue.rounded()
+        case warmthSlider: t.warmth = snapped(warmthSlider.doubleValue)
+        case claritySlider: t.clarity = snapped(claritySlider.doubleValue)
+        case deEssSlider: t.deEss = snapped(deEssSlider.doubleValue)
+        case airSlider: t.air = snapped(airSlider.doubleValue)
+        case compressionPopup:
+            let i = compressionPopup.selectedTag()
+            if VoiceTuning.compressionRatios.indices.contains(i) { t.compression = VoiceTuning.compressionRatios[i] }
+        case loudnessPopup:
+            let i = loudnessPopup.selectedTag() - 1
+            t.loudness = VoiceTuning.loudnessTargets.indices.contains(i) ? VoiceTuning.loudnessTargets[i].value : nil
+        default: return
+        }
+        if (t.noiseReduction > 0 || t.pauseSilence > 0), t.highPass == nil { t.highPass = 70 }
+        settings.audio.tuning = t.clamped
+    }
+
+    @objc private func resetTuning() {
+        settings.audio.tuning = settings.audio.preset == .mine ? Preferences.myVoice : nil
+    }
+
+    /// Keeps the fine-tuning as the My Voice preset, for this recording and the next ones.
+    @objc private func saveMyVoice() {
+        let t = settings.audio.effectiveTuning
+        Preferences.myVoice = t
+        settings.audio.preset = .mine
+        settings.audio.tuning = t
+        refreshAudioControls()
+        status.stringValue = "Saved as My Voice. New recordings start with it."
+    }
+
+    /// Plays (or stops) 15 seconds of the voice from the playhead, cleaned up as the settings say.
+    @objc private func listenToVoice() {
+        if voicePreviewTask != nil || voicePlayer?.isPlaying == true {
+            stopVoicePreview()
+            return
+        }
+        setPlaying(false)
+        let video = folder.appendingPathComponent(RecordingProject.videoFile)
+        let sources = project.audioTracks, audio = settings.audio, from = time
+        status.stringValue = "Preparing your voice with these settings…"
+        voicePreviewTask = Task { [weak self] in
+            let result: Result<URL?, Error>
+            do {
+                result = .success(try await AudioFinisher.preview(video, sources: sources, settings: audio, from: from))
+            } catch { result = .failure(error) }
+            guard let self, !Task.isCancelled else { return }
+            self.voicePreviewTask = nil
+            switch result {
+            case .success(let file?):
+                if let player = try? AVAudioPlayer(contentsOf: file) {
+                    self.voicePlayer = player
+                    player.play()
+                    self.status.stringValue = "Playing your voice with these settings. Press Stop to stop."
+                    let length = player.duration
+                    Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: UInt64((length + 0.2) * 1_000_000_000))
+                        guard let self, self.voicePlayer === player else { return }
+                        self.stopVoicePreview()
+                    }
+                }
+                try? FileManager.default.removeItem(at: file)
+            case .success(nil):
+                self.status.stringValue = "This recording has no voice to listen to."
+            case .failure(let error):
+                NSLog("Couldn't prepare the voice preview: \(error)")
+                self.status.stringValue = "Couldn't prepare the voice preview."
+            }
+            self.refreshAudioControls()
+        }
+        refreshAudioControls()
+    }
+
+    private func stopVoicePreview() {
+        voicePreviewTask?.cancel()
+        voicePreviewTask = nil
+        voicePlayer?.stop()
+        voicePlayer = nil
+        if status.stringValue.hasPrefix("Playing your voice") || status.stringValue.hasPrefix("Preparing your voice") {
+            status.stringValue = exportHint
+        }
+        refreshAudioControls()
     }
 
     @objc private func volumeChanged(_ slider: NSSlider) {
@@ -1729,6 +1931,7 @@ import SkreenerCore
         playButton.toolTip = on ? "Pause (Space)" : "Play (Space)"
         playButton.setAccessibilityLabel(on ? "Pause" : "Play")
         if on {
+            if voicePlayer != nil || voicePreviewTask != nil { stopVoicePreview() }
             if time >= duration - 0.05 { time = 0 }
             player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
             player.play()
@@ -1902,7 +2105,7 @@ import SkreenerCore
             let isGIF = exported.exportPreset == .gif
             if audio.isolationUnavailable {
                 Notifier.problem("Voice Isolation couldn't run",
-                                 detail: "The background noise was only turned down between words (the noise gate).")
+                                 detail: "Skreener's own noise reduction and noise gate cleaned up the background instead.")
             }
             Task { @MainActor in
                 if !isGIF { await RecordingController.compress(target) }
@@ -1923,7 +2126,7 @@ import SkreenerCore
         window.close()
         if audio.isolationUnavailable {
             Notifier.problem("Voice Isolation couldn't run",
-                             detail: "The background noise was only turned down between words (the noise gate).")
+                             detail: "Skreener's own noise reduction and noise gate cleaned up the background instead.")
         }
         // Then as after recording: Compress when that is on, the library, and a new preview.
         Task { @MainActor in
@@ -1959,6 +2162,7 @@ import SkreenerCore
         exportTask?.cancel()
         captionTask?.cancel()
         calloutDrag = nil
+        stopVoicePreview()
         player.pause()
         player.replaceCurrentItem(with: nil)
         window.undoManager?.removeAllActions(withTarget: self)

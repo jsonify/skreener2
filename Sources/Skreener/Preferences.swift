@@ -457,6 +457,11 @@ enum Preferences {
         get { d.string(forKey: "recordMicrophoneDevice") }
         set { d.set(newValue, forKey: "recordMicrophoneDevice") }
     }
+    /// The recording editor's My Voice preset: fine-tuning saved with Save as My Voice. New recordings start with it.
+    static var myVoice: VoiceTuning? {
+        get { d.data(forKey: "myVoice").flatMap { try? JSONDecoder().decode(VoiceTuning.self, from: $0) }?.clamped }
+        set { d.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "myVoice") }
+    }
     static var recordShowsCursor: Bool {
         get { d.object(forKey: "recordShowsCursor") as? Bool ?? true }
         set { d.set(newValue, forKey: "recordShowsCursor") }
