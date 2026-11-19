@@ -48,7 +48,7 @@ enum AudioFinisher {
         var outcome = Outcome()
         var mono: [(samples: [Float], gain: Float)] = []
         var stereo: [(samples: [[Float]], gain: Float)] = []
-        let chain = VoiceChain(preset: settings.preset, noiseRemoval: settings.noiseRemoval, sampleRate: sampleRate)
+        let chain = VoiceChain(tuning: settings.effectiveTuning, sampleRate: sampleRate)
         for (track, source) in zip(audioTracks, kinds) {
             try Task.checkCancellation()
             let channels = try decode(track, of: asset, frames: sourceFrames)
@@ -76,10 +76,49 @@ enum AudioFinisher {
         return outcome
     }
 
-    /// The whole of `track` as two channels of 48 kHz float samples, placed by their time (so a track that starts late
-    /// stays in sync), `frames` long.
-    private static func decode(_ track: AVAssetTrack, of asset: AVAsset, frames: Int) throws -> [[Float]] {
+    /// A sample of the voice cleaned up as `settings` say, to listen to in the editor before exporting: `seconds` of
+    /// the microphone from `start` (seconds), written as a temporary audio file. Nil when the recording has no voice.
+    static func preview(_ url: URL, sources known: [AudioSource]?, settings: AudioSettings, from start: Double,
+                        seconds: Double = 15) async throws -> URL? {
+        let asset = AVURLAsset(url: url)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let kinds = Self.sources(known, trackCount: audioTracks.count)
+        guard let index = kinds.firstIndex(where: { $0 != .system }) else { return nil }
+        let total = try await asset.load(.duration).seconds
+        guard total.isFinite, total > 0 else { return nil }
+        // The last `seconds` of a recording when the playhead is near its end.
+        let from = max(0, min(start, total - seconds))
+        let range = CMTimeRange(start: CMTime(seconds: from, preferredTimescale: 48_000),
+                                duration: CMTime(seconds: min(seconds, total - from), preferredTimescale: 48_000))
+        let frames = max(1, Int((range.duration.seconds * sampleRate).rounded(.up)))
+        let channels = try decode(audioTracks[index], of: asset, frames: frames, range: range)
+        try Task.checkCancellation()
+        var voice = [Float](repeating: 0, count: frames)
+        for i in 0..<frames { voice[i] = (channels[0][i] + channels[1][i]) / 2 }
+        if settings.noiseRemoval == .high { voice = (try? VoiceIsolation.process(voice, sampleRate: sampleRate)) ?? voice }
+        VoiceChain(tuning: settings.effectiveTuning, sampleRate: sampleRate).process(&voice, sampleRate: sampleRate)
+        var out = [voice]
+        Limiter.process(&out, sampleRate: sampleRate)
+        try Task.checkCancellation()
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let channel = buffer.floatChannelData?[0] else { throw FinishError.cannotWrite }
+        out[0].withUnsafeBufferPointer { src in
+            if let base = src.baseAddress { channel.update(from: base, count: frames) }
+        }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("SkreenerVoicePreview-\(UUID().uuidString).caf")
+        let writer = try AVAudioFile(forWriting: file, settings: format.settings)
+        try writer.write(from: buffer)
+        return file
+    }
+
+    /// The whole of `track` (or its `range`) as two channels of 48 kHz float samples, placed by their time (so a track
+    /// that starts late stays in sync), `frames` long.
+    private static func decode(_ track: AVAssetTrack, of asset: AVAsset, frames: Int, range: CMTimeRange? = nil) throws -> [[Float]] {
         let reader = try AVAssetReader(asset: asset)
+        if let range { reader.timeRange = range }
+        let offset = range.map { $0.start.seconds } ?? 0
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: 2,
             AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
@@ -91,7 +130,7 @@ enum AudioFinisher {
         var left = [Float](repeating: 0, count: frames), right = left
         while let sb = output.copyNextSampleBuffer() {
             let pts = CMSampleBufferGetPresentationTimeStamp(sb)
-            let start = pts.isNumeric ? Int((pts.seconds * sampleRate).rounded()) : 0
+            let start = pts.isNumeric ? Int(((pts.seconds - offset) * sampleRate).rounded()) : 0
             try sb.withAudioBufferList { list, _ in
                 guard let buffer = list.first, let data = buffer.mData else { return }
                 let count = Int(buffer.mDataByteSize) / (2 * MemoryLayout<Float>.size)
