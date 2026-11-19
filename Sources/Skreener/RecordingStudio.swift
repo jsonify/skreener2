@@ -28,6 +28,8 @@ struct StudioSettings: Codable, Equatable {
     /// Whether the sections have been made from the clicks yet: once, the first time the editor opens the recording;
     /// after that they are the user's.
     var zoomGenerated = false
+    /// Presets, noise removal and volumes, applied at export (#385).
+    var audio = AudioSettings()
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -48,6 +50,7 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.autoZoom { s.autoZoom = v }
         if let v = saved.zoomSections { s.zoomSections = AutoZoom.tidy(v) }
         if let v = saved.zoomGenerated { s.zoomGenerated = v }
+        if let v = saved.audio { s.audio = v }
         return s
     }
 
@@ -73,14 +76,17 @@ struct StudioSettings: Codable, Equatable {
         var autoZoom: Bool?
         var zoomSections: [ZoomSection]?
         var zoomGenerated: Bool?
+        var audio: AudioSettings?
     }
 
-    /// These settings without the zoom ones: what changes the background and effects (`StudioCompositor.zoomed`).
+    /// These settings without the zoom and audio ones: what changes the background and effects (`StudioCompositor.zoomed`).
     var withoutZoom: StudioSettings {
         var s = self
         s.autoZoom = true
         s.zoomSections = []
         s.zoomGenerated = false
+        // Audio doesn't change the picture either.
+        s.audio = AudioSettings()
         return s
     }
 

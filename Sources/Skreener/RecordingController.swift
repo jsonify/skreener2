@@ -118,6 +118,8 @@ final class RecordingController {
     private func startEditing(_ r: ScreenRecorder, folder: URL, output: URL, screen: NSScreen, rect: CGRect?,
                               options: inout ScreenRecorder.Options) {
         options.showsCursor = false
+        // The voice stays on its own track, so the editor can clean it up (#385); the finished MP4 is mixed.
+        options.mixesAudio = false
         let area = rect ?? screen.frame
         let size = ScreenRecorder.videoSize(screen: screen, rect: rect)
         let keys = Preferences.recordShowKeystrokes && AccessibilityAccess.granted
@@ -180,10 +182,13 @@ final class RecordingController {
         let session = editing
         let events = session?.log.finish()
         let folder = projectFolder
+        let sources = recorder?.audioSources
         tearDown()
         switch result {
         case .success(let url):
             if let session, let events {
+                var session = session
+                session.project.audioTracks = sources
                 finishEditing(session, events: events)
                 return
             }
@@ -255,6 +260,10 @@ final class RecordingController {
                     return
                 }
                 problem = error.localizedDescription
+            }
+            // The microphone was kept on its own track: mix it in, as for any recording.
+            do { try await AudioMixer.mixAudioTracks(of: output) } catch {
+                NSLog("Mixing the audio tracks failed, keeping them separate: \(error)")
             }
             await Self.compress(output)
             guard let self else { return }
