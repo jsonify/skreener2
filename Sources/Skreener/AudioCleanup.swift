@@ -14,7 +14,8 @@ enum AudioSource: String, Codable, Equatable {
 
 /// A preset for the voice: what is done to the microphone track at export.
 enum AudioPreset: String, Codable, CaseIterable, Equatable {
-    case off, level, voice, podcast
+    /// `mine`: the fine-tuning saved with Save as My Voice (`Preferences.myVoice`).
+    case off, level, voice, podcast, mine
 
     var name: String {
         switch self {
@@ -22,6 +23,7 @@ enum AudioPreset: String, Codable, CaseIterable, Equatable {
         case .level: return "Level Only"
         case .voice: return "Voice"
         case .podcast: return "Podcast"
+        case .mine: return "My Voice"
         }
     }
 
@@ -31,6 +33,7 @@ enum AudioPreset: String, Codable, CaseIterable, Equatable {
         case .level: return "Evens out loud and quiet passages and brings the voice to a standard loudness."
         case .voice: return "Removes rumble, adds clarity, softens harsh \"s\" sounds and brings the voice to podcast loudness: a clear voice for tutorials."
         case .podcast: return "Warmer and more present, with firmer levelling and softer \"s\" sounds: a broadcast-style voice."
+        case .mine: return "Your own fine-tuning, saved with Save as My Voice."
         }
     }
 }
@@ -48,10 +51,140 @@ enum NoiseRemoval: String, Codable, CaseIterable, Equatable {
     }
 }
 
+/// What the voice chain does, in terms a person can tune: each preset and noise removal level is one of these, and
+/// the editor's fine-tune controls change it. Gains are in dB.
+struct VoiceTuning: Codable, Equatable {
+    /// Spectral noise reduction, 0 (off) to `maxNoiseReduction`.
+    var noiseReduction: Double = 0
+    /// How far the pauses between words are turned down (the noise gate), 0 (off) to `maxPauseSilence`.
+    var pauseSilence: Double = 0
+    /// The rumble filter's frequency in Hz; nil for none.
+    var highPass: Double?
+    /// Low shelf at 150 Hz: a fuller, warmer voice.
+    var warmth: Double = 0
+    /// A bell around 420 Hz, usually a small cut: less boxy.
+    var mud: Double = 0
+    /// Presence at 3.2 kHz (and two thirds of it at 1.4 kHz): a clearer voice.
+    var clarity: Double = 0
+    /// How far harsh "s" sounds are cut, around 5.2 kHz (0 or more).
+    var deEss: Double = 0
+    /// High shelf at 11 kHz: more air and sparkle.
+    var air: Double = 0
+    /// The compressor's ratio; 1 is no compression.
+    var compression: Double = 1
+    /// The loudness the voice is brought to, in LUFS; nil leaves its level alone.
+    var loudness: Double?
+
+    static let maxNoiseReduction = 30.0
+    static let maxPauseSilence = 48.0
+    static let warmthRange = -6.0...6.0
+    static let clarityRange = -6.0...9.0
+    static let deEssRange = 0.0...12.0
+    static let airRange = -4.0...6.0
+    static let compressionRatios = [1.0, 2, 3, 4, 6]
+    /// The loudness targets offered: louder for video sites, quieter for broadcast.
+    static let loudnessTargets: [(name: String, value: Double)] = [
+        ("-14 LUFS (YouTube, loud)", -14), ("-16 LUFS (podcasts, standard)", -16),
+        ("-19 LUFS (quieter)", -19), ("-23 LUFS (broadcast)", -23),
+    ]
+
+    init() {}
+
+    /// Missing values keep their defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        noiseReduction = try c.decodeIfPresent(Double.self, forKey: .noiseReduction) ?? 0
+        pauseSilence = try c.decodeIfPresent(Double.self, forKey: .pauseSilence) ?? 0
+        highPass = try c.decodeIfPresent(Double.self, forKey: .highPass)
+        warmth = try c.decodeIfPresent(Double.self, forKey: .warmth) ?? 0
+        mud = try c.decodeIfPresent(Double.self, forKey: .mud) ?? 0
+        clarity = try c.decodeIfPresent(Double.self, forKey: .clarity) ?? 0
+        deEss = try c.decodeIfPresent(Double.self, forKey: .deEss) ?? 0
+        air = try c.decodeIfPresent(Double.self, forKey: .air) ?? 0
+        compression = try c.decodeIfPresent(Double.self, forKey: .compression) ?? 1
+        loudness = try c.decodeIfPresent(Double.self, forKey: .loudness)
+    }
+
+    /// What a preset and noise removal level do.
+    init(preset: AudioPreset, noiseRemoval: NoiseRemoval) {
+        switch noiseRemoval {
+        case .off: break
+        case .low: noiseReduction = 10; pauseSilence = 20
+        case .high: noiseReduction = 15; pauseSilence = 40
+        }
+        switch preset {
+        case .off:
+            highPass = noiseRemoval == .off ? nil : 70
+        case .level:
+            highPass = noiseRemoval == .off ? nil : 70
+            compression = 2
+            loudness = Loudness.target
+        case .voice, .mine:
+            highPass = 80
+            mud = -1.5
+            clarity = 3
+            deEss = 8
+            air = 3
+            compression = 2
+            loudness = Loudness.target
+        case .podcast:
+            highPass = 90
+            warmth = 2
+            mud = -2.5
+            clarity = 3.5
+            deEss = 8
+            air = 3
+            compression = 3
+            loudness = Loudness.target
+        }
+    }
+
+    /// The noise removal level's part of this tuning set for `level`.
+    mutating func setNoise(_ level: NoiseRemoval) {
+        let n = VoiceTuning(preset: .off, noiseRemoval: level)
+        noiseReduction = n.noiseReduction
+        pauseSilence = n.pauseSilence
+        if level != .off, highPass == nil { highPass = 70 }
+    }
+
+    /// Every value inside its range (a file from elsewhere may have anything).
+    var clamped: VoiceTuning {
+        func c(_ v: Double, _ r: ClosedRange<Double>) -> Double { v.isFinite ? min(max(v, r.lowerBound), r.upperBound) : 0 }
+        var t = self
+        t.noiseReduction = c(noiseReduction, 0...Self.maxNoiseReduction)
+        t.pauseSilence = c(pauseSilence, 0...Self.maxPauseSilence)
+        t.highPass = highPass.map { c($0, 20...300) }
+        t.warmth = c(warmth, Self.warmthRange)
+        t.mud = c(mud, -6...3)
+        t.clarity = c(clarity, Self.clarityRange)
+        t.deEss = c(deEss, Self.deEssRange)
+        t.air = c(air, Self.airRange)
+        t.compression = compression.isFinite ? min(max(compression, 1), 10) : 1
+        t.loudness = loudness.map { c($0, -30...(-10)) }
+        return t
+    }
+
+    /// The compressor's threshold for its ratio, in dB after the voice is levelled to `VoiceChain.preLevelTarget`:
+    /// firmer compression starts a little lower.
+    static func threshold(ratio: Double) -> Double { -14 - 3 * ratio }
+
+    /// "+3 dB", "0 dB", "-1.5 dB".
+    static func decibels(_ v: Double) -> String {
+        let r = (v * 2).rounded() / 2
+        let text = r == r.rounded() ? String(Int(r)) : String(format: "%.1f", r)
+        return (r > 0 ? "+" : "") + text + " dB"
+    }
+
+    /// "Off", "2:1".
+    static func ratioText(_ ratio: Double) -> String { ratio <= 1 ? "Off" : "\(Int(ratio.rounded())):1" }
+}
+
 /// The recording editor's audio settings, saved in `studio.json`.
 struct AudioSettings: Codable, Equatable {
     var preset: AudioPreset = .off
     var noiseRemoval: NoiseRemoval = .off
+    /// The fine-tune controls' changes to the preset; nil uses the preset as it is.
+    var tuning: VoiceTuning?
     /// Linear gain, 0…2 (1 is as recorded).
     var micVolume: Double = 1
     var systemVolume: Double = 1
@@ -61,13 +194,17 @@ struct AudioSettings: Codable, Equatable {
     init() {}
 
     /// Nothing to do but mix the tracks.
-    var isNeutral: Bool { preset == .off && noiseRemoval == .off && micVolume == 1 && systemVolume == 1 }
+    var isNeutral: Bool { effectiveTuning == VoiceTuning() && noiseRemoval == .off && micVolume == 1 && systemVolume == 1 }
+
+    /// What is done to the voice: the fine-tuning, or the preset's.
+    var effectiveTuning: VoiceTuning { tuning ?? VoiceTuning(preset: preset, noiseRemoval: noiseRemoval) }
 
     /// Missing values keep their defaults; an unknown preset (from a newer Skreener) reads as off.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         preset = (try? c.decodeIfPresent(AudioPreset.self, forKey: .preset)) ?? .off
         noiseRemoval = (try? c.decodeIfPresent(NoiseRemoval.self, forKey: .noiseRemoval)) ?? .off
+        tuning = (try? c.decodeIfPresent(VoiceTuning.self, forKey: .tuning))?.clamped
         micVolume = Self.clamped(try c.decodeIfPresent(Double.self, forKey: .micVolume) ?? 1)
         systemVolume = Self.clamped(try c.decodeIfPresent(Double.self, forKey: .systemVolume) ?? 1)
     }
@@ -453,6 +590,8 @@ struct VoiceChain: Equatable {
     var preLevel: Double?
     var compressor: VoiceCompressor?
     var normalizes: Bool
+    /// The loudness `normalizes` brings the voice to.
+    var target: Double
 
     /// The level the voice is brought to before the compressor, whose thresholds are set for it.
     static let preLevelTarget = -23.0
@@ -460,53 +599,32 @@ struct VoiceChain: Equatable {
     static let preLevelMaxGain = 40.0
 
     init(preset: AudioPreset, noiseRemoval: NoiseRemoval, sampleRate: Double) {
-        let sr = sampleRate
-        switch noiseRemoval {
-        case .off:
-            denoiser = nil
-            gate = nil
-        case .low:
-            denoiser = SpectralDenoiser(reduction: 10)
-            gate = NoiseGate(reduction: 20)
-        case .high:
-            denoiser = SpectralDenoiser(reduction: 15)
-            gate = NoiseGate(reduction: 40)
+        self.init(tuning: VoiceTuning(preset: preset, noiseRemoval: noiseRemoval), sampleRate: sampleRate)
+    }
+
+    init(tuning t: VoiceTuning, sampleRate sr: Double) {
+        denoiser = t.noiseReduction > 0 ? SpectralDenoiser(reduction: t.noiseReduction) : nil
+        gate = t.pauseSilence > 0 ? NoiseGate(reduction: t.pauseSilence) : nil
+        highPass = t.highPass
+        var eq: [Biquad] = []
+        if t.warmth != 0 { eq.append(Biquad.lowShelf(150, gain: t.warmth, sampleRate: sr)) }
+        if t.mud != 0 { eq.append(Biquad.peaking(420, gain: t.mud, q: 1.1, sampleRate: sr)) }
+        if t.clarity != 0 {
+            eq.append(Biquad.peaking(1400, gain: t.clarity * 2 / 3, q: 1.2, sampleRate: sr))
+            eq.append(Biquad.peaking(3200, gain: t.clarity, q: 1.2, sampleRate: sr))
         }
-        switch preset {
-        case .off:
-            highPass = noiseRemoval == .off ? nil : 70
-            eq = []
+        if t.deEss > 0 { eq.append(Biquad.peaking(5200, gain: -t.deEss, q: 1, sampleRate: sr)) }
+        if t.air != 0 { eq.append(Biquad.highShelf(11000, gain: t.air, sampleRate: sr)) }
+        self.eq = eq
+        if t.compression > 1 {
+            preLevel = Self.preLevelTarget
+            compressor = VoiceCompressor(threshold: VoiceTuning.threshold(ratio: t.compression), ratio: t.compression)
+        } else {
             preLevel = nil
             compressor = nil
-            normalizes = false
-        case .level:
-            highPass = noiseRemoval == .off ? nil : 70
-            eq = []
-            preLevel = Self.preLevelTarget
-            compressor = VoiceCompressor(threshold: -20, ratio: 2)
-            normalizes = true
-        case .voice:
-            highPass = 80
-            eq = [Biquad.peaking(450, gain: -1.5, q: 1, sampleRate: sr),
-                  Biquad.peaking(1400, gain: 2, q: 1.2, sampleRate: sr),
-                  Biquad.peaking(3200, gain: 3, q: 1.2, sampleRate: sr),
-                  Biquad.peaking(5200, gain: -8, q: 1, sampleRate: sr),
-                  Biquad.highShelf(11000, gain: 3, sampleRate: sr)]
-            preLevel = Self.preLevelTarget
-            compressor = VoiceCompressor(threshold: -20, ratio: 2)
-            normalizes = true
-        case .podcast:
-            highPass = 90
-            eq = [Biquad.lowShelf(150, gain: 2, sampleRate: sr),
-                  Biquad.peaking(400, gain: -2.5, q: 1.2, sampleRate: sr),
-                  Biquad.peaking(1400, gain: 2, q: 1.2, sampleRate: sr),
-                  Biquad.peaking(3200, gain: 3.5, q: 1.1, sampleRate: sr),
-                  Biquad.peaking(5200, gain: -8, q: 1, sampleRate: sr),
-                  Biquad.highShelf(11000, gain: 3, sampleRate: sr)]
-            preLevel = Self.preLevelTarget
-            compressor = VoiceCompressor(threshold: -23, ratio: 3)
-            normalizes = true
         }
+        target = t.loudness ?? Loudness.target
+        normalizes = t.loudness != nil
     }
 
     var doesAnything: Bool {
@@ -520,7 +638,7 @@ struct VoiceChain: Equatable {
         for filter in eq { filter.process(&x) }
         if let preLevel { Loudness.normalize(&x, sampleRate: sampleRate, target: preLevel, maxGain: Self.preLevelMaxGain) }
         compressor?.process(&x, sampleRate: sampleRate)
-        if normalizes { Loudness.normalize(&x, sampleRate: sampleRate) }
+        if normalizes { Loudness.normalize(&x, sampleRate: sampleRate, target: target) }
     }
 }
 

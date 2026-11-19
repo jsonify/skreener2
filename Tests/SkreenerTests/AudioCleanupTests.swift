@@ -157,7 +157,7 @@ final class AudioCleanupTests: XCTestCase {
         let eq = VoiceChain(preset: .voice, noiseRemoval: .off, sampleRate: sr).eq
         func response(_ f: Double) -> Double { eq.reduce(0) { $0 + $1.response(at: f, sampleRate: sr) } }
         XCTAssertLessThan(response(450), -0.5, "less boxy")
-        XCTAssertGreaterThan(response(3000), 2, "clearer")
+        XCTAssertGreaterThan(response(1500), 1, "clearer")
         XCTAssertLessThan(response(5200), -4, "softer s sounds")
         XCTAssertGreaterThan(response(14000), 1.5, "more air")
     }
@@ -268,6 +268,71 @@ final class AudioCleanupTests: XCTestCase {
         let future = try JSONDecoder().decode(AudioSettings.self, from: Data(#"{"preset":"radio"}"#.utf8))
         XCTAssertEqual(future.preset, .off, "a preset from a newer Skreener")
         XCTAssertEqual(AudioSettings.percent(1.5), "150%")
+    }
+
+    // MARK: Fine-tuning
+
+    func testPresetsAreTunings() {
+        XCTAssertEqual(VoiceTuning(preset: .off, noiseRemoval: .off), VoiceTuning(), "off does nothing")
+        let voice = VoiceTuning(preset: .voice, noiseRemoval: .high)
+        XCTAssertEqual(voice.noiseReduction, 15)
+        XCTAssertEqual(voice.pauseSilence, 40)
+        XCTAssertEqual(voice.deEss, 8)
+        XCTAssertEqual(voice.loudness, Loudness.target)
+        XCTAssertEqual(VoiceTuning(preset: .mine, noiseRemoval: .off), VoiceTuning(preset: .voice, noiseRemoval: .off),
+                       "My Voice before anything was saved")
+        XCTAssertEqual(VoiceChain(tuning: voice, sampleRate: sr), VoiceChain(preset: .voice, noiseRemoval: .high, sampleRate: sr))
+    }
+
+    func testTuningChangesTheChain() {
+        var t = VoiceTuning(preset: .voice, noiseRemoval: .off)
+        t.deEss = 0
+        t.compression = 1
+        t.warmth = 3
+        t.loudness = -14
+        let chain = VoiceChain(tuning: t, sampleRate: sr)
+        XCTAssertNil(chain.compressor)
+        XCTAssertNil(chain.preLevel)
+        let response = { (f: Double) in chain.eq.reduce(0) { $0 + $1.response(at: f, sampleRate: sr) } }
+        XCTAssertGreaterThan(response(40), 2, "warmer")
+        XCTAssertGreaterThan(response(5200), 0, "no de-essing")
+        var x = sine(300, amplitude: 0.03, seconds: 3)
+        chain.process(&x, sampleRate: sr)
+        XCTAssertEqual(Loudness.integrated(x, sampleRate: sr)!, -14, accuracy: 0.5)
+        t.loudness = nil
+        XCTAssertFalse(VoiceChain(tuning: t, sampleRate: sr).normalizes)
+    }
+
+    func testTunedSettingsRoundTripAndFollowNoiseRemoval() throws {
+        var a = AudioSettings()
+        a.preset = .voice
+        var t = a.effectiveTuning
+        t.clarity = 6
+        a.tuning = t
+        XCTAssertEqual(a.effectiveTuning.clarity, 6)
+        XCTAssertEqual(try JSONDecoder().decode(AudioSettings.self, from: JSONEncoder().encode(a)), a)
+        a.tuning?.setNoise(.low)
+        XCTAssertEqual(a.tuning?.noiseReduction, 10)
+        XCTAssertEqual(a.tuning?.pauseSilence, 20)
+        XCTAssertEqual(a.tuning?.clarity, 6, "the rest stays")
+        var off = AudioSettings()
+        off.tuning = VoiceTuning()
+        XCTAssertTrue(off.isNeutral, "a tuning that does nothing")
+        off.tuning?.air = 2
+        XCTAssertFalse(off.isNeutral)
+        let odd = try JSONDecoder().decode(AudioSettings.self, from: Data(#"{"tuning": {"clarity": 40, "compression": 0}}"#.utf8))
+        XCTAssertEqual(odd.tuning?.clarity, VoiceTuning.clarityRange.upperBound)
+        XCTAssertEqual(odd.tuning?.compression, 1)
+        XCTAssertNil(odd.tuning?.loudness)
+    }
+
+    func testTuningTexts() {
+        XCTAssertEqual(VoiceTuning.decibels(3), "+3 dB")
+        XCTAssertEqual(VoiceTuning.decibels(-1.5), "-1.5 dB")
+        XCTAssertEqual(VoiceTuning.decibels(0), "0 dB")
+        XCTAssertEqual(VoiceTuning.ratioText(1), "Off")
+        XCTAssertEqual(VoiceTuning.ratioText(3), "3:1")
+        XCTAssertEqual(AudioPreset.mine.name, "My Voice")
     }
 
     func testStudioSettingsKeepTheAudio() throws {
