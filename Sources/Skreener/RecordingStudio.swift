@@ -32,6 +32,8 @@ struct StudioSettings: Codable, Equatable {
     var audio = AudioSettings()
     /// Cuts and speed changes, in the recording's own time (#381).
     var edits: [TimelineEdit] = []
+    /// Smoothing, size and hiding when idle (#382).
+    var cursor = CursorSettings()
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -54,6 +56,7 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.zoomGenerated { s.zoomGenerated = v }
         if let v = saved.audio { s.audio = v }
         if let v = saved.edits { s.edits = v }
+        if let v = saved.cursor { s.cursor = v }
         return s
     }
 
@@ -81,6 +84,7 @@ struct StudioSettings: Codable, Equatable {
         var zoomGenerated: Bool?
         var audio: AudioSettings?
         var edits: [TimelineEdit]?
+        var cursor: CursorSettings?
     }
 
     /// These settings without the zoom, audio and edit ones: what changes the background and effects (`StudioCompositor.zoomed`).
@@ -257,8 +261,10 @@ final class StudioCompositor: @unchecked Sendable {
         self.scale = scale
         layout = StudioLayout.make(videoSize: project.videoSize, pixelsPerPoint: project.pixelScale,
                                    background: settings.backgroundOn ? settings.background : nil)
+        // The smoothed path is what the cursor, the spotlight and a zoom that follows the pointer all use.
+        let events = CursorMotion.smoothed(events, settings.cursor.smoothing)
         overlay = EffectsOverlay(style: settings.effects, spotlight: settings.spotlight, videoSize: project.videoSize,
-                                 scale: project.pixelScale, events: events, folder: folder)
+                                 scale: project.pixelScale, events: events, folder: folder, cursor: settings.cursor)
         size = CGSize(width: max(1, (layout.canvas.width * scale).rounded()), height: max(1, (layout.canvas.height * scale).rounded()))
         backdrop = settings.backgroundOn ? Self.makeBackdrop(layout: layout, background: settings.background, size: size) : nil
         camera = ZoomCamera(sections: settings.zoomSections, events: events, videoSize: project.videoSize)
