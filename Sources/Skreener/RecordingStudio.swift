@@ -471,8 +471,33 @@ extension RecordingProject {
     private struct Entry { var modified: Date; var exported: String?; var created: Date }
     private static var cache: [String: Entry] = [:]
 
+    /// Whether `url` is a video (by its extension), rather than a picture.
+    static func isVideo(_ url: URL) -> Bool {
+        ["mp4", "m4v", "mov"].contains(url.pathExtension.lowercased())
+    }
+
+    /// The finished video of the newest recording project that still has it (where filing moved it to), for the
+    /// Edit a Recording panel to start in.
+    static func newestRecording(in parent: URL = RecordingProject.folder) -> URL? {
+        let fm = FileManager.default
+        return projects(in: parent).lazy.compactMap { p -> URL? in
+            guard let exported = p.exported, !exported.isEmpty else { return nil }
+            let url = AutoFiling.current(URL(fileURLWithPath: exported))
+            return fm.fileExists(atPath: url.path) ? url : nil
+        }.first
+    }
+
     /// The project folder that made `file`, if it still has its clean video.
     static func folder(for file: URL, in parent: URL = RecordingProject.folder) -> URL? {
+        let fm = FileManager.default
+        let projects = projects(in: parent)
+        guard let found = RecordingProject.projectFolder(for: file, in: projects.map { (folder: $0.folder, exported: $0.exported) },
+                                                  follow: AutoFiling.current) else { return nil }
+        return fm.fileExists(atPath: found.appendingPathComponent(RecordingProject.videoFile).path) ? found : nil
+    }
+
+    /// Every project in `parent`, newest first.
+    private static func projects(in parent: URL) -> [(folder: URL, exported: String?, created: Date)] {
         let fm = FileManager.default
         let folders = (try? fm.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil))?
             .filter { $0.pathExtension == RecordingProject.fileExtension } ?? []
@@ -493,8 +518,6 @@ extension RecordingProject {
         }
         cache = cache.filter { seen.contains($0.key) }
         projects.sort { $0.created > $1.created }
-        guard let found = RecordingProject.projectFolder(for: file, in: projects.map { (folder: $0.folder, exported: $0.exported) },
-                                                  follow: AutoFiling.current) else { return nil }
-        return fm.fileExists(atPath: found.appendingPathComponent(RecordingProject.videoFile).path) ? found : nil
+        return projects
     }
 }

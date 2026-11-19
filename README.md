@@ -87,7 +87,7 @@ Menu Bar → Expanded).
   still editable, or click **Show All** for Capture History. This row is hidden when Capture History is turned off.
 - **Compact or Expanded** (Settings → Menu Bar). Compact, the default, ends with a tray of small keys: **History**,
   **Open Clip** (open the clipboard's image in the editor), **Pin Clip**, **Settings** and **Quit**. Expanded adds
-  trays for **Open & Pin** (Open…, Pin a file, Pin Click-Through, From iPhone or iPad), **Tools** (Zoom & Draw, Step
+  trays for **Open & Pin** (Open…, Pin a file, Pin Click-Through, From iPhone or iPad, Edit a Recording…), **Tools** (Zoom & Draw, Step
   Recorder, Step Guide, Watch This Area) and **Help** (Keyboard Shortcuts, Welcome Guide, What's New, Check for
   Updates, About). While a watch runs, Compact shows its **Stop** key too. Command-Q, Command-Comma and Command-V
   (Open from Clipboard) work while the menu is open.

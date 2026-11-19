@@ -32,7 +32,7 @@ final class MenuLauncherTests: XCTestCase {
         XCTAssertEqual(groups.dropLast().map(\.title), ["Open & Pin", "Tools", "Help"])
         let commands = groups.flatMap(\.keys).map(\.command)
         XCTAssertEqual(Set(commands).count, commands.count, "no key twice")
-        for c: MenuCommand in [.openFile, .pinFile, .pinClickThrough, .fromDevice, .stepGuide, .watchArea, .stepRecorder,
+        for c: MenuCommand in [.openFile, .pinFile, .pinClickThrough, .fromDevice, .editRecording, .stepGuide, .watchArea, .stepRecorder,
                                .presenter, .keyboardShortcuts, .welcomeGuide, .whatsNew, .checkForUpdates, .about] {
             XCTAssertTrue(commands.contains(c), "\(c)")
         }
