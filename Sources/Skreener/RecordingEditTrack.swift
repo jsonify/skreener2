@@ -1,10 +1,14 @@
 import AppKit
 
-/// The recording editor's cut and speed track (#381), under the zoom track and on the same time scale: a hatched bar
-/// for every cut, a teal bar with its speed for every sped-up range, and the In–Out selection the next cut or speed
-/// change applies to. Click a bar to select it, Delete removes it, click an empty spot to deselect.
+/// The recording editor's cut and speed track (#381), under the zoom track and on the same time scale: the recording's
+/// waveform (#385), a hatched bar for every cut, a teal bar with its speed for every sped-up range, a violet one for
+/// every muted range, and the In–Out selection the next edit applies to. Click a bar to select it, Delete removes it,
+/// click an empty spot to deselect.
 @MainActor final class EditTrackView: NSView {
     var edits: [TimelineEdit] = [] { didSet { if edits != oldValue { needsDisplay = true } } }
+    /// The sound's loudest samples across the recording (`WaveformPeaks`), drawn behind the edits.
+    var waveform: [Float] = [] { didSet { if waveform != oldValue { needsDisplay = true } } }
+    private static let violet: UInt32 = 0x7a5cc8
     var selected: Int? { didSet { if selected != oldValue { needsDisplay = true } } }
     /// The In and Out marks, either of which may be missing.
     var markIn: Double? { didSet { if markIn != oldValue { needsDisplay = true } } }
@@ -22,13 +26,13 @@ import AppKit
         super.init(frame: frame)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("Cuts and speed changes")
-        toolTip = "Cuts and speed changes: click one to select it, Delete removes it"
+        setAccessibilityLabel("Cuts, mutes and speed changes")
+        toolTip = "The sound, with cuts, mutes and speed changes: click one to select it, Delete removes it"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override var acceptsFirstResponder: Bool { isEnabled }
-    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 22) }
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 30) }
 
     private var track: CGRect { bounds.insetBy(dx: inset, dy: 0) }
 
@@ -47,6 +51,22 @@ import AppKit
         NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
         let alpha: CGFloat = isEnabled ? 1 : 0.35
 
+        // The waveform: one bar per pixel column, the loudest of the buckets under it.
+        if !waveform.isEmpty, track.width >= 1 {
+            Retro.color(p.ink, alpha: 0.28 * alpha).setFill()
+            let n = waveform.count
+            let columns = Int(track.width)
+            let maxHeight = bounds.height - 4
+            for c in 0..<columns {
+                let from = c * n / columns, to = max(from + 1, (c + 1) * n / columns)
+                var peak: Float = 0
+                for i in from..<min(to, n) { peak = max(peak, waveform[i]) }
+                let h = CGFloat(WaveformPeaks.height(peak)) * maxHeight
+                guard h >= 0.5 else { continue }
+                CGRect(x: track.minX + CGFloat(c), y: bounds.midY - h / 2, width: 1, height: h).fill()
+            }
+        }
+
         // The In–Out selection, behind the edits.
         if let a = markIn ?? markOut {
             let b = markOut ?? markIn ?? a
@@ -63,7 +83,7 @@ import AppKit
         for (i, e) in edits.enumerated() {
             let r = rect(e.start, e.end)
             let bar = NSBezierPath(roundedRect: r, xRadius: 3, yRadius: 3)
-            let color = e.isCut ? Retro.recRed : Retro.teal
+            let color = e.isCut ? Retro.recRed : e.isMute ? Self.violet : Retro.teal
             Retro.color(color, alpha: alpha * (i == selected ? 1 : 0.75)).setFill()
             bar.fill()
             if e.isCut {

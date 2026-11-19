@@ -4,23 +4,29 @@ import Foundation
 // so the event track, zoom sections and effects never move; `EditTimeline` maps between source time and the time in
 // the exported video (output time) when exporting and while previewing.
 
-/// A range of the recording that is cut out (`speed` 0) or played faster.
+/// A range of the recording that is cut out (`speed` 0), muted (`speed` 1, #385) or played faster.
 struct TimelineEdit: Codable, Equatable {
     var start: Double
     var end: Double
-    /// 0 cuts the range; 2, 4 or 8 speeds it up.
+    /// 0 cuts the range; 1 plays it at normal speed without sound; 2, 4 or 8 speeds it up.
     var speed: Double
+
+    static let mute = 1.0
 
     static let speeds: [Double] = [2, 4, 8]
     /// Shorter edits are dropped.
     static let minLength = 0.05
 
     var isCut: Bool { speed == 0 }
+    var isMute: Bool { speed == Self.mute }
     var length: Double { end - start }
 
     func contains(_ t: Double) -> Bool { t >= start && t < end }
 
-    var label: String { isCut ? "Cut" : "\(Int(speed))×" }
+    var label: String { isCut ? "Cut" : isMute ? "Mute" : "\(Int(speed))×" }
+
+    /// What it is called in Undo and the Remove button's name.
+    var kind: String { isCut ? "Cut" : isMute ? "Mute" : "Speed Change" }
 }
 
 /// The recording's timeline with its edits applied: which source time plays at each output time, and back.
@@ -30,6 +36,8 @@ struct EditTimeline: Equatable {
         var start: Double, end: Double, speed: Double
         /// Where it starts in the output.
         var outputStart: Double
+        /// Played without sound.
+        var muted = false
         var outputLength: Double { speed > 0 ? (end - start) / speed : 0 }
     }
 
@@ -42,22 +50,25 @@ struct EditTimeline: Equatable {
         self.edits = Self.tidy(edits, duration: duration)
         var segments: [Segment] = []
         var t = 0.0, out = 0.0
-        func add(_ end: Double, _ speed: Double) {
+        func add(_ end: Double, _ speed: Double, muted: Bool = false) {
             guard end > t else { return }
-            let s = Segment(start: t, end: end, speed: speed, outputStart: out)
+            let s = Segment(start: t, end: end, speed: speed, outputStart: out, muted: muted)
             segments.append(s)
             out += s.outputLength
             t = end
         }
         for e in self.edits {
             add(e.start, 1)
-            add(e.end, e.speed)
+            add(e.end, e.speed, muted: e.isMute)
         }
         add(self.duration, 1)
         self.segments = segments
     }
 
     var isEmpty: Bool { edits.isEmpty }
+
+    /// Whether any edit changes which frames play (a cut or a speed change); mutes only change the sound.
+    var changesTime: Bool { edits.contains { !$0.isMute } }
 
     var outputDuration: Double { segments.last.map { $0.outputStart + $0.outputLength } ?? 0 }
 
@@ -87,7 +98,7 @@ struct EditTimeline: Equatable {
         for var e in edits {
             e.start = max(0, e.start)
             e.end = min(duration, e.end)
-            if e.speed != 0 { e.speed = TimelineEdit.speeds.min { abs($0 - e.speed) < abs($1 - e.speed) } ?? 2 }
+            if e.speed != 0, e.speed != TimelineEdit.mute { e.speed = TimelineEdit.speeds.min { abs($0 - e.speed) < abs($1 - e.speed) } ?? 2 }
             guard e.end - e.start >= TimelineEdit.minLength else { continue }
             result = adding(e, to: result)
         }
@@ -114,15 +125,15 @@ struct EditTimeline: Equatable {
         return result.sorted { $0.start < $1.start }
     }
 
-    /// Lays `source` (samples of the recording at `sampleRate`) out on the output timeline: cut ranges are left out
-    /// and sped-up ranges are silent (their sound would be a chipmunk), with a short fade at every join so it doesn't
-    /// click.
+    /// Lays `source` (samples of the recording at `sampleRate`) out on the output timeline: cut ranges are left out,
+    /// muted and sped-up ranges are silent (a sped-up range's sound would be a chipmunk), with a short fade at every
+    /// join so it doesn't click.
     func remap(_ source: [Float], sampleRate: Double) -> [Float] {
         guard !isEmpty else { return source }
         let frames = Int((outputDuration * sampleRate).rounded())
         var out = [Float](repeating: 0, count: frames)
         let fade = max(1, Int(0.01 * sampleRate))
-        for s in segments where s.speed == 1 {
+        for s in segments where s.speed == 1 && !s.muted {
             let from = Int((s.start * sampleRate).rounded()), to = min(source.count, Int((s.end * sampleRate).rounded()))
             let at = Int((s.outputStart * sampleRate).rounded())
             guard to > from else { continue }
