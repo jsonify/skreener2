@@ -24,20 +24,26 @@ enum AudioFinisher {
         return Array(repeating: .mixed, count: trackCount)
     }
 
-    /// Rewrites `url` with its audio cleaned up as `settings` say. `sources` says what each audio track holds.
+    /// Rewrites `url` with its audio cleaned up as `settings` say. `sources` says what each audio track holds. With
+    /// `edits` (#381) the audio, still on the source timeline, is laid out on the edited one first (cuts left out,
+    /// sped-up ranges silent).
     @discardableResult
-    static func finish(_ url: URL, sources known: [AudioSource]?, settings: AudioSettings) async throws -> Outcome {
+    static func finish(_ url: URL, sources known: [AudioSource]?, settings: AudioSettings,
+                       edits: EditTimeline? = nil) async throws -> Outcome {
+        let timeline = edits.flatMap { $0.isEmpty ? nil : $0 }
         let asset = AVURLAsset(url: url)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard !audioTracks.isEmpty else { return Outcome() }
-        guard !settings.isNeutral else {
+        guard !settings.isNeutral || timeline != nil else {
             try await AudioMixer.mixAudioTracks(of: url)
             return Outcome()
         }
         let kinds = Self.sources(known, trackCount: audioTracks.count)
         let duration = try await asset.load(.duration)
-        let frames = max(0, Int((duration.seconds * sampleRate).rounded(.up)))
-        guard frames > 0 else { return Outcome() }
+        let sourceFrames = max(0, Int((duration.seconds * sampleRate).rounded(.up)))
+        let frames = timeline.map { Int(($0.outputDuration * sampleRate).rounded()) } ?? sourceFrames
+        guard sourceFrames > 0, frames > 0 else { return Outcome() }
+        func laidOut(_ x: [Float]) -> [Float] { timeline?.remap(x, sampleRate: sampleRate) ?? x }
 
         var outcome = Outcome()
         var mono: [(samples: [Float], gain: Float)] = []
@@ -45,13 +51,14 @@ enum AudioFinisher {
         let chain = VoiceChain(preset: settings.preset, noiseRemoval: settings.noiseRemoval, sampleRate: sampleRate)
         for (track, source) in zip(audioTracks, kinds) {
             try Task.checkCancellation()
-            let channels = try decode(track, of: asset, frames: frames)
+            let channels = try decode(track, of: asset, frames: sourceFrames)
             switch source {
             case .system:
-                stereo.append((channels, Float(settings.systemVolume)))
+                stereo.append((channels.map(laidOut), Float(settings.systemVolume)))
             case .microphone, .mixed:
-                var voice = [Float](repeating: 0, count: frames)
-                for i in 0..<frames { voice[i] = (channels[0][i] + channels[1][i]) / 2 }
+                var voice = [Float](repeating: 0, count: sourceFrames)
+                for i in 0..<sourceFrames { voice[i] = (channels[0][i] + channels[1][i]) / 2 }
+                voice = laidOut(voice)
                 if settings.noiseRemoval == .high {
                     do { voice = try VoiceIsolation.process(voice, sampleRate: sampleRate) } catch {
                         NSLog("Voice Isolation couldn't run, using the noise gate only: \(error)")

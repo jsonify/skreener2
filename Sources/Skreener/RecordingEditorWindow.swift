@@ -114,6 +114,23 @@ import SkreenerCore
     /// While a section is dragged: the sections before the drag, and what the drag is called for Undo.
     private var zoomDrag: (before: [ZoomSection], name: String)?
 
+    // Cuts and speed (#381)
+    private let editTrack = EditTrackView()
+    private let markInButton = RetroUI.key("Set In")
+    private let markOutButton = RetroUI.key("Set Out")
+    private let clearMarksButton = RetroUI.key("Clear")
+    private let cutButton = RetroUI.key("Cut")
+    private let speedPopup = RetroUI.stepper(tip: "How much faster the In–Out range plays", target: nil, action: nil)
+    private let speedButton = RetroUI.key("Speed Up")
+    private let idleButton = RetroUI.key("Speed Up Idle")
+    private let removeEditButton = RetroUI.key("Remove")
+    private let editHint = RetroUI.hint(wraps: true)
+    private var markIn: Double?
+    private var markOut: Double?
+    /// The selected cut or speed change (an index into `settings.edits`).
+    private var selectedEdit: Int?
+    private var timeline: EditTimeline { EditTimeline(edits: settings.edits, duration: duration) }
+
     // Audio (#385)
     private let presetPopup = RetroUI.stepper(tip: "What is done to your voice when exporting", target: nil, action: nil)
     private let noisePopup = RetroUI.stepper(tip: "How much background noise is taken out of the microphone", target: nil,
@@ -182,6 +199,7 @@ import SkreenerCore
         window.onEscape = { [weak self] in self?.window.performClose(nil) }
         window.onSpace = { [weak self] in self?.togglePlay() }
         window.onUndo = { [weak self] redo in self?.undoKey(redo: redo) }
+        window.onMark = { [weak self] isIn in self?.mark(isIn) }
         build()
         refreshControls()
         window.center()
@@ -210,11 +228,14 @@ import SkreenerCore
             self.duration = seconds.isFinite ? max(seconds, 0) : 0
             self.scrubber.maxValue = max(self.duration, 0.01)
             self.zoomTrack.duration = self.duration
+            self.editTrack.duration = self.duration
             // The zoom track's time scale lines up with the scrubber's track, which is inset by half its knob.
             if let cell = self.scrubber.cell as? NSSliderCell {
                 self.zoomTrack.inset = cell.knobRect(flipped: self.scrubber.isFlipped).width / 2
+                self.editTrack.inset = self.zoomTrack.inset
             }
             self.generateZoomIfNeeded()
+            self.refreshEditControls()
             self.refreshZoomControls()
             self.refreshTime()
             self.requestFrame()
@@ -249,7 +270,7 @@ import SkreenerCore
 
         // The inspector, scrolling when the window is too short for it.
         let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom()
-                                    + [RetroGroove()] + buildAudio())
+                                    + [RetroGroove()] + buildEdits() + [RetroGroove()] + buildAudio())
         inspector.orientation = .vertical
         inspector.alignment = .leading
         inspector.spacing = 8
@@ -300,7 +321,8 @@ import SkreenerCore
         bar.spacing = 10
         bar.alignment = .centerY
 
-        [well, transport, zoomTrack, inspectorScroll, bar].forEach {
+        setUpEditTrack()
+        [well, transport, zoomTrack, editTrack, inspectorScroll, bar].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview($0)
         }
@@ -320,11 +342,15 @@ import SkreenerCore
             zoomTrack.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor),
             zoomTrack.trailingAnchor.constraint(equalTo: scrubber.trailingAnchor),
             zoomTrack.heightAnchor.constraint(equalToConstant: 26),
+            editTrack.topAnchor.constraint(equalTo: zoomTrack.bottomAnchor, constant: 4),
+            editTrack.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor),
+            editTrack.trailingAnchor.constraint(equalTo: scrubber.trailingAnchor),
+            editTrack.heightAnchor.constraint(equalToConstant: 22),
             inspectorScroll.topAnchor.constraint(equalTo: top, constant: 10),
             inspectorScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
             inspectorScroll.widthAnchor.constraint(equalToConstant: 306),
             inspectorScroll.bottomAnchor.constraint(equalTo: bar.topAnchor, constant: -10),
-            bar.topAnchor.constraint(equalTo: zoomTrack.bottomAnchor, constant: 12),
+            bar.topAnchor.constraint(equalTo: editTrack.bottomAnchor, constant: 12),
             bar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             bar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
             bar.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
@@ -466,6 +492,154 @@ import SkreenerCore
 
     private static func levelTag(_ level: Double) -> Int { Int((level * 100).rounded()) }
 
+    private func buildEdits() -> [NSView] {
+        for (button, tip, action) in [
+            (markInButton, "Start the range at the playhead (I)", #selector(markInPressed)),
+            (markOutButton, "End the range at the playhead (O)", #selector(markOutPressed)),
+            (clearMarksButton, "Clear the In and Out marks", #selector(clearMarks)),
+            (cutButton, "Leave the In–Out range out of the video", #selector(cutRange)),
+            (speedButton, "Play the In–Out range faster (its sound is muted)", #selector(speedUpRange)),
+            (idleButton, "Speed up every stretch of 3 seconds or more where nothing happens: no pointer movement, clicks or keys",
+             #selector(speedUpIdle)),
+            (removeEditButton, "Remove the selected cut or speed change (Delete)", #selector(removeSelectedEdit)),
+        ] {
+            button.toolTip = tip
+            button.target = self
+            button.action = action
+        }
+        for speed in TimelineEdit.speeds {
+            speedPopup.addItem(withTitle: "\(Int(speed))×")
+            speedPopup.lastItem?.tag = Int(speed)
+        }
+        speedPopup.selectItem(withTag: 4)
+        editHint.preferredMaxLayoutWidth = 290
+        return [
+            header("Cut & Speed"),
+            row("Range", [markInButton, markOutButton, clearMarksButton]),
+            row("", [cutButton, speedPopup, speedButton]),
+            row("", [idleButton, removeEditButton]),
+            editHint,
+        ]
+    }
+
+    private func setUpEditTrack() {
+        editTrack.onSelect = { [weak self] index in
+            self?.selectedEdit = index
+            self?.refreshEditControls()
+        }
+        editTrack.onDelete = { [weak self] in self?.removeSelectedEdit() }
+    }
+
+    private func refreshEditControls() {
+        let exporting = exportTask != nil
+        if let i = selectedEdit, !settings.edits.indices.contains(i) { selectedEdit = nil }
+        editTrack.edits = settings.edits
+        editTrack.selected = selectedEdit
+        editTrack.markIn = markIn
+        editTrack.markOut = markOut
+        editTrack.isEnabled = !exporting
+        let ready = !exporting && duration > 0
+        [markInButton, markOutButton].forEach { $0.isEnabled = ready }
+        clearMarksButton.isEnabled = ready && (markIn != nil || markOut != nil)
+        let range = markedRange
+        cutButton.isEnabled = ready && range != nil
+        speedPopup.isEnabled = ready
+        speedButton.isEnabled = ready && range != nil
+        idleButton.isEnabled = ready && !events.cursor.isEmpty
+        removeEditButton.isEnabled = ready && selectedEdit != nil
+        var lines: [String] = []
+        if let range {
+            lines.append("In \(StudioLayout.timecode(range.start)) – Out \(StudioLayout.timecode(range.end)): Cut it or Speed it up.")
+        } else if markIn != nil || markOut != nil {
+            lines.append("Set the other end of the range too (I and O mark at the playhead).")
+        } else {
+            lines.append("Set In and Out at the playhead (I, O), then Cut the range or Speed it up.")
+        }
+        let t = timeline
+        if !t.isEmpty {
+            lines.append("Exported length \(StudioLayout.timecode(t.outputDuration)) of \(StudioLayout.timecode(duration)).")
+        }
+        editHint.stringValue = lines.joined(separator: " ")
+        window.isDocumentEdited = settings != saved
+    }
+
+    /// The In–Out range, when both are set and apart.
+    private var markedRange: (start: Double, end: Double)? {
+        guard let a = markIn, let b = markOut, abs(b - a) >= TimelineEdit.minLength else { return nil }
+        return (min(a, b), max(a, b))
+    }
+
+    private func mark(_ isIn: Bool) {
+        guard exportTask == nil, duration > 0 else { return }
+        if isIn { markIn = time } else { markOut = time }
+        refreshEditControls()
+    }
+
+    @objc private func markInPressed() { mark(true) }
+    @objc private func markOutPressed() { mark(false) }
+
+    @objc private func clearMarks() {
+        markIn = nil; markOut = nil
+        refreshEditControls()
+    }
+
+    private func setEdits(_ edits: [TimelineEdit], name: String) {
+        let before = settings.edits
+        settings.edits = EditTimeline.tidy(edits, duration: duration)
+        guard before != settings.edits else { return }
+        if let undo = window.undoManager {
+            undo.registerUndo(withTarget: self, selector: #selector(restoreEdits(_:)), object: EditUndoStep(before, name: name))
+            undo.setActionName(name)
+        }
+        refreshEditControls()
+    }
+
+    @objc private func restoreEdits(_ step: EditUndoStep) {
+        let current = settings.edits
+        if let undo = window.undoManager {
+            undo.registerUndo(withTarget: self, selector: #selector(restoreEdits(_:)), object: EditUndoStep(current, name: step.name))
+            undo.setActionName(step.name)
+        }
+        selectedEdit = nil
+        settings.edits = step.edits
+        refreshEditControls()
+    }
+
+    private func addEdit(speed: Double, name: String) {
+        guard let range = markedRange else { return }
+        setEdits(EditTimeline.adding(TimelineEdit(start: range.start, end: range.end, speed: speed), to: settings.edits), name: name)
+        markIn = nil; markOut = nil
+        selectedEdit = settings.edits.firstIndex { $0.start == range.start && $0.speed == speed }
+        refreshEditControls()
+    }
+
+    @objc private func cutRange() { addEdit(speed: 0, name: "Cut") }
+
+    @objc private func speedUpRange() {
+        let speed = Double(speedPopup.selectedTag())
+        addEdit(speed: TimelineEdit.speeds.contains(speed) ? speed : 4, name: "Speed Up")
+    }
+
+    @objc private func speedUpIdle() {
+        let speed = Double(speedPopup.selectedTag())
+        let idle = EditTimeline.idleRanges(events, duration: duration)
+        guard !idle.isEmpty else {
+            editHint.stringValue = "No stretches of 3 seconds or more without pointer movement, clicks or keys."
+            return
+        }
+        // Existing edits win where they overlap, so a cut stays a cut.
+        let added = idle.map { TimelineEdit(start: $0.start, end: $0.end, speed: TimelineEdit.speeds.contains(speed) ? speed : 4) }
+        setEdits(added + settings.edits, name: "Speed Up Idle")
+    }
+
+    @objc private func removeSelectedEdit() {
+        guard let i = selectedEdit, settings.edits.indices.contains(i) else { return }
+        var edits = settings.edits
+        edits.remove(at: i)
+        selectedEdit = nil
+        setEdits(edits, name: "Remove \(settings.edits[i].isCut ? "Cut" : "Speed Change")")
+    }
+
     private func buildAudio() -> [NSView] {
         setUp(presetPopup, AudioPreset.allCases.enumerated().map { ($1.name, $0) }, action: #selector(audioOptionPicked(_:)))
         setUp(noisePopup, NoiseRemoval.allCases.enumerated().map { ($1.name, $0) }, action: #selector(audioOptionPicked(_:)))
@@ -555,6 +729,7 @@ import SkreenerCore
         [keySizePopup, keyPositionPopup].forEach { $0.isEnabled = e.keystrokes && hasKeys && !exporting }
 
         refreshAudioControls()
+        refreshEditControls()
         refreshZoomControls()
     }
 
@@ -972,6 +1147,7 @@ import SkreenerCore
         timeField.stringValue = "\(StudioLayout.timecode(time)) / \(StudioLayout.timecode(duration))"
         scrubber.doubleValue = time
         zoomTrack.time = time
+        editTrack.time = time
     }
 
     @objc private func togglePlay() {
@@ -1008,9 +1184,27 @@ import SkreenerCore
             source = StudioCompositor.image(of: buffer) ?? source
         }
         if now.isNumeric { time = min(max(now.seconds, 0), duration) }
+        followEdits()
         if player.rate == 0, time >= duration - 0.05 { setPlaying(false) }
         refreshTime()
         redraw()
+    }
+
+    /// While playing, the preview plays the edited video (#381): it jumps over cuts and plays sped-up ranges faster.
+    private func followEdits() {
+        guard playing, !settings.edits.isEmpty else {
+            if playing, player.rate != 0, player.rate != 1 { player.rate = 1 }
+            return
+        }
+        let edit = timeline.edit(at: time)
+        if let edit, edit.isCut {
+            time = min(edit.end, duration)
+            player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            if time >= duration - 0.05 { setPlaying(false) }
+            return
+        }
+        let rate = Float(edit?.speed ?? 1)
+        if player.rate != 0, player.rate != rate { player.rate = rate }
     }
 
     @objc private func scrubbed() {
@@ -1035,6 +1229,7 @@ import SkreenerCore
         let box = ExportProgress()
         exportProgress = box
         let sources = project.audioTracks
+        let edits = timeline
         exportTask = Task { [weak self] in
             var failure: Error?
             var outcome = AudioFinisher.Outcome()
@@ -1044,8 +1239,9 @@ import SkreenerCore
                 let dir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
                 defer { try? fm.removeItem(at: dir) }
                 let made = dir.appendingPathComponent(target.lastPathComponent)
-                if full.changesTheVideo {
-                    try await RecordingRenderer.render(folder: folder, fps: fps, compositor: full, to: made) { box.set($0 * 0.85) }
+                if full.changesTheVideo || !edits.isEmpty {
+                    try await RecordingRenderer.render(folder: folder, fps: fps, compositor: full, to: made,
+                                                       edits: edits) { box.set($0 * 0.85) }
                 } else {
                     // Nothing to draw: the clean video is the finished one.
                     try fm.copyItem(at: folder.appendingPathComponent(RecordingProject.videoFile), to: made)
@@ -1053,7 +1249,7 @@ import SkreenerCore
                 try Task.checkCancellation()
                 box.set(0.9)
                 // The voice cleaned up, the volumes set and the tracks mixed into one (#385).
-                outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio)
+                outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits)
                 try Task.checkCancellation()
                 try Self.replace(target, with: made)
             } catch {
@@ -1189,6 +1385,8 @@ private final class EditorPanel: NSWindow {
     var onSpace: (() -> Void)?
     /// ⌘Z (false) and ⇧⌘Z (true).
     var onUndo: ((Bool) -> Void)?
+    /// I (true) and O (false): set the In or Out mark at the playhead (#381).
+    var onMark: ((Bool) -> Void)?
 
     override func cancelOperation(_ sender: Any?) { onEscape?() }
 
@@ -1203,8 +1401,11 @@ private final class EditorPanel: NSWindow {
     }
 
     override func keyDown(with event: NSEvent) {
+        let plain = event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty
         if event.keyCode == 49, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
             onSpace?()
+        } else if plain, let key = event.charactersIgnoringModifiers?.lowercased(), key == "i" || key == "o", let onMark {
+            onMark(key == "i")
         } else {
             super.keyDown(with: event)
         }
@@ -1212,6 +1413,16 @@ private final class EditorPanel: NSWindow {
 }
 
 /// The undo step for zoom section edits: the sections to go back to.
+/// The undo step for cuts and speed changes: the edits to go back to.
+private final class EditUndoStep: NSObject {
+    let edits: [TimelineEdit]
+    let name: String
+    init(_ edits: [TimelineEdit], name: String) {
+        self.edits = edits
+        self.name = name
+    }
+}
+
 private final class ZoomUndoStep: NSObject {
     let sections: [ZoomSection]
     let name: String
