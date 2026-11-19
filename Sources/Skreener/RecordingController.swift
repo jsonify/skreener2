@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 
 /// Runs one screen recording at a time: the optional countdown, the frame around the recorded area, the
 /// dimming outside it, the HUD (elapsed time, pause/resume, stop), the click/keystroke effects, and the Quick
@@ -145,7 +146,12 @@ final class RecordingController {
         let bubble = CameraBubble(session: cam.session, area: area)
         bubble.show()
         let file = editing.map { $0.folder.appendingPathComponent(RecordingProject.cameraFile) }
-        cam.start(recordingTo: file, time: file == nil ? nil : { [weak r] host in r?.videoTime(hostTime: host) })
+        // Recorded for the editor: timed on the screen video's clock.
+        var time: (@Sendable (CMTime) -> Double?)?
+        if file != nil {
+            time = { [weak r] host in r?.videoTime(hostTime: host) }
+        }
+        cam.start(recordingTo: file, time: time)
         camera = cam
         cameraBubble = bubble
     }
@@ -227,13 +233,14 @@ final class RecordingController {
         switch result {
         case .success(let url):
             if let session, let events {
-                var session = session
-                session.project.audioTracks = sources
+                var project = session.project
+                project.audioTracks = sources
+                let folder = session.folder, output = session.output
                 Task { @MainActor [weak self] in
-                    var done = session
+                    var done = project
                     // The camera's file is finished first, so the finished MP4 can show it.
-                    if let cam, await cam.stop() { done.project.camera = placement }
-                    self?.finishEditing(done, events: events)
+                    if let cam, await cam.stop() { done.camera = placement }
+                    self?.finishEditing(folder: folder, project: done, output: output, events: events)
                 }
                 return
             }
@@ -277,8 +284,7 @@ final class RecordingController {
     /// Record for editing, after stopping: saves the project, then makes the finished MP4 (the clean video with the
     /// effects drawn back in) where the recording would have been saved, and goes on as with any recording. If drawing
     /// fails, the clean video is saved instead and the project is kept.
-    private func finishEditing(_ session: EditingSession, events: RecordingEvents) {
-        let folder = session.folder, project = session.project, output = session.output
+    private func finishEditing(folder: URL, project: RecordingProject, output: URL, events: RecordingEvents) {
         do {
             try events.encoded().write(to: folder.appendingPathComponent(RecordingProject.eventsFile))
             try project.encoded().write(to: folder.appendingPathComponent(RecordingProject.projectFile))

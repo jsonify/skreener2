@@ -321,15 +321,13 @@ final class CameraRecorder: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             self.time = time
         }
         if url != nil { output.setSampleBufferDelegate(self, queue: queue) }
-        let session = session
-        DispatchQueue.global(qos: .userInitiated).async { session.startRunning() }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in session.startRunning() }
     }
 
     /// Stops the camera and finishes the file; true when a file with pictures was written.
     func stop() async -> Bool {
-        let session = session
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
                 session.stopRunning()
                 done.resume()
             }
