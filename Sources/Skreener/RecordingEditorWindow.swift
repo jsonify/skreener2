@@ -208,6 +208,15 @@ import SkreenerCore
     /// A drag in the preview: the callout, and either where it was grabbed (video pixels from its anchor) or its handle.
     private var previewDrag: (id: UUID, grab: CGPoint?)?
 
+    // Joining clips (#384).
+    private let sequenceList = NSStackView()
+    private let addTitleButton = RetroUI.key("+ Title")
+    private let addPictureButton = RetroUI.key("+ Picture…")
+    private let addVideoButton = RetroUI.key("+ Video…")
+    private let sequenceHint = RetroUI.hint(wraps: true)
+    /// The sequence the list shows, so it is only rebuilt when the sequence changes.
+    private var listedSequence: [SequenceClip]?
+
     // Export bar
     private let exportButton = RetroUI.key("Export", variant: .orange)
     private let cancelButton = RetroUI.key("Cancel")
@@ -346,7 +355,8 @@ import SkreenerCore
         // The inspector, scrolling when the window is too short for it.
         let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom()
                                     + [RetroGroove()] + buildEdits() + [RetroGroove()] + buildAudio()
-                                    + [RetroGroove()] + buildCaptions() + [RetroGroove()] + buildCallouts())
+                                    + [RetroGroove()] + buildCaptions() + [RetroGroove()] + buildCallouts()
+                                    + [RetroGroove()] + buildSequence())
         inspector.orientation = .vertical
         inspector.alignment = .leading
         inspector.spacing = 8
@@ -907,6 +917,7 @@ import SkreenerCore
         refreshZoomControls()
         refreshCaptionControls()
         refreshCalloutControls()
+        refreshSequenceControls()
     }
 
     @objc private func exportPresetPicked() {
@@ -1110,6 +1121,228 @@ import SkreenerCore
         var captions = settings.captions
         captions.remove(at: i)
         setCaptions(captions, name: "Delete Caption")
+    }
+
+    // MARK: Sequence
+
+    private func buildSequence() -> [NSView] {
+        for (button, tip, action) in [
+            (addTitleButton, "Add a title card: text on the background, before or between your clips", #selector(addTitleCard)),
+            (addPictureButton, "Add a picture, such as an annotated screenshot, shown for a few seconds", #selector(addPicture)),
+            (addVideoButton, "Add another video, such as another recording you finished in its own editor", #selector(addVideo)),
+        ] {
+            button.toolTip = tip
+            button.target = self
+            button.action = action
+        }
+        sequenceList.orientation = .vertical
+        sequenceList.alignment = .leading
+        sequenceList.spacing = 4
+        sequenceHint.preferredMaxLayoutWidth = 290
+        return [
+            header("Sequence"),
+            sequenceList,
+            row("Add", [addTitleButton, addPictureButton]),
+            row("", [addVideoButton]),
+            sequenceHint,
+        ]
+    }
+
+    private func refreshSequenceControls() {
+        let exporting = exportTask != nil
+        [addTitleButton, addPictureButton, addVideoButton].forEach { $0.isEnabled = !exporting }
+        let clips = settings.sequence
+        if listedSequence != clips {
+            listedSequence = clips
+            sequenceList.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            for (i, c) in clips.enumerated() { sequenceRows(i, c, count: clips.count).forEach(sequenceList.addArrangedSubview) }
+        }
+        sequenceList.arrangedSubviews.forEach { row in
+            (row as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSControl }.forEach { $0.isEnabled = !exporting }
+        }
+        if !ClipSequence.joins(clips) {
+            sequenceHint.stringValue = "Export makes this recording alone. Add title cards, pictures or other videos to "
+                + "join them into one video, with crossfades."
+        } else {
+            let fixed = clips.filter(\.hasDuration).reduce(0) { $0 + $1.duration }
+            sequenceHint.stringValue = "\(clips.count) clips, joined into one video when you export. Title cards and "
+                + "pictures add \(ClipSequence.lengthText(fixed)) and use this recording's background and size."
+        }
+    }
+
+    /// The list's rows for clip `i`: its name with move, edit and remove keys, then its length and crossfade.
+    private func sequenceRows(_ i: Int, _ c: SequenceClip, count: Int) -> [NSView] {
+        let name = RetroLabel(text: "\(i + 1). \(c.name)", tone: .ink, size: 12)
+        name.lineBreakMode = .byTruncatingMiddle
+        name.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        name.widthAnchor.constraint(lessThanOrEqualToConstant: 170).isActive = true
+        var keys: [NSView] = [name]
+        func key(_ symbol: String, _ tip: String, _ action: Selector, enabled: Bool = true) {
+            let b = RetroUI.key(symbol: symbol, tip: tip, target: self, action: action)
+            b.tag = i
+            b.isEnabled = enabled
+            keys.append(b)
+        }
+        if c.kind == .title { key("pencil", "Change the title card's text", #selector(editTitleCard(_:))) }
+        key("arrow.up", "Move earlier", #selector(moveClipUp(_:)), enabled: i > 0)
+        key("arrow.down", "Move later", #selector(moveClipDown(_:)), enabled: i + 1 < count)
+        if c.kind != .recording { key("xmark", "Remove from the sequence", #selector(removeClip(_:))) }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let top = NSStackView(views: keys + [spacer])
+        top.spacing = 4
+        top.alignment = .centerY
+        var details: [NSView] = []
+        if c.hasDuration {
+            let length = RetroUI.stepper(tip: "How long it shows", target: nil, action: nil)
+            let lengths = Set(ClipSequence.stillLengths + [c.duration]).sorted()
+            setUp(length, lengths.enumerated().map { (ClipSequence.lengthText($1), $0) }, action: #selector(clipLengthPicked(_:)))
+            length.tag = i
+            length.selectItem(withTag: lengths.firstIndex(of: c.duration) ?? 0)
+            details.append(length)
+        }
+        if i > 0 {
+            let fade = RetroSwitch()
+            fade.setAccessibilityLabel("Crossfade into clip \(i + 1)")
+            fade.toolTip = "Crossfade from the clip before into this one; off, it cuts"
+            fade.state = c.crossfade ? .on : .off
+            fade.tag = i
+            fade.target = self
+            fade.action = #selector(clipCrossfadeToggled(_:))
+            details += [RetroLabel(text: "Crossfade", tone: .soft, size: 11), fade]
+        }
+        guard !details.isEmpty else { return [top] }
+        let spacer2 = NSView()
+        spacer2.setContentHuggingPriority(.init(1), for: .horizontal)
+        let bottom = NSStackView(views: [NSView()] + details + [spacer2])
+        bottom.spacing = 6
+        bottom.alignment = .centerY
+        bottom.arrangedSubviews.first?.widthAnchor.constraint(equalToConstant: 14).isActive = true
+        return [top, bottom]
+    }
+
+    /// Replaces the sequence as one step Undo takes back, named `name`.
+    private func setSequence(_ clips: [SequenceClip], name: String) {
+        let before = settings.sequence
+        var tidied = ClipSequence.tidy(clips)
+        // Only the recording left: back to no sequence.
+        if !ClipSequence.joins(tidied) { tidied = [] }
+        settings.sequence = tidied
+        guard before != settings.sequence, let undo = window.undoManager else { refreshSequenceControls(); return }
+        undo.registerUndo(withTarget: self, selector: #selector(restoreSequence(_:)), object: SequenceUndoStep(before, name: name))
+        undo.setActionName(name)
+        refreshSequenceControls()
+    }
+
+    @objc private func restoreSequence(_ step: SequenceUndoStep) {
+        setSequence(step.sequence, name: step.name)
+    }
+
+    /// The sequence to add to: the current one, or just this recording.
+    private var sequenceToAddTo: [SequenceClip] {
+        settings.sequence.isEmpty ? [SequenceClip(kind: .recording)] : settings.sequence
+    }
+
+    @objc private func addTitleCard() {
+        guard let text = askForTitle(title: "", subtitle: "") else { return }
+        var clips = sequenceToAddTo
+        // The first title card usually opens the video.
+        let card = SequenceClip(kind: .title, title: text.title, subtitle: text.subtitle)
+        if clips.contains(where: { $0.kind == .title }) { clips.append(card) } else { clips.insert(card, at: 0) }
+        setSequence(clips, name: "Add Title Card")
+    }
+
+    @objc private func editTitleCard(_ sender: NSButton) {
+        let i = sender.tag
+        guard settings.sequence.indices.contains(i), settings.sequence[i].kind == .title else { return }
+        let c = settings.sequence[i]
+        guard let text = askForTitle(title: c.title, subtitle: c.subtitle) else { return }
+        var clips = settings.sequence
+        clips[i].title = text.title
+        clips[i].subtitle = text.subtitle
+        setSequence(clips, name: "Edit Title Card")
+    }
+
+    /// Asks for a title card's text; nil when cancelled.
+    private func askForTitle(title: String, subtitle: String) -> (title: String, subtitle: String)? {
+        let alert = NSAlert()
+        alert.messageText = "Title card"
+        alert.informativeText = "Shown on this recording's background. The second line is optional."
+        let titleField = NSTextField(string: title)
+        titleField.placeholderString = "Title"
+        let subtitleField = NSTextField(string: subtitle)
+        subtitleField.placeholderString = "Second line"
+        let stack = NSStackView(views: [titleField, subtitleField])
+        stack.orientation = .vertical
+        stack.spacing = 6
+        stack.frame = NSRect(x: 0, y: 0, width: 300, height: 54)
+        [titleField, subtitleField].forEach { $0.widthAnchor.constraint(equalToConstant: 300).isActive = true }
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = titleField
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let t = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let s = subtitleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty || !s.isEmpty else { return nil }
+        return (t, s)
+    }
+
+    @objc private func addPicture() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose pictures to show in the video, such as annotated screenshots."
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        setSequence(sequenceToAddTo + panel.urls.map { SequenceClip(kind: .still, path: $0.path) }, name: "Add Picture")
+    }
+
+    @objc private func addVideo() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose videos to join with this recording, such as other recordings you finished."
+        if let newest = RecordingProjectLookup.newestRecording() { panel.directoryURL = newest.deletingLastPathComponent() }
+        guard panel.runModal() == .OK else { return }
+        let mine = AutoFiling.current(file).standardizedFileURL.path
+        let picked = panel.urls.filter { $0.standardizedFileURL.path != mine }
+        guard !picked.isEmpty else { NSSound.beep(); return }
+        setSequence(sequenceToAddTo + picked.map { SequenceClip(kind: .video, path: $0.path) }, name: "Add Video")
+    }
+
+    @objc private func moveClipUp(_ sender: NSButton) { moveClip(sender.tag, by: -1) }
+    @objc private func moveClipDown(_ sender: NSButton) { moveClip(sender.tag, by: 1) }
+
+    private func moveClip(_ i: Int, by step: Int) {
+        var clips = settings.sequence
+        let j = i + step
+        guard clips.indices.contains(i), clips.indices.contains(j) else { return }
+        clips.swapAt(i, j)
+        setSequence(clips, name: "Move Clip")
+    }
+
+    @objc private func removeClip(_ sender: NSButton) {
+        var clips = settings.sequence
+        guard clips.indices.contains(sender.tag), clips[sender.tag].kind != .recording else { return }
+        clips.remove(at: sender.tag)
+        setSequence(clips, name: "Remove Clip")
+    }
+
+    @objc private func clipLengthPicked(_ popup: PillPopUp) {
+        var clips = settings.sequence
+        guard clips.indices.contains(popup.tag) else { return }
+        // The same choices the row was made with.
+        let lengths = Set(ClipSequence.stillLengths + [clips[popup.tag].duration]).sorted()
+        guard lengths.indices.contains(popup.selectedTag()) else { return }
+        clips[popup.tag].duration = lengths[popup.selectedTag()]
+        setSequence(clips, name: "Change Clip Length")
+    }
+
+    @objc private func clipCrossfadeToggled(_ sender: RetroSwitch) {
+        var clips = settings.sequence
+        guard clips.indices.contains(sender.tag) else { return }
+        clips[sender.tag].crossfade = sender.state == .on
+        setSequence(clips, name: sender.state == .on ? "Crossfade" : "Cut")
     }
 
     // MARK: Callouts
@@ -2007,8 +2240,22 @@ import SkreenerCore
         let sources = project.audioTracks
         let edits = timeline
         // The captions as an .srt next to the video (#386), on its edited timeline.
-        let srt = settings.captionsFile && !settings.captions.isEmpty && preset != .gif
-            ? Captions.srt(Captions.laidOut(settings.captions, on: edits)) : nil
+        let captionLines = settings.captionsFile && !settings.captions.isEmpty && preset != .gif
+            ? Captions.laidOut(settings.captions, on: edits) : nil
+        // The sequence's title cards and pictures (#384), drawn here with the background.
+        let sequence = ClipSequence.joins(settings.sequence) ? settings.sequence : []
+        var slates: [UUID: CGImage] = [:]
+        for c in sequence {
+            switch c.kind {
+            case .title: slates[c.id] = full.slateImage(title: c.title, subtitle: c.subtitle)
+            case .still:
+                if let picture = c.url.flatMap(NSImage.init(contentsOf:))?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    slates[c.id] = full.stillImage(picture)
+                }
+            case .recording, .video: break
+            }
+        }
+        let canvas = full.size
         exportTask = Task { [weak self] in
             var failure: Error?
             var outcome = AudioFinisher.Outcome()
@@ -2027,18 +2274,51 @@ import SkreenerCore
                 }
                 try Task.checkCancellation()
                 box.set(0.9)
+                if preset != .gif {
+                    // The voice cleaned up, the volumes set and the tracks mixed into one (#385). A GIF has no sound.
+                    outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits)
+                    try Task.checkCancellation()
+                }
+                // Joined with the rest of the sequence (#384).
+                var finished = made
+                var captionOffset = 0.0
+                if !sequence.isEmpty {
+                    box.set(0.93)
+                    var clips: [URL] = []
+                    for (i, c) in sequence.enumerated() {
+                        switch c.kind {
+                        case .recording: clips.append(made)
+                        case .video:
+                            guard let url = c.url, fm.fileExists(atPath: url.path) else { throw SequenceJoiner.JoinError.missing(c.name) }
+                            clips.append(url)
+                        case .still, .title:
+                            guard let image = slates[c.id] else { throw SequenceJoiner.JoinError.missing(c.name) }
+                            let still = dir.appendingPathComponent("Clip \(i + 1).mp4")
+                            try await SequenceJoiner.writeStill(image, seconds: c.duration, fps: fps, to: still)
+                            clips.append(still)
+                        }
+                        try Task.checkCancellation()
+                    }
+                    var durations: [Double] = []
+                    for url in clips { durations.append(try await AVURLAsset(url: url).load(.duration).seconds) }
+                    let placements = ClipSequence.layout(durations: durations, crossfades: sequence.map(\.crossfade))
+                    if let i = sequence.firstIndex(where: { $0.kind == .recording }) { captionOffset = placements[i].start }
+                    finished = dir.appendingPathComponent("Joined.mp4")
+                    try await SequenceJoiner.join(clips, crossfades: sequence.map(\.crossfade), canvas: canvas, fps: fps,
+                                                  to: finished)
+                    try Task.checkCancellation()
+                }
                 if preset == .gif {
-                    // A GIF has no sound (#386).
                     let gif = dir.appendingPathComponent(target.lastPathComponent)
-                    try await GIFExporter.export(made, to: gif)
+                    try await GIFExporter.export(finished, to: gif)
                     try Task.checkCancellation()
                     try Self.replace(target, with: gif)
                 } else {
-                    // The voice cleaned up, the volumes set and the tracks mixed into one (#385).
-                    outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits)
-                    try Task.checkCancellation()
-                    try Self.replace(target, with: made)
-                    if let srt { try srt.write(to: Captions.srtURL(for: target), atomically: true, encoding: .utf8) }
+                    try Self.replace(target, with: finished)
+                    if let captionLines {
+                        let shifted = captionLines.map { Caption(start: $0.start + captionOffset, end: $0.end + captionOffset, text: $0.text) }
+                        try Captions.srt(shifted).write(to: Captions.srtURL(for: target), atomically: true, encoding: .utf8)
+                    }
                 }
             } catch {
                 failure = error
@@ -2223,6 +2503,15 @@ private final class EditorPanel: NSWindow {
 
 /// The undo step for zoom section edits: the sections to go back to.
 /// The undo step for cuts and speed changes: the edits to go back to.
+private final class SequenceUndoStep: NSObject {
+    let sequence: [SequenceClip]
+    let name: String
+    init(_ sequence: [SequenceClip], name: String) {
+        self.sequence = sequence
+        self.name = name
+    }
+}
+
 private final class CalloutUndoStep: NSObject {
     let callouts: [Callout]
     let name: String
