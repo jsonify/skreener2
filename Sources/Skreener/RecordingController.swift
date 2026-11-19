@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 
 /// Runs one screen recording at a time: the optional countdown, the frame around the recorded area, the
 /// dimming outside it, the HUD (elapsed time, pause/resume, stop), the click/keystroke effects, and the Quick
@@ -28,8 +29,14 @@ final class RecordingController {
     var alsoRecorded: [CGWindowID] = [] {
         didSet { if alsoRecorded != oldValue { recorder?.include(recordedWindows) } }
     }
-    /// The Skreener windows in the video: with Record for editing the effects are drawn in afterwards instead.
-    private var recordedWindows: [CGWindowID] { (editing == nil ? effectsWindows : []) + alsoRecorded }
+    /// The camera (#25) and its bubble on screen, while the camera is on.
+    private var camera: CameraRecorder?
+    private var cameraBubble: CameraBubble?
+    /// The Skreener windows in the video: with Record for editing the effects and the camera are drawn in afterwards
+    /// instead.
+    private var recordedWindows: [CGWindowID] {
+        (editing == nil ? effectsWindows + (cameraBubble.map { [$0.windowID] } ?? []) : []) + alsoRecorded
+    }
 
     /// A Record for editing recording (#380): its project folder, what is known about it, the event log, and where
     /// the finished MP4 goes.
@@ -96,7 +103,6 @@ final class RecordingController {
             startEditing(r, folder: folder, output: output, screen: screen, rect: rect, options: &options)
         }
         effectsWindows = effects.panel.map { [CGWindowID($0.windowNumber)] } ?? []
-        let keep = recordedWindows
         if Preferences.recordShowControls {
             showHUD(near: rect ?? screen.frame, on: screen, fullscreen: rect == nil, options: options, gif: gif)
         }
@@ -106,7 +112,10 @@ final class RecordingController {
         if micMeter != nil {
             meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.updateMeter() }
         }
+        let wantsCamera = Preferences.recordCamera && !gif
         Task { @MainActor [weak self] in
+            if wantsCamera { await self?.startCamera(r, area: rect ?? screen.frame) }
+            guard let keep = self?.recordedWindows else { return }
             do {
                 try await r.start(screen: screen, rect: rect, options: options, including: keep)
                 self?.startedAt = Date()
@@ -117,6 +126,34 @@ final class RecordingController {
                 self?.tearDown()
             }
         }
+    }
+
+    /// Turns the camera on and shows its bubble in the corner of `area` (#25). With Record for editing it is also
+    /// recorded to the project, on the video's timeline; otherwise the bubble is in the video.
+    @MainActor private func startCamera(_ r: ScreenRecorder, area: CGRect) async {
+        guard await CameraRecorder.allowed() else {
+            Notifier.problem("Recording without the camera",
+                             detail: "Skreener isn't allowed to use the camera. Allow it in System Settings → Privacy & Security → Camera.")
+            return
+        }
+        // Stopped while asking.
+        guard recorder === r else { return }
+        let cam = CameraRecorder()
+        guard cam.configure() else {
+            Notifier.problem("Recording without the camera", detail: "No camera was found.")
+            return
+        }
+        let bubble = CameraBubble(session: cam.session, area: area)
+        bubble.show()
+        let file = editing.map { $0.folder.appendingPathComponent(RecordingProject.cameraFile) }
+        // Recorded for the editor: timed on the screen video's clock.
+        var time: (@Sendable (CMTime) -> Double?)?
+        if file != nil {
+            time = { [weak r] host in r?.videoTime(hostTime: host) }
+        }
+        cam.start(recordingTo: file, time: time)
+        camera = cam
+        cameraBubble = bubble
     }
 
     /// Record for editing: a clean capture (no cursor; the effects overlay stays on screen but out of the video) and
@@ -189,15 +226,25 @@ final class RecordingController {
         let events = session?.log.finish()
         let folder = projectFolder
         let sources = recorder?.audioSources
+        let cam = camera
+        let placement = cameraBubble.flatMap { bubble in session.map { bubble.placement(on: $0.project.area) } }
+        camera = nil
         tearDown()
         switch result {
         case .success(let url):
             if let session, let events {
-                var session = session
-                session.project.audioTracks = sources
-                finishEditing(session, events: events)
+                var project = session.project
+                project.audioTracks = sources
+                let folder = session.folder, output = session.output
+                Task { @MainActor [weak self] in
+                    var done = project
+                    // The camera's file is finished first, so the finished MP4 can show it.
+                    if let cam, await cam.stop() { done.camera = placement }
+                    self?.finishEditing(folder: folder, project: done, output: output, events: events)
+                }
                 return
             }
+            if let cam { Task { _ = await cam.stop() } }
             guard let gif else {
                 guard Preferences.compressRecordings else { delivered(url); return }
                 Task { @MainActor [weak self] in
@@ -217,6 +264,7 @@ final class RecordingController {
                 }
             }
         case .failure(let error):
+            if let cam { Task { _ = await cam.stop() } }
             NSLog("Recording failed: \(error)")
             Notifier.captureFailed(error, what: "Recording")
             if let folder { try? FileManager.default.removeItem(at: folder) }
@@ -236,21 +284,26 @@ final class RecordingController {
     /// Record for editing, after stopping: saves the project, then makes the finished MP4 (the clean video with the
     /// effects drawn back in) where the recording would have been saved, and goes on as with any recording. If drawing
     /// fails, the clean video is saved instead and the project is kept.
-    private func finishEditing(_ session: EditingSession, events: RecordingEvents) {
-        let folder = session.folder, project = session.project, output = session.output
+    private func finishEditing(folder: URL, project: RecordingProject, output: URL, events: RecordingEvents) {
         do {
             try events.encoded().write(to: folder.appendingPathComponent(RecordingProject.eventsFile))
             try project.encoded().write(to: folder.appendingPathComponent(RecordingProject.projectFile))
         } catch {
             NSLog("Couldn't save the recording project: \(error)")
         }
-        let draws = EffectsOverlay(project: project, events: events, folder: nil).drawsAnything
+        let withCamera = project.camera != nil
+        let draws = withCamera || EffectsOverlay(project: project, events: events, folder: nil).drawsAnything
         if draws { MessageHUD.show("Finishing recording…", symbol: "film", placement: .top) }
         Task { @MainActor [weak self] in
             let video = folder.appendingPathComponent(RecordingProject.videoFile)
             var problem: String?
             do {
-                if draws {
+                if withCamera, let feed = await CameraFeed.open(folder: folder) {
+                    // The camera goes where its bubble was; the editor can change that.
+                    let compositor = StudioCompositor(project: project, events: events, folder: folder,
+                                                      settings: StudioSettings(project: project), cameraFeed: feed)
+                    try await RecordingRenderer.render(folder: folder, fps: project.fps, compositor: compositor, to: output)
+                } else if draws {
                     try await RecordingRenderer.render(project: project, events: events, folder: folder, to: output)
                 } else {
                     try FileManager.default.copyItem(at: video, to: output)
@@ -321,6 +374,7 @@ final class RecordingController {
         hud?.orderOut(nil); hud = nil
         frame?.orderOut(nil); frame = nil
         dims.forEach { $0.orderOut(nil) }; dims.removeAll()
+        cameraBubble?.close()
         effects.stop()
     }
 
@@ -330,6 +384,10 @@ final class RecordingController {
         recorder = nil
         gifURL = nil
         effectsWindows = []
+        cameraBubble = nil
+        // A camera still on here belongs to a recording that never started or failed.
+        if let camera { Task { _ = await camera.stop() } }
+        camera = nil
         _ = editing?.log.finish()
         editing = nil
         projectFolder = nil

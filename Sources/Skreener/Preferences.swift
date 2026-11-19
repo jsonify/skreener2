@@ -452,6 +452,11 @@ enum Preferences {
         get { d.bool(forKey: "recordMicrophone") }
         set { d.set(newValue, forKey: "recordMicrophone") }
     }
+    /// Screen recordings: the camera in a bubble (#25); with Record for editing, recorded on its own for the editor.
+    static var recordCamera: Bool {
+        get { d.bool(forKey: "recordCamera") }
+        set { d.set(newValue, forKey: "recordCamera") }
+    }
     /// Screen recordings: the microphone's `AVCaptureDevice.uniqueID`; nil records the Mac's default input.
     static var recordMicrophoneDevice: String? {
         get { d.string(forKey: "recordMicrophoneDevice") }

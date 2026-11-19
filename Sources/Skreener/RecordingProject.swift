@@ -12,6 +12,8 @@ struct RecordingProject: Codable, Equatable {
     static let eventsFile = "events.json"
     static let projectFile = "project.json"
     static let cursorsFolder = "cursors"
+    /// The camera, recorded on its own (#25), when it was on.
+    static let cameraFile = "camera.mp4"
 
     var version = RecordingProject.currentVersion
     var created: Date
@@ -30,6 +32,8 @@ struct RecordingProject: Codable, Equatable {
     /// What each audio track of the clean video holds, in track order (#385): system audio and the microphone are kept
     /// apart so the editor can clean up the voice alone. Nil for recordings made before that (one mixed track).
     var audioTracks: [AudioSource]?
+    /// Where the camera bubble was when recording stopped, when the camera was recorded (`cameraFile`, #25).
+    var camera: CameraPlacement?
 
     var videoSize: CGSize { CGSize(width: videoWidth, height: videoHeight) }
     /// Video pixels per screen point.

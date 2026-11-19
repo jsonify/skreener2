@@ -182,13 +182,17 @@ enum SequenceJoiner {
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         }
         CVPixelBufferUnlockBaseAddress(pixels, [])
-        // The same picture once a second (so the video seeks well), and once more at the end.
+        // The same picture once a second (so the video seeks well), and once more a frame before the end: without it
+        // the encoder may end the video at its last picture's time, cutting the card short.
         let rate = Int32(max(1, fps))
-        var t = 0.0
-        while t < seconds {
+        let last = max(0, seconds - 1 / Double(rate))
+        var times = Array(stride(from: 0.0, to: last, by: 1))
+        times.append(last)
+        for t in times {
             while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 2_000_000) }
-            adaptor.append(pixels, withPresentationTime: CMTime(seconds: t, preferredTimescale: rate * 100))
-            t += 1
+            guard adaptor.append(pixels, withPresentationTime: CMTime(seconds: t, preferredTimescale: rate * 100)) else {
+                throw writer.error ?? JoinError.cannotWrite
+            }
         }
         input.markAsFinished()
         writer.endSession(atSourceTime: CMTime(seconds: seconds, preferredTimescale: rate * 100))

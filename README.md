@@ -64,6 +64,7 @@ the right pane.
 | Screen Recording | All screenshots and recordings |
 | Accessibility | Auto-Scroll in scrolling capture; naming steps by the clicked button in Step Recorder |
 | Microphone | Recordings with the microphone turned on (macOS asks the first time) |
+| Camera | Recordings with **Cam** turned on (macOS asks the first time) |
 
 Permissions switched on but not working, or asked for again after every build? See
 [Resetting permissions](docs/resetting-permissions.md).
@@ -224,6 +225,11 @@ Menu Bar → Expanded).
   from the clicks again (asking first if you changed them). **Export** makes the video again and saves it over
   the recording, then compresses it (if that is on) and shows a new preview. The project keeps the original clean
   video and your settings, so you can edit it again later. Recordings made without Record for editing open as before.
+- **Camera** (the **Cam** toggle in the record options): your camera shows in a round bubble in the corner of the
+  recorded area; drag it anywhere. Recorded as usual, the bubble is in the video. With Record for editing, the camera
+  is recorded on its own and drawn in where the bubble was, and the recording editor's **Camera** section changes it
+  afterwards: drag it in the preview, pick a circle or rounded rectangle and a size, mirror it, or turn it off. To hide
+  it for part of the video, set In and Out and press **Hide In–Out** (it fades out and back in).
 - **Trim** cuts the start and end without re-encoding. A trimmed GIF is rebuilt from the trimmed video.
 - **Zoom & Draw on Screen** for calls and recordings: draw with a pen, arrows or boxes (P, A, R; colors on 1 to 5,
   Command-Z undoes), scroll or press Command-Plus / Command-Minus to zoom in around the pointer, and move the pointer

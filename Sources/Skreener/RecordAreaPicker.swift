@@ -386,6 +386,8 @@ final class RecordAreaPicker: NSObject {
                             get: { Preferences.recordHighlightClicks }, set: { Preferences.recordHighlightClicks = $0 })
         let keys = toggle("Keys", "Show keystrokes",
                           get: { Preferences.recordShowKeystrokes }, set: { [weak self] on in self?.setKeystrokes(on) })
+        let cam = toggle("Cam", "Show the camera in a bubble you can drag (with Record for editing, placed in the editor)",
+                         get: { Preferences.recordCamera }, set: { Preferences.recordCamera = $0 })
         func pair(_ views: [NSView]) -> NSStackView {
             let s = NSStackView(views: views)
             s.orientation = .vertical
@@ -393,8 +395,8 @@ final class RecordAreaPicker: NSObject {
             s.spacing = 6
             return s
         }
-        let switches = NSStackView(views: [pair([mic, audio]), pair([clicks, keys])])
-        switches.spacing = 22
+        let switches = NSStackView(views: [pair([mic, audio]), pair([clicks, keys]), pair([cam])])
+        switches.spacing = 16
         switches.alignment = .top
         let top = NSStackView(views: [KeycapTray([options], caption: "Options"), switches])
         top.spacing = 22

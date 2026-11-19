@@ -208,6 +208,20 @@ import SkreenerCore
     /// A drag in the preview: the callout, and either where it was grabbed (video pixels from its anchor) or its handle.
     private var previewDrag: (id: UUID, grab: CGPoint?)?
 
+    // The camera (#25).
+    /// The recorded camera, once it is loaded; nil when the recording has none.
+    private var cameraFeed: CameraFeed?
+    private let cameraSwitch = RetroSwitch()
+    private let cameraShapePopup = RetroUI.stepper(tip: "The camera's shape", target: nil, action: nil)
+    private let cameraSizePopup = RetroUI.stepper(tip: "How big the camera is", target: nil, action: nil)
+    private let cameraMirrorSwitch = RetroSwitch()
+    private let hideCameraButton = RetroUI.key("Hide In–Out")
+    private let showCameraButton = RetroUI.key("Show In–Out")
+    private let cameraHint = RetroUI.hint(wraps: true)
+    private var cameraViews: [NSView] = []
+    /// While the camera is dragged in the preview: where it was grabbed, from its center in canvas pixels.
+    private var cameraGrab: CGPoint?
+
     // Joining clips (#384).
     private let sequenceList = NSStackView()
     private let addTitleButton = RetroUI.key("+ Title")
@@ -283,12 +297,13 @@ import SkreenerCore
     }
 
     private static func previewCompositor(project: RecordingProject, events: RecordingEvents, folder: URL,
-                                          settings: StudioSettings) -> StudioCompositor {
+                                          settings: StudioSettings, cameraFeed: CameraFeed? = nil) -> StudioCompositor {
         let canvas = StudioLayout.make(videoSize: project.videoSize, pixelsPerPoint: project.pixelScale,
                                        background: settings.backgroundOn ? settings.background : nil,
                                        frame: settings.exportPreset.frame).canvas
         let scale = StudioLayout.previewScale(canvas: canvas, fitting: previewMax)
-        return StudioCompositor(project: project, events: events, folder: folder, settings: settings, scale: scale)
+        return StudioCompositor(project: project, events: events, folder: folder, settings: settings, scale: scale,
+                                cameraFeed: cameraFeed)
     }
 
     private func present() {
@@ -316,6 +331,7 @@ import SkreenerCore
             }
             self.generateZoomIfNeeded()
             self.loadWaveform()
+            await self.loadCamera()
             self.refreshEditControls()
             self.refreshZoomControls()
             self.refreshTime()
@@ -356,7 +372,7 @@ import SkreenerCore
         let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom()
                                     + [RetroGroove()] + buildEdits() + [RetroGroove()] + buildAudio()
                                     + [RetroGroove()] + buildCaptions() + [RetroGroove()] + buildCallouts()
-                                    + [RetroGroove()] + buildSequence())
+                                    + buildCamera() + [RetroGroove()] + buildSequence())
         inspector.orientation = .vertical
         inspector.alignment = .leading
         inspector.spacing = 8
@@ -670,6 +686,7 @@ import SkreenerCore
             lines.append("Exported length \(StudioLayout.timecode(t.outputDuration)) of \(StudioLayout.timecode(duration)).")
         }
         editHint.stringValue = lines.joined(separator: " ")
+        refreshCameraControls()
         window.isDocumentEdited = settings != saved
     }
 
@@ -917,6 +934,7 @@ import SkreenerCore
         refreshZoomControls()
         refreshCaptionControls()
         refreshCalloutControls()
+        refreshCameraControls()
         refreshSequenceControls()
     }
 
@@ -1124,6 +1142,97 @@ import SkreenerCore
     }
 
     // MARK: Sequence
+
+    // MARK: Camera (#25)
+
+    private func buildCamera() -> [NSView] {
+        setUp(cameraSwitch, "Camera")
+        cameraSwitch.toolTip = "Show the camera recorded with the screen; drag it in the preview to move it"
+        setUp(cameraMirrorSwitch, "Mirror")
+        cameraMirrorSwitch.toolTip = "Flip the camera left to right, as it showed while recording"
+        setUp(cameraShapePopup, CameraOverlay.Shape.allCases.enumerated().map { ($1.name, $0) }, action: #selector(cameraOptionPicked(_:)))
+        setUp(cameraSizePopup, CameraOverlay.sizes.map { ($0.name, Self.cameraSizeTag($0.value)) }, action: #selector(cameraOptionPicked(_:)))
+        hideCameraButton.toolTip = "Hide the camera from In to Out (it fades out and back in)"
+        hideCameraButton.target = self; hideCameraButton.action = #selector(hideCameraRange)
+        showCameraButton.toolTip = "Show the camera again from In to Out"
+        showCameraButton.target = self; showCameraButton.action = #selector(showCameraRange)
+        cameraHint.preferredMaxLayoutWidth = 290
+        cameraViews = [
+            RetroGroove(),
+            header("Camera"),
+            row("Camera", [cameraSwitch]),
+            row("Shape", [cameraShapePopup]),
+            row("Size", [cameraSizePopup]),
+            row("Mirror", [cameraMirrorSwitch]),
+            row("", [hideCameraButton, showCameraButton]),
+            cameraHint,
+        ]
+        // Shown once the recording's camera is loaded.
+        cameraViews.forEach { $0.isHidden = true }
+        return cameraViews
+    }
+
+    private static func cameraSizeTag(_ size: Double) -> Int { Int((size * 100).rounded()) }
+
+    /// Loads the camera recorded with the screen, if there is one, and shows it.
+    private func loadCamera() async {
+        guard cameraFeed == nil, let feed = await CameraFeed.open(folder: folder) else { return }
+        cameraFeed = feed
+        compositor = Self.previewCompositor(project: project, events: events, folder: folder, settings: settings, cameraFeed: feed)
+        cameraViews.forEach { $0.isHidden = false }
+        refreshCameraControls()
+        redraw()
+    }
+
+    private func refreshCameraControls() {
+        guard cameraFeed != nil else { return }
+        let c = settings.camera
+        let ready = exportTask == nil
+        cameraSwitch.state = c.shown ? .on : .off
+        cameraSwitch.isEnabled = ready
+        cameraMirrorSwitch.state = c.mirrored ? .on : .off
+        cameraShapePopup.selectItem(withTag: CameraOverlay.Shape.allCases.firstIndex(of: c.shape) ?? 0)
+        // The size the bubble had while recording may be between two of the sizes: the nearest one shows.
+        let nearest = CameraOverlay.sizes.min { abs($0.value - c.size) < abs($1.value - c.size) }?.value ?? c.size
+        cameraSizePopup.selectItem(withTag: Self.cameraSizeTag(nearest))
+        let options: [NSControl] = [cameraMirrorSwitch, cameraShapePopup, cameraSizePopup]
+        options.forEach { $0.isEnabled = ready && c.shown }
+        let range = markedRange
+        hideCameraButton.isEnabled = ready && c.shown && range != nil
+        showCameraButton.isEnabled = ready && c.shown && range.map { c.hides(from: $0.start, to: $0.end) } == true
+        var text = c.shown ? "Drag the camera in the preview to move it." : "The camera is off."
+        if c.shown {
+            if c.hidden.isEmpty {
+                text += " To hide it for a while, set In and Out, then Hide In–Out."
+            } else {
+                let spans = c.hidden.map { "\(StudioLayout.timecode($0.start))–\(StudioLayout.timecode($0.end))" }
+                text += " Hidden \(spans.joined(separator: ", "))."
+            }
+        }
+        cameraHint.stringValue = text
+    }
+
+    @objc private func cameraOptionPicked(_ popup: PillPopUp) {
+        let i = popup.selectedTag()
+        switch popup {
+        case cameraShapePopup where CameraOverlay.Shape.allCases.indices.contains(i):
+            settings.camera.shape = CameraOverlay.Shape.allCases[i]
+        case cameraSizePopup:
+            settings.camera.size = Double(i) / 100
+            settings.camera = settings.camera.tidy
+        default: break
+        }
+    }
+
+    @objc private func hideCameraRange() {
+        guard let range = markedRange else { return }
+        settings.camera = settings.camera.hiding(from: range.start, to: range.end)
+    }
+
+    @objc private func showCameraRange() {
+        guard let range = markedRange else { return }
+        settings.camera = settings.camera.showing(from: range.start, to: range.end)
+    }
 
     private func buildSequence() -> [NSView] {
         for (button, tip, action) in [
@@ -1535,6 +1644,7 @@ import SkreenerCore
 
     private func endCalloutDrag() {
         previewDrag = nil
+        cameraGrab = nil
         guard let drag = calloutDrag else { return }
         calloutDrag = nil
         registerCalloutUndo(drag.before, name: drag.name)
@@ -1554,6 +1664,12 @@ import SkreenerCore
     /// handle). Elsewhere, deselects and leaves the click to play or pause.
     private func pressPreview(at p: CGPoint) -> Bool {
         guard exportTask == nil, !playing, let canvas = canvasPoint(preview: p) else { return false }
+        // The camera is drawn over everything, so it is hit first.
+        if let r = compositor.cameraRect(at: time), settings.camera.path(in: r).contains(canvas) {
+            if selectedCallout != nil { selectCallout(nil) }
+            cameraGrab = CGPoint(x: canvas.x - r.midX, y: canvas.y - r.midY)
+            return true
+        }
         let crop = compositor.crop(at: time)
         guard let hit = Callouts.hit(settings.callouts, at: canvas, time: time, layout: compositor.layout, crop: crop,
                                      pixelsPerPoint: compositor.videoPointScale, slop: 6 / max(compositor.scale, 0.05))
@@ -1570,6 +1686,11 @@ import SkreenerCore
     }
 
     private func dragPreview(to p: CGPoint) {
+        if let grab = cameraGrab, let canvas = canvasPoint(preview: p) {
+            settings.camera = settings.camera.moved(to: CGPoint(x: canvas.x - grab.x, y: canvas.y - grab.y),
+                                                    canvas: compositor.layout.canvas)
+            return
+        }
         guard let drag = previewDrag, let canvas = canvasPoint(preview: p),
               let i = settings.callouts.firstIndex(where: { $0.id == drag.id }) else { return }
         var c = settings.callouts[i]
@@ -1728,7 +1849,8 @@ import SkreenerCore
             refreshZoomControls()
             refreshCalloutControls()
         } else {
-            compositor = Self.previewCompositor(project: project, events: events, folder: folder, settings: settings)
+            compositor = Self.previewCompositor(project: project, events: events, folder: folder, settings: settings,
+                                                cameraFeed: cameraFeed)
             refreshControls()
         }
         refreshAudioControls()
@@ -1762,6 +1884,8 @@ import SkreenerCore
         case idleSwitch: settings.cursor.hideWhenIdle = on
         case autoZoomSwitch: settings.autoZoom = on
         case calloutFollowSwitch: changeSelectedCallout(on ? "Follow Zoom" : "Stay Put") { $0.followsZoom = on }
+        case cameraSwitch: settings.camera.shown = on
+        case cameraMirrorSwitch: settings.camera.mirrored = on
         default: break
         }
     }
@@ -2233,7 +2357,8 @@ import SkreenerCore
         let target = preset.destination(for: recording)
         let folder = folder, fps = project.fps
         // Full size, made here: the background is drawn with AppKit.
-        let full = StudioCompositor(project: project, events: events, folder: folder, settings: settings)
+        let full = StudioCompositor(project: project, events: events, folder: folder, settings: settings,
+                                    cameraFeed: cameraFeed?.fresh())
         let box = ExportProgress()
         exportProgress = box
         let sources = project.audioTracks
