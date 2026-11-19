@@ -961,7 +961,7 @@ import SkreenerCore
             case .failure(let error) where error is CancellationError: break
             case .failure(let error):
                 NSLog("Making captions failed: \(error)")
-                NSAlert(error: error).beginSheetModal(for: self.window)
+                NSAlert(error: error).beginSheetModal(for: self.window, completionHandler: nil)
             }
             self.refreshCaptionControls()
         }
