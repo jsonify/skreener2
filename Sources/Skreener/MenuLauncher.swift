@@ -4,7 +4,7 @@ import ImageIO
 /// What a key under the capture keys does; the app delegate runs it (`MenuLauncher.onCommand`) once the menu has closed.
 enum MenuCommand: Hashable {
     case showHistory, openClipboard, pinClipboard, settings, quit
-    case openFile, pinFile, pinClickThrough, fromDevice
+    case openFile, pinFile, pinClickThrough, fromDevice, editRecording
     case presenter, stepRecorder, stepGuide, watchArea
     case keyboardShortcuts, welcomeGuide, whatsNew, checkForUpdates, about
     /// A click on the LCD while it shows a newer release.
@@ -96,6 +96,7 @@ enum MenuCommand: Hashable {
             Key(command: .pinFile, caption: "Pin File", name: "Pin to the Screen…", symbol: "pin.circle"),
             Key(command: .pinClickThrough, caption: "Click-Thru", name: "Pin Click-Through", symbol: "cursorarrow.rays"),
             Key(command: .fromDevice, caption: "iPhone", name: "From iPhone or iPad", symbol: "iphone"),
+            Key(command: .editRecording, caption: "Edit Rec", name: "Edit a Recording…", symbol: "film"),
         ]),
         KeyGroup(title: "Tools", keys: [
             Key(command: .presenter, caption: "Draw", name: "Zoom & Draw", symbol: "scribble.variable"),

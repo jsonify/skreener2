@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import UniformTypeIdentifiers
 import ScreenCaptureKit
 import SkreenerCore
 
@@ -199,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
         case .pinFile: pinFile()
         case .pinClickThrough: pinClickThrough()
         case .fromDevice: openFromDevice()
+        case .editRecording: editRecording()
         case .presenter: togglePresenter()
         case .stepRecorder: toggleStepRecorder()
         case .stepGuide: StepGuideWindow.show()
@@ -346,6 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
             item("Quit Skreener", #selector(NSApplication.terminate(_:)), "q"),
         ])
         _ = submenu("File", [
+            item("Edit a Recording…", #selector(editRecording), "", target: self),
+            .separator(),
             item("Save", #selector(EditorWindow.saveScreenshot(_:)), "s"),
             item("Save As…", #selector(EditorWindow.saveScreenshotAs(_:)), "s", [.command, .shift]),
         ])
@@ -404,8 +408,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSServ
 
     @MainActor @objc private func openFile() {
         NSApp.activate(ignoringOtherApps: true)
-        // Saving the edited image writes over the file opened (#118).
-        if let picked = ImageSource.pickFile() { EditorWindowController(image: picked.image, file: picked.url).present() }
+        let p = NSOpenPanel()
+        // A recording made with Record for editing opens in the recording editor.
+        p.allowedContentTypes = [.image, .mpeg4Movie]
+        p.canChooseDirectories = false
+        p.allowsMultipleSelection = false
+        guard p.runModal() == .OK, let url = p.url else { return }
+        if RecordingProjectLookup.isVideo(url) {
+            openRecordingInEditor(url)
+        } else if let image = NSImage(contentsOf: url) {
+            // Saving the edited image writes over the file opened (#118).
+            EditorWindowController(image: image, file: url).present()
+        }
+    }
+
+    /// Opens a Record for editing recording in the recording editor again (#24): pick its video; the panel starts
+    /// where the newest one was saved.
+    @MainActor @objc private func editRecording() {
+        NSApp.activate(ignoringOtherApps: true)
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.mpeg4Movie]
+        p.canChooseDirectories = false
+        p.allowsMultipleSelection = false
+        p.message = "Choose a recording made with Record for editing."
+        p.prompt = "Edit"
+        if let newest = RecordingProjectLookup.newestRecording() {
+            p.directoryURL = newest.deletingLastPathComponent()
+        }
+        guard p.runModal() == .OK, let url = p.url else { return }
+        openRecordingInEditor(url)
+    }
+
+    @MainActor private func openRecordingInEditor(_ url: URL) {
+        if let folder = RecordingProjectLookup.folder(for: url), RecordingEditorWindow.open(url, project: folder) { return }
+        let alert = NSAlert()
+        alert.messageText = "\(url.lastPathComponent) can't be opened in the recording editor"
+        alert.informativeText = "Only videos made with Record for editing can be edited again, and only while Skreener still "
+            + "has their recording project (in Application Support › Skreener › Recordings)."
+        alert.runModal()
     }
 
     @objc private func openClipboard() {
