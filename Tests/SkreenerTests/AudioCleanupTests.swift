@@ -156,7 +156,8 @@ final class AudioCleanupTests: XCTestCase {
     }
 
     func testVoicePresetLevelsAQuietVoice() {
-        var x = sine(300, amplitude: 0.01, seconds: 3)
+        // Quiet, but within the 24 dB the levelling may add.
+        var x = sine(300, amplitude: 0.03, seconds: 3)
         VoiceChain(preset: .voice, noiseRemoval: .off, sampleRate: sr).process(&x, sampleRate: sr)
         XCTAssertEqual(Loudness.integrated(x, sampleRate: sr)!, Loudness.target, accuracy: 0.5)
     }
