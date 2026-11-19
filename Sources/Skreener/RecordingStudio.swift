@@ -46,10 +46,13 @@ struct StudioSettings: Codable, Equatable {
     var callouts: [Callout] = []
     /// Title cards, stills and other videos joined with this recording at export (#384); empty for the recording alone.
     var sequence: [SequenceClip] = []
+    /// How the recorded camera is drawn (#25); used only when the project has one.
+    var camera = CameraOverlay()
 
-    /// The defaults for `project`: no background, the effects as recorded.
+    /// The defaults for `project`: no background, the effects as recorded, the camera where its bubble was.
     init(project: RecordingProject) {
         effects = project.style
+        camera = CameraOverlay(placement: project.camera)
     }
 
     func encoded() throws -> Data { try RecordingFile.encoder.encode(self) }
@@ -75,6 +78,7 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.captionsFile { s.captionsFile = v }
         if let v = saved.callouts { s.callouts = Callouts.tidy(v) }
         if let v = saved.sequence { s.sequence = ClipSequence.tidy(v) }
+        if let v = saved.camera { s.camera = v.tidy }
         return s
     }
 
@@ -109,6 +113,7 @@ struct StudioSettings: Codable, Equatable {
         var captionsFile: Bool?
         var callouts: [Callout]?
         var sequence: [SequenceClip]?
+        var camera: CameraOverlay?
     }
 
     /// These settings without the zoom, audio and edit ones: what changes the background and effects (`StudioCompositor.zoomed`).
@@ -124,6 +129,8 @@ struct StudioSettings: Codable, Equatable {
         s.callouts = []
         // The sequence is joined after the frames are drawn.
         s.sequence = []
+        // The camera is drawn each frame too.
+        s.camera = CameraOverlay()
         return s
     }
 
@@ -283,14 +290,17 @@ final class StudioCompositor: @unchecked Sendable {
     let size: CGSize
     let scale: CGFloat
     let camera: ZoomCamera
+    /// The recorded camera (#25), drawn in its bubble over the frame; nil when there is none.
+    let cameraFeed: CameraFeed?
     /// The background and the shadow, at `size`; nil without a background.
     private let backdrop: CGImage?
 
     /// `scale` shrinks everything for the preview; Export uses 1.
     @MainActor init(project: RecordingProject, events: RecordingEvents, folder: URL?, settings: StudioSettings,
-                    scale: CGFloat = 1) {
+                    scale: CGFloat = 1, cameraFeed: CameraFeed? = nil) {
         self.settings = settings
         self.scale = scale
+        self.cameraFeed = cameraFeed
         layout = StudioLayout.make(videoSize: project.videoSize, pixelsPerPoint: project.pixelScale,
                                    background: settings.backgroundOn ? settings.background : nil,
                                    frame: settings.exportPreset.frame)
@@ -309,6 +319,7 @@ final class StudioCompositor: @unchecked Sendable {
         overlay = other.overlay
         size = other.size
         scale = other.scale
+        cameraFeed = other.cameraFeed
         backdrop = other.backdrop
         camera = ZoomCamera(sections: settings.zoomSections, events: other.overlay.events, videoSize: other.layout.videoSize)
     }
@@ -322,6 +333,16 @@ final class StudioCompositor: @unchecked Sendable {
     /// Whether frames are composed (on a canvas, or zoomed) rather than drawn over the recording.
     var composes: Bool {
         settings.backgroundOn || settings.zooms || settings.exportPreset.frame != nil || showsCaptions || !settings.callouts.isEmpty
+            || showsCamera
+    }
+
+    /// Whether the camera is drawn into the frames.
+    var showsCamera: Bool { cameraFeed != nil && settings.camera.shown }
+
+    /// The camera bubble on the canvas (canvas pixels, bottom-left origin) when it shows at `t`.
+    func cameraRect(at t: Double) -> CGRect? {
+        guard let feed = cameraFeed, showsCamera, settings.camera.opacity(at: t) > 0 else { return nil }
+        return settings.camera.rect(canvas: layout.canvas, aspect: feed.aspect)
     }
 
     /// The video's pixels per screen point of the recording, for sizing callouts drawn in the video's pixels.
@@ -354,6 +375,15 @@ final class StudioCompositor: @unchecked Sendable {
     /// over all of it, near the bottom of the frame.
     func draw(in ctx: CGContext, source: CGImage?, at t: Double) {
         drawFrame(in: ctx, source: source, at: t)
+        if showsCamera, let feed = cameraFeed {
+            let opacity = settings.camera.opacity(at: t)
+            if opacity > 0, let picture = feed.image(at: t) {
+                ctx.saveGState()
+                ctx.scaleBy(x: scale, y: scale)
+                settings.camera.draw(picture, in: ctx, canvas: layout.canvas, opacity: opacity)
+                ctx.restoreGState()
+            }
+        }
         guard showsCaptions, let i = Captions.index(at: t, in: settings.captions) else { return }
         ctx.saveGState()
         ctx.scaleBy(x: scale, y: scale)
