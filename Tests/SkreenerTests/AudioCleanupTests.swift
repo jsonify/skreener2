@@ -293,7 +293,7 @@ final class AudioCleanupTests: XCTestCase {
         let chain = VoiceChain(tuning: t, sampleRate: sr)
         XCTAssertNil(chain.compressor)
         XCTAssertNil(chain.preLevel)
-        let response = { (f: Double) in chain.eq.reduce(0) { $0 + $1.response(at: f, sampleRate: sr) } }
+        func response(_ f: Double) -> Double { chain.eq.reduce(0) { $0 + $1.response(at: f, sampleRate: sr) } }
         XCTAssertGreaterThan(response(40), 2, "warmer")
         XCTAssertGreaterThan(response(5200), 0, "no de-essing")
         var x = sine(300, amplitude: 0.03, seconds: 3)
