@@ -157,6 +157,20 @@ import SkreenerCore
     private var hasVoice: Bool { audioSources.contains { $0 != .system } }
     private var hasSystemAudio: Bool { audioSources.contains(.system) }
 
+    // Captions (#386)
+    private let generateCaptionsButton = RetroUI.key("Generate")
+    private let captionsShownSwitch = RetroSwitch()
+    private let captionsFileSwitch = RetroSwitch()
+    private let captionField = NSTextField(string: "")
+    private let captionStartButton = RetroUI.key("Start Here")
+    private let captionEndButton = RetroUI.key("End Here")
+    private let addCaptionButton = RetroUI.key("+ Line")
+    private let deleteCaptionButton = RetroUI.key("Delete")
+    private let captionHint = RetroUI.hint(wraps: true)
+    private var captionTask: Task<Void, Never>?
+    /// The caption showing in `captionField` (an index into `settings.captions`).
+    private var shownCaption: Int?
+
     // Export bar
     private let exportButton = RetroUI.key("Export", variant: .orange)
     private let cancelButton = RetroUI.key("Cancel")
@@ -283,7 +297,8 @@ import SkreenerCore
 
         // The inspector, scrolling when the window is too short for it.
         let inspector = NSStackView(views: buildBackground() + [RetroGroove()] + buildEffects() + [RetroGroove()] + buildZoom()
-                                    + [RetroGroove()] + buildEdits() + [RetroGroove()] + buildAudio())
+                                    + [RetroGroove()] + buildEdits() + [RetroGroove()] + buildAudio()
+                                    + [RetroGroove()] + buildCaptions())
         inspector.orientation = .vertical
         inspector.alignment = .leading
         inspector.spacing = 8
@@ -792,6 +807,7 @@ import SkreenerCore
         refreshAudioControls()
         refreshEditControls()
         refreshZoomControls()
+        refreshCaptionControls()
     }
 
     @objc private func exportPresetPicked() {
@@ -842,6 +858,159 @@ import SkreenerCore
             zoomHint.stringValue = "Click a zoom on the track under the scrubber to change it."
         }
         window.isDocumentEdited = settings != saved
+    }
+
+    private func buildCaptions() -> [NSView] {
+        for (button, tip, action) in [
+            (generateCaptionsButton, "Make captions from your voice with speech recognition on this Mac (replaces any there are)",
+             #selector(generateCaptions)),
+            (captionStartButton, "Start the caption at the playhead here", #selector(captionStartHere)),
+            (captionEndButton, "End the caption at the playhead here", #selector(captionEndHere)),
+            (addCaptionButton, "Add a caption line at the playhead", #selector(addCaption)),
+            (deleteCaptionButton, "Delete the caption at the playhead", #selector(deleteCaption)),
+        ] {
+            button.toolTip = tip
+            button.target = self
+            button.action = action
+        }
+        setUp(captionsShownSwitch, "Show captions in the video")
+        captionsShownSwitch.toolTip = "Draw the captions into the exported video"
+        setUp(captionsFileSwitch, "Save captions file")
+        captionsFileSwitch.toolTip = "Save the captions as an .srt file next to the exported video, for YouTube and the like"
+        captionField.placeholderString = "No caption at the playhead"
+        captionField.font = .systemFont(ofSize: 12)
+        captionField.lineBreakMode = .byTruncatingTail
+        captionField.cell?.sendsActionOnEndEditing = true
+        captionField.target = self
+        captionField.action = #selector(captionTextChanged)
+        captionField.setAccessibilityLabel("Caption at the playhead")
+        captionField.widthAnchor.constraint(equalToConstant: 290).isActive = true
+        captionHint.preferredMaxLayoutWidth = 290
+        return [
+            header("Captions"),
+            row("Captions", [generateCaptionsButton]),
+            row("In video", [captionsShownSwitch]),
+            row(".srt file", [captionsFileSwitch]),
+            captionField,
+            row("", [captionStartButton, captionEndButton]),
+            row("", [addCaptionButton, deleteCaptionButton]),
+            captionHint,
+        ]
+    }
+
+    private func refreshCaptionControls() {
+        let exporting = exportTask != nil
+        let busy = captionTask != nil
+        let current = Captions.index(at: time, in: settings.captions)
+        generateCaptionsButton.isEnabled = !exporting && !busy && hasVoice
+        captionsShownSwitch.state = settings.captionsShown ? .on : .off
+        captionsFileSwitch.state = settings.captionsFile ? .on : .off
+        captionsShownSwitch.isEnabled = !exporting
+        captionsFileSwitch.isEnabled = !exporting
+        captionField.isEnabled = !exporting && current != nil
+        // Moving off the line being edited ends the edit (which saves it) and shows the line now at the playhead.
+        if captionField.currentEditor() != nil, current != shownCaption { window.makeFirstResponder(nil) }
+        if captionField.currentEditor() == nil {
+            let now = Captions.index(at: time, in: settings.captions)
+            captionField.stringValue = now.map { settings.captions[$0].text } ?? ""
+            shownCaption = now
+        }
+        let captions = settings.captions
+        [captionStartButton, captionEndButton, deleteCaptionButton].forEach { $0.isEnabled = !exporting && current != nil }
+        addCaptionButton.isEnabled = !exporting && current == nil && duration > 0
+        if busy {
+            captionHint.stringValue = "Listening to your voice… this takes a little while for a long recording."
+        } else if captions.isEmpty {
+            captionHint.stringValue = hasVoice ? "Generate makes captions from your voice, on this Mac. Then edit each line at the playhead."
+                : "No microphone was recorded, so there's nothing to make captions from."
+        } else {
+            var text = "\(captions.count) caption lines. Play or scrub to a line to change its text or timing."
+            if settings.captionsShown && settings.exportPreset == .gif { text += " A GIF gets the captions drawn in but no .srt." }
+            captionHint.stringValue = text
+        }
+    }
+
+    private func setCaptions(_ captions: [Caption], name: String) {
+        let before = settings.captions
+        settings.captions = Captions.tidy(captions)
+        guard before != settings.captions else { return }
+        if let undo = window.undoManager {
+            undo.registerUndo(withTarget: self, selector: #selector(restoreCaptions(_:)), object: CaptionUndoStep(before, name: name))
+            undo.setActionName(name)
+        }
+        shownCaption = nil
+        refreshCaptionControls()
+    }
+
+    @objc private func restoreCaptions(_ step: CaptionUndoStep) {
+        setCaptions(step.captions, name: step.name)
+    }
+
+    @objc private func generateCaptions() {
+        guard captionTask == nil, exportTask == nil else { return }
+        setPlaying(false)
+        let video = folder.appendingPathComponent(RecordingProject.videoFile)
+        let sources = project.audioTracks
+        captionTask = Task { [weak self] in
+            let result: Result<[Caption], Error>
+            do { result = .success(try await CaptionGenerator.generate(video: video, sources: sources)) } catch { result = .failure(error) }
+            guard let self else { return }
+            self.captionTask = nil
+            switch result {
+            case .success(let captions): self.setCaptions(captions, name: "Generate Captions")
+            case .failure(let error) where error is CancellationError: break
+            case .failure(let error):
+                NSLog("Making captions failed: \(error)")
+                NSAlert(error: error).beginSheetModal(for: self.window)
+            }
+            self.refreshCaptionControls()
+        }
+        refreshCaptionControls()
+    }
+
+    /// Changes the caption at the playhead.
+    private func changeCurrentCaption(_ name: String, _ change: (inout Caption) -> Void) {
+        guard let i = Captions.index(at: time, in: settings.captions) else { return }
+        var captions = settings.captions
+        change(&captions[i])
+        setCaptions(captions, name: name)
+    }
+
+    @objc private func captionTextChanged() {
+        guard let i = shownCaption, settings.captions.indices.contains(i) else { return }
+        let text = captionField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text != settings.captions[i].text else { return }
+        var captions = settings.captions
+        if text.isEmpty { captions.remove(at: i) } else { captions[i].text = text }
+        setCaptions(captions, name: text.isEmpty ? "Delete Caption" : "Edit Caption")
+    }
+
+    @objc private func captionStartHere() {
+        let t = time
+        changeCurrentCaption("Move Caption Start") { $0.start = t }
+    }
+
+    @objc private func captionEndHere() {
+        let t = time
+        // At the playhead itself would hide it at once; a moment later keeps it showing here.
+        changeCurrentCaption("Move Caption End") { $0.end = max($0.start + TimelineEdit.minLength, t + 0.05) }
+    }
+
+    @objc private func addCaption() {
+        guard Captions.index(at: time, in: settings.captions) == nil else { return }
+        let next = settings.captions.first { $0.start > time }?.start ?? duration
+        let end = min(time + 2, next)
+        guard end - time >= TimelineEdit.minLength else { return }
+        setCaptions(settings.captions + [Caption(start: time, end: end, text: "New caption")], name: "Add Caption")
+        window.makeFirstResponder(captionField)
+        captionField.currentEditor()?.selectAll(nil)
+    }
+
+    @objc private func deleteCaption() {
+        guard let i = Captions.index(at: time, in: settings.captions) else { return }
+        var captions = settings.captions
+        captions.remove(at: i)
+        setCaptions(captions, name: "Delete Caption")
     }
 
     private func refreshAudioControls() {
@@ -951,6 +1120,8 @@ import SkreenerCore
         case clicksSwitch: settings.effects.clicks = on
         case keysSwitch: settings.effects.keystrokes = on
         case spotlightSwitch: settings.spotlight = on
+        case captionsShownSwitch: settings.captionsShown = on
+        case captionsFileSwitch: settings.captionsFile = on
         case idleSwitch: settings.cursor.hideWhenIdle = on
         case autoZoomSwitch: settings.autoZoom = on
         default: break
@@ -1238,6 +1409,7 @@ import SkreenerCore
         scrubber.doubleValue = time
         zoomTrack.time = time
         editTrack.time = time
+        refreshCaptionControls()
     }
 
     @objc private func togglePlay() {
@@ -1326,6 +1498,9 @@ import SkreenerCore
         exportProgress = box
         let sources = project.audioTracks
         let edits = timeline
+        // The captions as an .srt next to the video (#386), on its edited timeline.
+        let srt = settings.captionsFile && !settings.captions.isEmpty && preset != .gif
+            ? Captions.srt(Captions.laidOut(settings.captions, on: edits)) : nil
         exportTask = Task { [weak self] in
             var failure: Error?
             var outcome = AudioFinisher.Outcome()
@@ -1355,6 +1530,7 @@ import SkreenerCore
                     outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits)
                     try Task.checkCancellation()
                     try Self.replace(target, with: made)
+                    if let srt { try srt.write(to: Captions.srtURL(for: target), atomically: true, encoding: .utf8) }
                 }
             } catch {
                 failure = error
@@ -1476,6 +1652,7 @@ import SkreenerCore
         ticker?.invalidate(); ticker = nil
         progressTimer?.invalidate(); progressTimer = nil
         exportTask?.cancel()
+        captionTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
         window.undoManager?.removeAllActions(withTarget: self)
@@ -1536,6 +1713,15 @@ private final class EditorPanel: NSWindow {
 
 /// The undo step for zoom section edits: the sections to go back to.
 /// The undo step for cuts and speed changes: the edits to go back to.
+private final class CaptionUndoStep: NSObject {
+    let captions: [Caption]
+    let name: String
+    init(_ captions: [Caption], name: String) {
+        self.captions = captions
+        self.name = name
+    }
+}
+
 private final class EditUndoStep: NSObject {
     let edits: [TimelineEdit]
     let name: String

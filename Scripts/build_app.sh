@@ -85,6 +85,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSScreenCaptureUsageDescription</key><string>Skreener needs screen recording access to take screenshots and record the screen.</string>
   <key>NSAppleEventsUsageDescription</key><string>Skreener asks your browser for the address of the page you capture, so you can get back to it from Saved Files, and asks Notes and Reminders to add a capture when you pick them in Send To.</string>
   <key>NSMicrophoneUsageDescription</key><string>Skreener records your microphone in screen recordings when you turn that on in Settings.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Skreener makes captions from your voice in a recording, with speech recognition on this Mac, when you click Generate in the recording editor.</string>
 </dict></plist>
 PLIST
 # Metadata.appintents for the Shortcuts actions (see the top). The tool may write to the dependency file it is given,

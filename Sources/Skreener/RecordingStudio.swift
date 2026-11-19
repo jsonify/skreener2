@@ -36,6 +36,12 @@ struct StudioSettings: Codable, Equatable {
     var cursor = CursorSettings()
     /// The size and format Export makes (#386).
     var exportPreset = ExportPreset.original
+    /// Caption lines made from the microphone, in the recording's own time (#386).
+    var captions: [Caption] = []
+    /// Whether the captions are drawn into the video.
+    var captionsShown = true
+    /// Whether an `.srt` with the captions is saved next to the exported video.
+    var captionsFile = true
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -60,6 +66,9 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.edits { s.edits = v }
         if let v = saved.cursor { s.cursor = v }
         if let v = saved.exportPreset.flatMap(ExportPreset.init(rawValue:)) { s.exportPreset = v }
+        if let v = saved.captions { s.captions = Captions.tidy(v) }
+        if let v = saved.captionsShown { s.captionsShown = v }
+        if let v = saved.captionsFile { s.captionsFile = v }
         return s
     }
 
@@ -89,6 +98,9 @@ struct StudioSettings: Codable, Equatable {
         var edits: [TimelineEdit]?
         var cursor: CursorSettings?
         var exportPreset: String?
+        var captions: [Caption]?
+        var captionsShown: Bool?
+        var captionsFile: Bool?
     }
 
     /// These settings without the zoom, audio and edit ones: what changes the background and effects (`StudioCompositor.zoomed`).
@@ -296,7 +308,10 @@ final class StudioCompositor: @unchecked Sendable {
     }
 
     /// Whether frames are composed (on a canvas, or zoomed) rather than drawn over the recording.
-    var composes: Bool { settings.backgroundOn || settings.zooms || settings.exportPreset.frame != nil }
+    var composes: Bool { settings.backgroundOn || settings.zooms || settings.exportPreset.frame != nil || showsCaptions }
+
+    /// Whether captions are drawn into the frames.
+    var showsCaptions: Bool { settings.captionsShown && !settings.captions.isEmpty }
 
     /// Whether this draws anything but the recording itself (a background, a zoom, or effects).
     var changesTheVideo: Bool { composes || overlay.drawsAnything }
@@ -316,8 +331,53 @@ final class StudioCompositor: @unchecked Sendable {
     }
 
     /// Draws the frame at video time `t` into `ctx`, which covers `size` (bottom-left origin). `source` is the
-    /// recording's frame showing at `t`; nil draws the background and effects only.
+    /// recording's frame showing at `t`; nil draws the background and effects only. The caption showing at `t` goes
+    /// over all of it, near the bottom of the frame.
     func draw(in ctx: CGContext, source: CGImage?, at t: Double) {
+        drawFrame(in: ctx, source: source, at: t)
+        guard showsCaptions, let i = Captions.index(at: t, in: settings.captions) else { return }
+        ctx.saveGState()
+        ctx.scaleBy(x: scale, y: scale)
+        let keysAtBottom = settings.effects.keystrokes && !settings.effects.keystrokesAtTop
+        Self.drawCaption(settings.captions[i].text, in: ctx, canvas: layout.canvas, high: keysAtBottom)
+        ctx.restoreGState()
+    }
+
+    /// A caption line: white text, wrapped and centered, on a dark rounded box near the bottom of `canvas` (higher up
+    /// with `high`, above the keystroke pill).
+    static func drawCaption(_ text: String, in ctx: CGContext, canvas: CGSize, high: Bool) {
+        let fontSize = max(14, min(canvas.width, canvas.height) * 0.045)
+        var alignment = CTTextAlignment.center
+        let paragraph = withUnsafeMutablePointer(to: &alignment) { pointer -> CTParagraphStyle in
+            var setting = CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: pointer)
+            return CTParagraphStyleCreate(&setting, 1)
+        }
+        let attributed = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
+            NSAttributedString.Key(kCTParagraphStyleAttributeName as String): paragraph,
+        ])
+        let setter = CTFramesetterCreateWithAttributedString(attributed)
+        let maxWidth = canvas.width * 0.84
+        let fit = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
+                                                               CGSize(width: maxWidth, height: .greatestFiniteMagnitude), nil)
+        let textSize = CGSize(width: ceil(fit.width) + 2, height: ceil(fit.height) + 1)
+        let padX = fontSize * 0.55, padY = fontSize * 0.3
+        let box = CGRect(x: (canvas.width - textSize.width) / 2 - padX, y: canvas.height * (high ? 0.16 : 0.06),
+                         width: textSize.width + 2 * padX, height: textSize.height + 2 * padY)
+        let radius = min(fontSize * 0.35, box.height / 2)
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.72))
+        ctx.addPath(CGPath(roundedRect: box, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        ctx.fillPath()
+        ctx.textMatrix = .identity
+        let textRect = CGRect(x: box.minX + padX, y: box.minY + padY, width: textSize.width, height: textSize.height)
+        let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), CGPath(rect: textRect, transform: nil), nil)
+        CTFrameDraw(frame, ctx)
+    }
+
+    private func drawFrame(in ctx: CGContext, source: CGImage?, at t: Double) {
         ctx.saveGState()
         defer { ctx.restoreGState() }
         if let backdrop {
