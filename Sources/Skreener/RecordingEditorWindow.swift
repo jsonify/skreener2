@@ -1302,7 +1302,6 @@ import SkreenerCore
         panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie]
         panel.allowsMultipleSelection = true
         panel.message = "Choose videos to join with this recording, such as other recordings you finished."
-        if let newest = RecordingProjectLookup.newestRecording() { panel.directoryURL = newest.deletingLastPathComponent() }
         guard panel.runModal() == .OK else { return }
         let mine = AutoFiling.current(file).standardizedFileURL.path
         let picked = panel.urls.filter { $0.standardizedFileURL.path != mine }
