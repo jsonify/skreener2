@@ -332,6 +332,10 @@ final class EffectsOverlay: @unchecked Sendable {
     private let pills: [KeystrokePill]
     private let cursors: [CGImage?]
     private let font: NSFont
+    /// How much bigger than recorded the cursor is drawn (#382).
+    let cursorSize: CGFloat
+    /// When the idle cursor is hidden; nil keeps it showing.
+    let cursorVisibility: CursorVisibility?
 
     /// The effects as the recording was made. `folder` holds the cursor images (none drawn without it).
     convenience init(project: RecordingProject, events: RecordingEvents, folder: URL?) {
@@ -340,8 +344,12 @@ final class EffectsOverlay: @unchecked Sendable {
     }
 
     /// The effects in `style` (the recording editor's), for a video of `videoSize` pixels at `scale` pixels per point.
-    init(style: EffectsStyle, spotlight: Bool, videoSize: CGSize, scale: CGFloat, events: RecordingEvents, folder: URL?) {
+    /// `cursor` sizes the cursor and hides it when idle; its path is smoothed beforehand (`CursorMotion.smoothed`).
+    init(style: EffectsStyle, spotlight: Bool, videoSize: CGSize, scale: CGFloat, events: RecordingEvents, folder: URL?,
+         cursor: CursorSettings = CursorSettings()) {
         self.events = events
+        cursorSize = CGFloat(CursorSettings.clampedSize(cursor.size))
+        cursorVisibility = cursor.hideWhenIdle ? CursorVisibility(events: events, delay: cursor.idleDelay) : nil
         self.style = style
         self.spotlight = spotlight
         self.videoSize = videoSize
@@ -374,11 +382,16 @@ final class EffectsOverlay: @unchecked Sendable {
         if keystrokes { drawKeystrokes(in: ctx, at: t) }
         if style.clicks { events.rings(at: t, videoSize: videoSize).forEach { drawRing($0, in: ctx) } }
         if style.cursor, let cursor, cursor.visible, let i = cursor.image, cursors.indices.contains(i), let image = cursors[i] {
+            let alpha = cursorVisibility?.opacity(at: t) ?? 1
+            guard alpha > 0 else { return }
             let info = events.cursorImages[i]
             let p = flip(cursor.point)
-            let w = CGFloat(info.width) * scale, h = CGFloat(info.height) * scale
-            let rect = CGRect(x: p.x - CGFloat(info.hotspotX) * scale, y: p.y + CGFloat(info.hotspotY) * scale - h, width: w, height: h)
+            // Bigger around the hotspot, so it still points at the same spot.
+            let k = scale * cursorSize
+            let w = CGFloat(info.width) * k, h = CGFloat(info.height) * k
+            let rect = CGRect(x: p.x - CGFloat(info.hotspotX) * k, y: p.y + CGFloat(info.hotspotY) * k - h, width: w, height: h)
             ctx.saveGState()
+            ctx.setAlpha(CGFloat(alpha))
             ctx.interpolationQuality = .high
             ctx.draw(image, in: rect)
             ctx.restoreGState()

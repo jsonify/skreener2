@@ -100,6 +100,14 @@ import SkreenerCore
     private let keySizePopup = RetroUI.stepper(tip: "Keystroke size", target: nil, action: nil)
     private let keyPositionPopup = RetroUI.stepper(tip: "Where the keystrokes show", target: nil, action: nil)
     private let spotlightSwitch = RetroSwitch()
+    // Cursor (#382)
+    private let smoothingPopup = RetroUI.stepper(tip: "How much the cursor's movement is smoothed (it still lands on every click)",
+                                                 target: nil, action: nil)
+    private let cursorSizeSlider = NSSlider(value: 1, minValue: CursorSettings.minSize, maxValue: CursorSettings.maxSize,
+                                            target: nil, action: nil)
+    private let cursorSizeLabel = RetroUI.hint()
+    private let idleSwitch = RetroSwitch()
+    private let idleDelayPopup = RetroUI.stepper(tip: "How long the cursor stays after it stops moving", target: nil, action: nil)
 
     // Zoom
     private let autoZoomSwitch = RetroSwitch()
@@ -459,9 +467,26 @@ import SkreenerCore
         setUp(keySizePopup, Self.sizes([18, 24, 32, 40], with: style.keystrokeSize, saved: project.style.keystrokeSize),
               action: #selector(effectOptionPicked(_:)))
         setUp(keyPositionPopup, [("Bottom", 0), ("Top", 1)], action: #selector(effectOptionPicked(_:)))
+        setUp(smoothingPopup, CursorSmoothing.allCases.enumerated().map { ($1.name, $0) }, action: #selector(cursorOptionPicked(_:)))
+        setUp(idleDelayPopup, CursorSettings.idleDelays.map { ("after \(Int($0)) s", Int($0 * 10)) },
+              action: #selector(cursorOptionPicked(_:)))
+        setUp(idleSwitch, "Hide when idle")
+        idleSwitch.toolTip = "Fade the cursor out when it hasn't moved for a while, and back in when it moves"
+        cursorSizeSlider.controlSize = .small
+        cursorSizeSlider.isContinuous = true
+        cursorSizeSlider.numberOfTickMarks = 9
+        cursorSizeSlider.allowsTickMarkValuesOnly = true
+        cursorSizeSlider.toolTip = "Cursor size"
+        cursorSizeSlider.setAccessibilityLabel("Cursor size")
+        cursorSizeSlider.target = self; cursorSizeSlider.action = #selector(cursorSizeChanged)
+        cursorSizeSlider.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        cursorSizeLabel.widthAnchor.constraint(equalToConstant: 40).isActive = true
         return [
             header("Effects"),
             row("Cursor", [cursorSwitch]),
+            row("Smoothing", [smoothingPopup]),
+            row("Size", [cursorSizeSlider, cursorSizeLabel]),
+            row("Hide idle", [idleSwitch, idleDelayPopup]),
             row("Clicks", [clicksSwitch, clickColor, clickSizePopup]),
             row("Keystrokes", [keysSwitch, keySizePopup]),
             row("", [keyPositionPopup]),
@@ -727,6 +752,18 @@ import SkreenerCore
         keyPositionPopup.selectItem(withTag: e.keystrokesAtTop ? 1 : 0)
         [clickColor, clickSizePopup].forEach { $0.isEnabled = e.clicks && hasClicks && !exporting }
         [keySizePopup, keyPositionPopup].forEach { $0.isEnabled = e.keystrokes && hasKeys && !exporting }
+        let c = settings.cursor
+        smoothingPopup.selectItem(withTag: CursorSmoothing.allCases.firstIndex(of: c.smoothing) ?? 0)
+        cursorSizeSlider.doubleValue = c.size
+        cursorSizeLabel.stringValue = CursorSettings.sizeText(c.size)
+        idleSwitch.state = c.hideWhenIdle ? .on : .off
+        if idleDelayPopup.itemArray.contains(where: { $0.tag == Int((c.idleDelay * 10).rounded()) }) {
+            idleDelayPopup.selectItem(withTag: Int((c.idleDelay * 10).rounded()))
+        }
+        let cursorOn = e.cursor && hasCursor && !exporting
+        let cursorControls: [NSControl] = [smoothingPopup, cursorSizeSlider, idleSwitch]
+        cursorControls.forEach { $0.isEnabled = cursorOn }
+        idleDelayPopup.isEnabled = cursorOn && c.hideWhenIdle
 
         refreshAudioControls()
         refreshEditControls()
@@ -875,6 +912,7 @@ import SkreenerCore
         case clicksSwitch: settings.effects.clicks = on
         case keysSwitch: settings.effects.keystrokes = on
         case spotlightSwitch: settings.spotlight = on
+        case idleSwitch: settings.cursor.hideWhenIdle = on
         case autoZoomSwitch: settings.autoZoom = on
         default: break
         }
@@ -964,6 +1002,19 @@ import SkreenerCore
         case keyPositionPopup: settings.effects.keystrokesAtTop = tag == 1
         default: break
         }
+    }
+
+    @objc private func cursorOptionPicked(_ popup: PillPopUp) {
+        let tag = popup.selectedTag()
+        switch popup {
+        case smoothingPopup where CursorSmoothing.allCases.indices.contains(tag): settings.cursor.smoothing = CursorSmoothing.allCases[tag]
+        case idleDelayPopup: settings.cursor.idleDelay = Double(tag) / 10
+        default: break
+        }
+    }
+
+    @objc private func cursorSizeChanged() {
+        settings.cursor.size = CursorSettings.clampedSize(cursorSizeSlider.doubleValue)
     }
 
     // MARK: Zoom
