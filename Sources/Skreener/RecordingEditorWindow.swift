@@ -160,6 +160,8 @@ import SkreenerCore
     // Export bar
     private let exportButton = RetroUI.key("Export", variant: .orange)
     private let cancelButton = RetroUI.key("Cancel")
+    private let exportPresetPopup = RetroUI.stepper(tip: "What Export makes: the recording at its own size, a size for a video site or social media, or a GIF",
+                                                    target: nil, action: nil)
     private let progressBar = NSProgressIndicator()
     private let status = RetroUI.hint()
 
@@ -217,7 +219,8 @@ import SkreenerCore
     private static func previewCompositor(project: RecordingProject, events: RecordingEvents, folder: URL,
                                           settings: StudioSettings) -> StudioCompositor {
         let canvas = StudioLayout.make(videoSize: project.videoSize, pixelsPerPoint: project.pixelScale,
-                                       background: settings.backgroundOn ? settings.background : nil).canvas
+                                       background: settings.backgroundOn ? settings.background : nil,
+                                       frame: settings.exportPreset.frame).canvas
         let scale = StudioLayout.previewScale(canvas: canvas, fitting: previewMax)
         return StudioCompositor(project: project, events: events, folder: folder, settings: settings, scale: scale)
     }
@@ -311,8 +314,8 @@ import SkreenerCore
         ])
 
         // The export bar.
-        exportButton.toolTip = "Make the finished video again with these settings and save it over the recording"
         exportButton.target = self; exportButton.action = #selector(export)
+        setUp(exportPresetPopup, ExportPreset.allCases.enumerated().map { ($1.name, $0) }, action: #selector(exportPresetPicked))
         cancelButton.toolTip = "Stop exporting; the recording stays as it was"
         cancelButton.target = self; cancelButton.action = #selector(cancelExport)
         cancelButton.isHidden = true
@@ -323,11 +326,11 @@ import SkreenerCore
         progressBar.maxValue = 1
         progressBar.isHidden = true
         progressBar.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        status.stringValue = "Export saves over \(file.lastPathComponent); the original stays in the project."
+        status.stringValue = exportHint
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         status.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        let bar = NSStackView(views: [status, spacer, progressBar, cancelButton, exportButton])
+        let bar = NSStackView(views: [status, spacer, progressBar, cancelButton, exportPresetPopup, exportButton])
         bar.spacing = 10
         bar.alignment = .centerY
 
@@ -779,9 +782,31 @@ import SkreenerCore
         cursorControls.forEach { $0.isEnabled = cursorOn }
         idleDelayPopup.isEnabled = cursorOn && c.hideWhenIdle
 
+        let preset = settings.exportPreset
+        exportPresetPopup.selectItem(withTag: ExportPreset.allCases.firstIndex(of: preset) ?? 0)
+        exportPresetPopup.isEnabled = !exporting
+        exportButton.toolTip = preset.replacesRecording
+            ? "Make the finished video again with these settings and save it over the recording"
+            : "Make \(preset.destination(for: file).lastPathComponent) with these settings, next to the recording"
+
         refreshAudioControls()
         refreshEditControls()
         refreshZoomControls()
+    }
+
+    @objc private func exportPresetPicked() {
+        let i = exportPresetPopup.selectedTag()
+        guard ExportPreset.allCases.indices.contains(i) else { return }
+        settings.exportPreset = ExportPreset.allCases[i]
+        status.stringValue = exportHint
+    }
+
+    /// Where Export saves, for the status line.
+    private var exportHint: String {
+        let preset = settings.exportPreset
+        return preset.replacesRecording
+            ? "Export saves over \(file.lastPathComponent); the original stays in the project."
+            : "Export saves \(preset.destination(for: file).lastPathComponent) next to the recording."
     }
 
     private func refreshZoomControls() {
@@ -1291,7 +1316,9 @@ import SkreenerCore
         guard exportTask == nil else { return }
         setPlaying(false)
         let settings = settings
-        let target = AutoFiling.current(file)
+        let preset = settings.exportPreset
+        let recording = AutoFiling.current(file)
+        let target = preset.destination(for: recording)
         let folder = folder, fps = project.fps
         // Full size, made here: the background is drawn with AppKit.
         let full = StudioCompositor(project: project, events: events, folder: folder, settings: settings)
@@ -1307,7 +1334,7 @@ import SkreenerCore
                 let fm = FileManager.default
                 let dir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
                 defer { try? fm.removeItem(at: dir) }
-                let made = dir.appendingPathComponent(target.lastPathComponent)
+                let made = dir.appendingPathComponent(recording.lastPathComponent)
                 if full.changesTheVideo || edits.changesTime {
                     try await RecordingRenderer.render(folder: folder, fps: fps, compositor: full, to: made,
                                                        edits: edits) { box.set($0 * 0.85) }
@@ -1317,10 +1344,18 @@ import SkreenerCore
                 }
                 try Task.checkCancellation()
                 box.set(0.9)
-                // The voice cleaned up, the volumes set and the tracks mixed into one (#385).
-                outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits)
-                try Task.checkCancellation()
-                try Self.replace(target, with: made)
+                if preset == .gif {
+                    // A GIF has no sound (#386).
+                    let gif = dir.appendingPathComponent(target.lastPathComponent)
+                    try await GIFExporter.export(made, to: gif)
+                    try Task.checkCancellation()
+                    try Self.replace(target, with: gif)
+                } else {
+                    // The voice cleaned up, the volumes set and the tracks mixed into one (#385).
+                    outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits)
+                    try Task.checkCancellation()
+                    try Self.replace(target, with: made)
+                }
             } catch {
                 failure = error
             }
@@ -1379,6 +1414,24 @@ import SkreenerCore
         // Saved: the settings, and where the finished MP4 is, in the project.
         saved = exported
         do { try exported.save(folder: folder) } catch { NSLog("Couldn't save the recording's editor settings: \(error)") }
+        guard exported.exportPreset.replacesRecording else {
+            // A copy at another size, or a GIF, next to the recording (#386): the editor stays open for the next one.
+            refreshControls()
+            status.stringValue = "Saved \(target.lastPathComponent) next to the recording."
+            let isGIF = exported.exportPreset == .gif
+            if audio.isolationUnavailable {
+                Notifier.problem("Voice Isolation couldn't run",
+                                 detail: "The background noise was only turned down between words (the noise gate).")
+            }
+            Task { @MainActor in
+                if !isGIF { await RecordingController.compress(target) }
+                SavedLibrary.shared.note(target)
+                Sound.play("Glass")
+                if isGIF { NSWorkspace.shared.activateFileViewerSelecting([target]) } else { QuickAccessController.show(recording: target) }
+            }
+            if closeAfterExport { window.close() }
+            return
+        }
         project.exported = target.path
         do {
             try project.encoded().write(to: folder.appendingPathComponent(RecordingProject.projectFile), options: .atomic)
