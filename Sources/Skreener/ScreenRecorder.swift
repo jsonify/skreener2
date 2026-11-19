@@ -13,6 +13,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     struct Options {
         var systemAudio = Preferences.recordSystemAudio
         var microphone = Preferences.recordMicrophone
+        /// The input to record from (`Microphones`); nil is the Mac's default input.
+        var microphoneDevice = Preferences.recordMicrophoneDevice
         var showsCursor = Preferences.recordShowsCursor
         var fps = Preferences.recordFrameRate
         /// Off keeps system audio and the microphone on separate tracks (Record for editing, #385).
@@ -93,6 +95,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         var microphone = false
         if #available(macOS 15.0, *), options.microphone, await Self.microphoneAllowed() {
             cfg.captureMicrophone = true
+            if let id = Microphones.chosen(options.microphoneDevice, among: Microphones.available) {
+                cfg.microphoneCaptureDeviceID = id
+            }
             microphone = true
         }
 
