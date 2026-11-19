@@ -44,6 +44,8 @@ struct StudioSettings: Codable, Equatable {
     var captionsFile = true
     /// Arrows, boxes, labels and the like over the video, each for a while (#383). Drawn in this order.
     var callouts: [Callout] = []
+    /// Title cards, stills and other videos joined with this recording at export (#384); empty for the recording alone.
+    var sequence: [SequenceClip] = []
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -72,6 +74,7 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.captionsShown { s.captionsShown = v }
         if let v = saved.captionsFile { s.captionsFile = v }
         if let v = saved.callouts { s.callouts = Callouts.tidy(v) }
+        if let v = saved.sequence { s.sequence = ClipSequence.tidy(v) }
         return s
     }
 
@@ -105,6 +108,7 @@ struct StudioSettings: Codable, Equatable {
         var captionsShown: Bool?
         var captionsFile: Bool?
         var callouts: [Callout]?
+        var sequence: [SequenceClip]?
     }
 
     /// These settings without the zoom, audio and edit ones: what changes the background and effects (`StudioCompositor.zoomed`).
@@ -118,6 +122,8 @@ struct StudioSettings: Codable, Equatable {
         s.edits = []
         // The callouts are drawn from the settings each frame, so moving one needn't remake the background either.
         s.callouts = []
+        // The sequence is joined after the frames are drawn.
+        s.sequence = []
         return s
     }
 
@@ -468,6 +474,83 @@ final class StudioCompositor: @unchecked Sendable {
         var image: CGImage?
         VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
         return image
+    }
+}
+
+// Title cards and stills for a sequence (#384), drawn like the recording's frames: on the same background, the same size.
+extension StudioCompositor {
+    private func blankFrame() -> CGContext? {
+        CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+    }
+
+    /// A title card: `title` and `subtitle` centered on the background (a dark grey without one).
+    @MainActor func slateImage(title: String, subtitle: String) -> CGImage? {
+        guard let ctx = blankFrame() else { return nil }
+        let frame = CGRect(origin: .zero, size: size)
+        if settings.backgroundOn {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+            settings.background.background.drawFill(in: frame)
+            NSGraphicsContext.restoreGraphicsState()
+        } else {
+            ctx.setFillColor(CGColor(srgbRed: 0.09, green: 0.09, blue: 0.1, alpha: 1))
+            ctx.fill(frame)
+        }
+        let unit = min(size.width, size.height)
+        ctx.setShadow(offset: CGSize(width: 0, height: -unit * 0.004), blur: unit * 0.02,
+                      color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.45))
+        let lines = [(title, unit * 0.09, NSFont.Weight.bold), (subtitle, unit * 0.045, NSFont.Weight.medium)]
+            .filter { !$0.0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let made = lines.map { item -> (CTLine, CGFloat, CGFloat, CGFloat) in
+            let (text, fontSize, weight) = item
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: fontSize, weight: weight),
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
+            ]))
+            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            return (line, width, ascent, descent)
+        }
+        let gap = unit * 0.03
+        let height = made.reduce(0) { $0 + $1.2 + $1.3 } + gap * CGFloat(max(0, made.count - 1))
+        var top = (size.height + height) / 2
+        ctx.textMatrix = .identity
+        for (line, width, ascent, descent) in made {
+            // Too wide: scaled down to fit, around its middle.
+            let fit = min(1, size.width * 0.9 / max(width, 1))
+            ctx.saveGState()
+            ctx.translateBy(x: size.width / 2, y: top - ascent * fit)
+            ctx.scaleBy(x: fit, y: fit)
+            ctx.textPosition = CGPoint(x: -width / 2, y: 0)
+            CTLineDraw(line, ctx)
+            ctx.restoreGState()
+            top -= (ascent + descent) * fit + gap
+        }
+        return ctx.makeImage()
+    }
+
+    /// A still: `picture` fitted where the recording goes, with the background, corners and shadow around it.
+    @MainActor func stillImage(_ picture: CGImage) -> CGImage? {
+        guard let ctx = blankFrame() else { return nil }
+        if let backdrop {
+            ctx.draw(backdrop, in: CGRect(origin: .zero, size: size))
+        } else {
+            ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            ctx.fill(CGRect(origin: .zero, size: size))
+        }
+        ctx.scaleBy(x: scale, y: scale)
+        let content = layout.content
+        ctx.addPath(CGPath(roundedRect: content, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil))
+        ctx.clip()
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(content)
+        let k = min(content.width / CGFloat(max(picture.width, 1)), content.height / CGFloat(max(picture.height, 1)))
+        let w = CGFloat(picture.width) * k, h = CGFloat(picture.height) * k
+        ctx.interpolationQuality = .high
+        ctx.draw(picture, in: CGRect(x: content.midX - w / 2, y: content.midY - h / 2, width: w, height: h))
+        return ctx.makeImage()
     }
 }
 
