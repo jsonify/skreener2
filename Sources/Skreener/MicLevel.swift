@@ -76,9 +76,9 @@ struct MicMeter: Equatable {
         var text: String {
             switch self {
             case .good: return "Microphone level is good"
-            case .quiet: return "Microphone is quiet: speak closer to it, or raise its input volume in System Settings › Sound"
+            case .quiet: return "Microphone is quiet: speak closer to it, raise its input volume in System Settings › Sound, or pick your headset in Skreener's Settings › Recording"
             case .tooLoud: return "Microphone is too loud and clipping: lower its input volume in System Settings › Sound, or move back"
-            case .noSound: return "No sound from the microphone: check that it isn't muted and that the right one is selected"
+            case .noSound: return "No sound from the microphone: check that it isn't muted, and pick the right one in Skreener's Settings › Recording"
             }
         }
     }

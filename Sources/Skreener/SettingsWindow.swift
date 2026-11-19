@@ -499,6 +499,8 @@ final class SettingsWindowController: NSWindowController {
                 group("Audio", [
                     toggle("System audio", "Sound from other apps.", Preferences.recordSystemAudio) { Preferences.recordSystemAudio = $0 },
                     row("Microphone", micNote, mic),
+                    row("Input", "Which microphone records. Pick your headset if the Mac's default input is another one.",
+                        microphonePopup()),
                 ], note: "With both on, they are mixed into one audio track."),
                 group("Video", [
                     row("Frame rate", fps),
@@ -611,6 +613,30 @@ final class SettingsWindowController: NSWindowController {
             let raw = ($0 as? PillPopUp)?.selectedItem?.representedObject as? String
             Preferences.confirmationStyle = raw.flatMap(ConfirmationStyle.init(rawValue:)) ?? .hud
         }
+        return popup
+    }
+
+    /// The microphone recordings use (`Microphones`): the Mac's default input, or one picked by name. A picked one
+    /// that isn't connected stays listed, so unplugging it doesn't lose the choice.
+    private func microphonePopup() -> PillPopUp {
+        let popup = lcdPopUp()
+        popup.setAccessibilityLabel("Microphone input")
+        let defaultTitle = Microphones.defaultName.map { "System Default (\($0))" } ?? "System Default"
+        popup.addItem(withTitle: defaultTitle)
+        let devices = Microphones.available
+        for d in devices {
+            popup.addItem(withTitle: d.name); popup.lastItem?.representedObject = d.id
+        }
+        if let picked = Preferences.recordMicrophoneDevice {
+            if !devices.contains(where: { $0.id == picked }) {
+                popup.addItem(withTitle: "Not Connected (uses the default)"); popup.lastItem?.representedObject = picked
+            }
+            popup.selectItem(at: popup.itemArray.firstIndex { $0.representedObject as? String == picked } ?? 0)
+        } else {
+            popup.selectItem(at: 0)
+        }
+        if #unavailable(macOS 15.0) { popup.isEnabled = false }
+        bind(popup) { Preferences.recordMicrophoneDevice = ($0 as? PillPopUp)?.selectedItem?.representedObject as? String }
         return popup
     }
 
