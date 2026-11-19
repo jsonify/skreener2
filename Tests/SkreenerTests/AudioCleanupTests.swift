@@ -53,11 +53,11 @@ final class AudioCleanupTests: XCTestCase {
     // MARK: Dynamics
 
     func testCompressorCurve() {
-        XCTAssertEqual(Compressor.gainChange(level: -40, threshold: -20, ratio: 3, knee: 6), 0)
+        XCTAssertEqual(VoiceCompressor.gainChange(level: -40, threshold: -20, ratio: 3, knee: 6), 0)
         // 12 dB over at 3:1 comes out 4 dB over: 8 dB down.
-        XCTAssertEqual(Compressor.gainChange(level: -8, threshold: -20, ratio: 3, knee: 6), -8, accuracy: 1e-9)
+        XCTAssertEqual(VoiceCompressor.gainChange(level: -8, threshold: -20, ratio: 3, knee: 6), -8, accuracy: 1e-9)
         // In the knee, a little.
-        let knee = Compressor.gainChange(level: -20, threshold: -20, ratio: 3, knee: 6)
+        let knee = VoiceCompressor.gainChange(level: -20, threshold: -20, ratio: 3, knee: 6)
         XCTAssertLessThan(knee, 0)
         XCTAssertGreaterThan(knee, -1)
     }
@@ -65,7 +65,7 @@ final class AudioCleanupTests: XCTestCase {
     func testCompressorTurnsDownLoudPassagesOnly() {
         var quiet = sine(440, amplitude: 0.02, seconds: 0.5)
         var loud = sine(440, amplitude: 0.9, seconds: 0.5)
-        let c = Compressor(threshold: -22, ratio: 3)
+        let c = VoiceCompressor(threshold: -22, ratio: 3)
         let quietBefore = rmsDB(quiet[12000...]), loudBefore = rmsDB(loud[12000...])
         c.process(&quiet, sampleRate: sr)
         c.process(&loud, sampleRate: sr)

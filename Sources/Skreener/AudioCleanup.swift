@@ -188,7 +188,7 @@ struct NoiseGate: Equatable {
 }
 
 /// Evens out the voice: turns down whatever goes over the threshold, by the ratio, with a soft knee.
-struct Compressor: Equatable {
+struct VoiceCompressor: Equatable {
     var threshold: Double
     var ratio: Double
     var knee = 6.0
@@ -296,7 +296,7 @@ struct VoiceChain: Equatable {
     var highPass: Double?
     var gate: NoiseGate?
     var eq: [Biquad]
-    var compressor: Compressor?
+    var compressor: VoiceCompressor?
     var normalizes: Bool
 
     init(preset: AudioPreset, noiseRemoval: NoiseRemoval, sampleRate: Double) {
@@ -315,14 +315,14 @@ struct VoiceChain: Equatable {
         case .level:
             highPass = noiseRemoval == .off ? nil : 70
             eq = []
-            compressor = Compressor(threshold: -24, ratio: 2)
+            compressor = VoiceCompressor(threshold: -24, ratio: 2)
             normalizes = true
         case .voice:
             highPass = 80
             eq = [Biquad.peaking(250, gain: -2, q: 1, sampleRate: sr),
                   Biquad.peaking(3500, gain: 3, q: 1, sampleRate: sr),
                   Biquad.highShelf(10000, gain: 1.5, sampleRate: sr)]
-            compressor = Compressor(threshold: -22, ratio: 3)
+            compressor = VoiceCompressor(threshold: -22, ratio: 3)
             normalizes = true
         case .podcast:
             highPass = 90
@@ -330,7 +330,7 @@ struct VoiceChain: Equatable {
                   Biquad.peaking(350, gain: -3, q: 1.2, sampleRate: sr),
                   Biquad.peaking(4000, gain: 4, q: 0.9, sampleRate: sr),
                   Biquad.highShelf(10000, gain: 2, sampleRate: sr)]
-            compressor = Compressor(threshold: -26, ratio: 4)
+            compressor = VoiceCompressor(threshold: -26, ratio: 4)
             normalizes = true
         }
     }
