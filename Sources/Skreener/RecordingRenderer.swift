@@ -31,7 +31,7 @@ enum RecordingRenderer {
     /// once it is all written). Without a background this is the plain render above with the editor's effects, so the
     /// result is the same as the finished MP4 made after recording. Cancelling the task stops it and throws
     /// `CancellationError`; `progress` gets 0…1 now and then, on the renderer's queue.
-    static func render(folder: URL, fps: Int, compositor: StudioCompositor, to out: URL,
+    static func render(folder: URL, fps: Int, compositor: StudioCompositor, to out: URL, edits: EditTimeline? = nil,
                        progress: (@Sendable (Double) -> Void)? = nil) async throws {
         let video = folder.appendingPathComponent(RecordingProject.videoFile)
         let painting: Painting
@@ -41,7 +41,7 @@ enum RecordingRenderer {
             let overlay = compositor.overlay
             painting = .over { ctx, t in overlay.draw(in: ctx, at: t) }
         }
-        try await render(video: video, fps: fps, painting: painting, to: out, progress: progress)
+        try await render(video: video, fps: fps, painting: painting, to: out, edits: edits, progress: progress)
     }
 
     /// Re-encodes `video` as H.264 at `fps` into `out` (replacing it), calling `draw` for each frame with a context
@@ -55,7 +55,10 @@ enum RecordingRenderer {
     /// Re-encodes `video` as H.264 at `fps` into `out` (replacing it), each frame made as `painting` says. Each output
     /// frame is made from the latest source frame at or before its time, up to the end of the recording. On failure
     /// or cancellation `out` is left alone.
-    static func render(video: URL, fps: Int, painting: Painting, to out: URL,
+    /// With `edits` (#381), the frames follow the edited timeline: cut ranges are left out and sped-up ranges are shown
+    /// faster, each frame drawn with the effects at its source time. The audio is still copied as is, on the source
+    /// timeline; `AudioFinisher` lays it out on the edited one afterwards.
+    static func render(video: URL, fps: Int, painting: Painting, to out: URL, edits: EditTimeline? = nil,
                        progress: (@Sendable (Double) -> Void)?) async throws {
         let asset = AVURLAsset(url: video)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw RenderError.noVideo }
@@ -131,8 +134,9 @@ enum RecordingRenderer {
         }
         let start = CMSampleBufferGetPresentationTimeStamp(first)
         writer.startSession(atSourceTime: start)
+        let timeline = edits.flatMap { $0.isEmpty ? nil : $0 }
         let painter = FramePainter(output: frames, adaptor: adaptor, first: first, start: start, end: end,
-                                   fps: Int32(rate), painting: painting, progress: progress)
+                                   fps: Int32(rate), painting: painting, timeline: timeline, progress: progress)
         await withTaskCancellationHandler {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 let group = DispatchGroup()
@@ -172,6 +176,7 @@ enum RecordingRenderer {
         private let end: CMTime
         private let fps: Int32
         private let painting: Painting
+        private let timeline: EditTimeline?
         private let progress: (@Sendable (Double) -> Void)?
         private let queue = DispatchQueue(label: "com.skreener.renderer")
         private var next: CMSampleBuffer?
@@ -192,15 +197,18 @@ enum RecordingRenderer {
         }
 
         init(output: AVAssetReaderOutput, adaptor: AVAssetWriterInputPixelBufferAdaptor, first: CMSampleBuffer,
-             start: CMTime, end: CMTime, fps: Int32, painting: Painting, progress: (@Sendable (Double) -> Void)?) {
+             start: CMTime, end: CMTime, fps: Int32, painting: Painting, timeline: EditTimeline?,
+             progress: (@Sendable (Double) -> Void)?) {
             self.output = output
             self.adaptor = adaptor
             self.start = start
             self.end = end
             self.fps = fps
             self.painting = painting
+            self.timeline = timeline
             self.progress = progress
-            frameCount = max(1, Int64((CMTimeSubtract(end, start).seconds * Double(fps)).rounded(.up)))
+            let seconds = timeline?.outputDuration ?? CMTimeSubtract(end, start).seconds
+            frameCount = max(1, Int64((seconds * Double(fps)).rounded(.up)))
             next = first
         }
 
@@ -221,14 +229,22 @@ enum RecordingRenderer {
                         return
                     }
                     let time = CMTimeAdd(start, CMTime(value: frame, timescale: fps))
-                    // Always at least one frame, even for a video shorter than a frame.
-                    guard frame == 0 || CMTimeCompare(time, end) < 0 else { complete(finished); return }
-                    while let n = next, CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(n), time) <= 0 {
+                    // The source frame to show: the same time, or with edits the source time at this output time.
+                    var shown = time
+                    if let timeline {
+                        let t = Double(frame) / Double(fps)
+                        // Always at least one frame, even for a video shorter than a frame.
+                        guard frame == 0 || t < timeline.outputDuration else { complete(finished); return }
+                        shown = CMTimeAdd(start, CMTime(seconds: timeline.sourceTime(output: t), preferredTimescale: 600_000))
+                    } else {
+                        guard frame == 0 || CMTimeCompare(time, end) < 0 else { complete(finished); return }
+                    }
+                    while let n = next, CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(n), shown) <= 0 {
                         if let image = CMSampleBufferGetImageBuffer(n) { current = image; currentImage = nil }
                         next = output.copyNextSampleBuffer()
                     }
                     guard let source = current else { frame += 1; continue }
-                    guard let pool = adaptor.pixelBufferPool, let out = make(from: source, pool: pool, at: CMTimeSubtract(time, start).seconds),
+                    guard let pool = adaptor.pixelBufferPool, let out = make(from: source, pool: pool, at: CMTimeSubtract(shown, start).seconds),
                           adaptor.append(out, withPresentationTime: time) else {
                         failed = true
                         complete(finished)

@@ -30,6 +30,8 @@ struct StudioSettings: Codable, Equatable {
     var zoomGenerated = false
     /// Presets, noise removal and volumes, applied at export (#385).
     var audio = AudioSettings()
+    /// Cuts and speed changes, in the recording's own time (#381).
+    var edits: [TimelineEdit] = []
 
     /// The defaults for `project`: no background, the effects as recorded.
     init(project: RecordingProject) {
@@ -51,6 +53,7 @@ struct StudioSettings: Codable, Equatable {
         if let v = saved.zoomSections { s.zoomSections = AutoZoom.tidy(v) }
         if let v = saved.zoomGenerated { s.zoomGenerated = v }
         if let v = saved.audio { s.audio = v }
+        if let v = saved.edits { s.edits = v }
         return s
     }
 
@@ -77,9 +80,10 @@ struct StudioSettings: Codable, Equatable {
         var zoomSections: [ZoomSection]?
         var zoomGenerated: Bool?
         var audio: AudioSettings?
+        var edits: [TimelineEdit]?
     }
 
-    /// These settings without the zoom and audio ones: what changes the background and effects (`StudioCompositor.zoomed`).
+    /// These settings without the zoom, audio and edit ones: what changes the background and effects (`StudioCompositor.zoomed`).
     var withoutZoom: StudioSettings {
         var s = self
         s.autoZoom = true
@@ -87,6 +91,7 @@ struct StudioSettings: Codable, Equatable {
         s.zoomGenerated = false
         // Audio doesn't change the picture either.
         s.audio = AudioSettings()
+        s.edits = []
         return s
     }
 
