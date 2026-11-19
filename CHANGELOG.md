@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.22.0](https://github.com/jsonify/skreener2/compare/v1.21.0...v1.22.0) (2026-11-19)
+
+
+### Features
+
+* **ios:** copy text, open links and add dates to Calendar from the picture ([#441](https://github.com/jsonify/skreener2/issues/441)) ([#467](https://github.com/jsonify/skreener2/issues/467)) ([534e688](https://github.com/jsonify/skreener2/commit/534e6886722d3e8f574477e1ac131cd3f2e19709))
+* **ios:** Frame Latest control for Control Center and the Action button ([#439](https://github.com/jsonify/skreener2/issues/439)) ([#459](https://github.com/jsonify/skreener2/issues/459)) ([d052707](https://github.com/jsonify/skreener2/commit/d0527077bc2020c51dd52366487d326d02592250))
+* **ios:** keep more of the original resolution in the app ([#441](https://github.com/jsonify/skreener2/issues/441)) ([#465](https://github.com/jsonify/skreener2/issues/465)) ([baf7c3b](https://github.com/jsonify/skreener2/commit/baf7c3b0421da4e9154fe75b10b87a2880500609))
+* **ios:** reach and edit drawings and redactions with VoiceOver ([#451](https://github.com/jsonify/skreener2/issues/451)) ([#466](https://github.com/jsonify/skreener2/issues/466)) ([3b8133d](https://github.com/jsonify/skreener2/commit/3b8133d44e3e30926764052e23d2d12fb1869c99))
+* **recording:** cut sections and speed them up in the recording editor ([#381](https://github.com/jsonify/skreener2/issues/381)) ([#472](https://github.com/jsonify/skreener2/issues/472)) ([98a9019](https://github.com/jsonify/skreener2/commit/98a90190366c45ab23f16941851d917ff410d745))
+* **recording:** live mic level meter in the recording HUD ([#469](https://github.com/jsonify/skreener2/issues/469)) ([#470](https://github.com/jsonify/skreener2/issues/470)) ([9f7fe98](https://github.com/jsonify/skreener2/commit/9f7fe98c67e1204af143b434ee0f19dd1ba37427))
+* **recording:** voice presets, noise removal and volumes in the recording editor ([#385](https://github.com/jsonify/skreener2/issues/385)) ([#471](https://github.com/jsonify/skreener2/issues/471)) ([d8d9d5f](https://github.com/jsonify/skreener2/commit/d8d9d5f39c957c1786c2dd6f1da8f8924493860c))
+
+
+### Bug Fixes
+
+* **ios:** park the Frame Latest control ([#439](https://github.com/jsonify/skreener2/issues/439)) ([#463](https://github.com/jsonify/skreener2/issues/463)) ([0f501f8](https://github.com/jsonify/skreener2/commit/0f501f8c017d76c01636e0b9ff4cc05185ef6ebf))
+* **ios:** start live scroll captures without waiting for still frames ([#456](https://github.com/jsonify/skreener2/issues/456)) ([#468](https://github.com/jsonify/skreener2/issues/468)) ([162f18d](https://github.com/jsonify/skreener2/commit/162f18d4d324084a7d4dda90b9ac41199e647bbd))
+* **ios:** TestFlight uploads, the Frame Latest control's action, and a self-hosted Mac for TestFlight ([#439](https://github.com/jsonify/skreener2/issues/439), [#456](https://github.com/jsonify/skreener2/issues/456)) ([#461](https://github.com/jsonify/skreener2/issues/461)) ([6351e8c](https://github.com/jsonify/skreener2/commit/6351e8c1f586174935b80afcc9fdb16f20577a54))
+
 ## [1.21.0](https://github.com/jsonify/skreener2/compare/v1.20.0...v1.21.0) (2026-11-12)
 
 
