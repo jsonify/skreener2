@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.23.0](https://github.com/jsonify/skreener2/compare/v1.22.0...v1.23.0) (2026-11-19)
+
+
+### Features
+
+* **capture:** pick the microphone recordings use ([#477](https://github.com/jsonify/skreener2/issues/477)) ([657fc79](https://github.com/jsonify/skreener2/commit/657fc797e6fe75a1a24d8a5ae684c69c4117fc20))
+* **editor:** join clips with title cards, pictures and crossfades ([#384](https://github.com/jsonify/skreener2/issues/384)) ([#482](https://github.com/jsonify/skreener2/issues/482)) ([e3eecf1](https://github.com/jsonify/skreener2/commit/e3eecf1966e3a5b76b04b5a7efac18d42b5310ab))
+* **editor:** on-device captions, burned in and as .srt ([#386](https://github.com/jsonify/skreener2/issues/386)) ([#478](https://github.com/jsonify/skreener2/issues/478)) ([8fa3c1e](https://github.com/jsonify/skreener2/commit/8fa3c1e6774eb02973ee24a0dc9851a9b320281c))
+* **editor:** timed callouts on recordings ([#383](https://github.com/jsonify/skreener2/issues/383)) ([#480](https://github.com/jsonify/skreener2/issues/480)) ([e525828](https://github.com/jsonify/skreener2/commit/e5258287f1b71c90997ee57204a710ee78ce6ca8))
+* **editor:** tune voice presets to match Auphonic, with fine-tuning and My Voice ([#385](https://github.com/jsonify/skreener2/issues/385)) ([#479](https://github.com/jsonify/skreener2/issues/479)) ([f39d8dc](https://github.com/jsonify/skreener2/commit/f39d8dce64d1bc1cf1b0fb90a3d97a73f48fabee))
+* **menu:** reopen a recording in the recording editor ([#24](https://github.com/jsonify/skreener2/issues/24)) ([#481](https://github.com/jsonify/skreener2/issues/481)) ([584ecae](https://github.com/jsonify/skreener2/commit/584ecaebe8580c493a192ccd76c84aca152707b2))
+* **recording:** cursor smoothing, size and hiding when idle ([#382](https://github.com/jsonify/skreener2/issues/382)) ([#473](https://github.com/jsonify/skreener2/issues/473)) ([dc29982](https://github.com/jsonify/skreener2/commit/dc29982990e97a11e2325af4e361cc6406488b5c))
+* **recording:** export presets for video sites, social media and GIF ([#386](https://github.com/jsonify/skreener2/issues/386)) ([#476](https://github.com/jsonify/skreener2/issues/476)) ([bb14334](https://github.com/jsonify/skreener2/commit/bb14334b68f45dd5fff8cd1d69b13e3a76c82f10))
+* **recording:** mute a range and show the waveform ([#385](https://github.com/jsonify/skreener2/issues/385)) ([#474](https://github.com/jsonify/skreener2/issues/474)) ([238f6d9](https://github.com/jsonify/skreener2/commit/238f6d9d66c247a258ce00b10e9d6c6b04dfc9c0))
+* **recording:** webcam overlay as an editable track ([#25](https://github.com/jsonify/skreener2/issues/25)) ([#483](https://github.com/jsonify/skreener2/issues/483)) ([583eac1](https://github.com/jsonify/skreener2/commit/583eac1b94d2d5e40e550d5120574b9576e11fb3))
+
 ## [1.22.0](https://github.com/jsonify/skreener2/compare/v1.21.0...v1.22.0) (2026-11-19)
 
 
