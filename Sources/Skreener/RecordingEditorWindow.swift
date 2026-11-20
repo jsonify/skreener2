@@ -836,7 +836,7 @@ import SkreenerCore
         splitClipButton.toolTip = "Cut the selected audio in two at the playhead"
         splitClipButton.target = self; splitClipButton.action = #selector(splitClip)
         removeClipButton.toolTip = "Remove the selected audio"
-        removeClipButton.target = self; removeClipButton.action = #selector(removeClip)
+        removeClipButton.target = self; removeClipButton.action = #selector(removeAudioClip)
         clipVolumeSlider.controlSize = .small
         clipVolumeSlider.isContinuous = true
         clipVolumeSlider.toolTip = "The selected audio's volume"
@@ -869,7 +869,7 @@ import SkreenerCore
         }
         audioClipTrack.onDrag = { [weak self] id, kind, t in self?.dragClip(id, kind, to: t) }
         audioClipTrack.onDragEnded = { [weak self] in self?.endClipDrag() }
-        audioClipTrack.onDelete = { [weak self] in self?.removeClip() }
+        audioClipTrack.onDelete = { [weak self] in self?.removeAudioClip() }
     }
 
     private var selectedClipIndex: Int? { settings.audio.clips.firstIndex { $0.id == selectedClip } }
@@ -967,7 +967,7 @@ import SkreenerCore
         selectClip(parts.1.id)
     }
 
-    @objc private func removeClip() {
+    @objc private func removeAudioClip() {
         guard exportTask == nil, let i = selectedClipIndex else { return }
         var clips = settings.audio.clips
         clips.remove(at: i)
