@@ -225,6 +225,11 @@ Menu Bar → Expanded).
   from the clicks again (asking first if you changed them). **Export** makes the video again and saves it over
   the recording, then compresses it (if that is on) and shows a new preview. The project keeps the original clean
   video and your settings, so you can edit it again later. Recordings made without Record for editing open as before.
+- **Added audio** in the recording editor: **Add Audio…** (in the Audio section) puts a sound file, such as a
+  voiceover recorded afterwards or music, at the playhead on its own track under the callouts. Drag it to move it,
+  drag its ends to trim it, and **Split** cuts it at the playhead so the pieces can be moved apart. Each piece has its
+  own volume and can get the voice preset and noise removal (**Clean up**, off for music). Turn **Voice** down to 0%
+  to use a voiceover instead of the recorded microphone. The files are copied into the recording project.
 - **Camera** (the **Cam** toggle in the record options): your camera shows in a round bubble in the corner of the
   recorded area; drag it anywhere. Recorded as usual, the bubble is in the video. With Record for editing, the camera
   is recorded on its own and drawn in where the bubble was, and the recording editor's **Camera** section changes it

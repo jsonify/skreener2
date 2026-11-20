@@ -150,6 +150,24 @@ import SkreenerCore
     private let systemVolumeLabel = RetroUI.hint()
     private var micRow = NSView(), systemRow = NSView()
     private let audioHint = RetroUI.hint(wraps: true)
+    // Added audio: a voiceover, music.
+    private let audioClipTrack = AudioClipTrackView()
+    private var audioClipTrackHeight: NSLayoutConstraint?
+    private let addAudioButton = RetroUI.key("Add Audio…")
+    private let splitClipButton = RetroUI.key("Split")
+    private let removeClipButton = RetroUI.key("Remove")
+    private let clipVolumeSlider = NSSlider(value: 1, minValue: 0, maxValue: AudioSettings.maxVolume, target: nil, action: nil)
+    private let clipVolumeLabel = RetroUI.hint()
+    private let clipCleanupSwitch = RetroSwitch()
+    private let clipHint = RetroUI.hint(wraps: true)
+    private var clipRows: [NSView] = []
+    private var selectedClip: UUID?
+    /// A clip being dragged on its track: the clips before, and what the drag is called for Undo.
+    private var clipDrag: (before: [AudioClip], name: String)?
+    /// The added audio the preview plays, as last laid out (volumes aside).
+    private var previewedClips: [AudioClip] = []
+    /// The preview item's audio tracks for the recording's own tracks and for each added clip, when it is a composition.
+    private var previewMixTracks: (recorded: [AVAssetTrack], clips: [(id: UUID, track: AVAssetTrack)])?
     // Fine-tuning the voice: each slider changes one part of the preset.
     private let noiseReductionSlider = NSSlider(value: 0, minValue: 0, maxValue: VoiceTuning.maxNoiseReduction, target: nil, action: nil)
     private let pauseSlider = NSSlider(value: 0, minValue: 0, maxValue: VoiceTuning.maxPauseSilence, target: nil, action: nil)
@@ -323,11 +341,13 @@ import SkreenerCore
             self.zoomTrack.duration = self.duration
             self.editTrack.duration = self.duration
             self.calloutTrack.duration = self.duration
+            self.audioClipTrack.duration = self.duration
             // The zoom track's time scale lines up with the scrubber's track, which is inset by half its knob.
             if let cell = self.scrubber.cell as? NSSliderCell {
                 self.zoomTrack.inset = cell.knobRect(flipped: self.scrubber.isFlipped).width / 2
                 self.editTrack.inset = self.zoomTrack.inset
                 self.calloutTrack.inset = self.zoomTrack.inset
+                self.audioClipTrack.inset = self.zoomTrack.inset
             }
             self.generateZoomIfNeeded()
             self.loadWaveform()
@@ -425,7 +445,8 @@ import SkreenerCore
 
         setUpEditTrack()
         setUpCalloutTrack()
-        [well, transport, zoomTrack, editTrack, calloutTrack, inspectorScroll, bar].forEach {
+        setUpAudioClipTrack()
+        [well, transport, zoomTrack, editTrack, calloutTrack, audioClipTrack, inspectorScroll, bar].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview($0)
         }
@@ -457,7 +478,10 @@ import SkreenerCore
             inspectorScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
             inspectorScroll.widthAnchor.constraint(equalToConstant: 306),
             inspectorScroll.bottomAnchor.constraint(equalTo: bar.topAnchor, constant: -10),
-            bar.topAnchor.constraint(equalTo: calloutTrack.bottomAnchor, constant: 12),
+            audioClipTrack.topAnchor.constraint(equalTo: calloutTrack.bottomAnchor, constant: 4),
+            audioClipTrack.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor),
+            audioClipTrack.trailingAnchor.constraint(equalTo: scrubber.trailingAnchor),
+            bar.topAnchor.constraint(equalTo: audioClipTrack.bottomAnchor, constant: 12),
             bar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             bar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
             bar.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
@@ -801,7 +825,243 @@ import SkreenerCore
             row("Noise", [noisePopup]),
             micRow,
             systemRow,
-        ] + tuningRows + [audioHint]
+        ] + tuningRows + [audioHint] + buildAudioClips()
+    }
+
+    // MARK: Added audio
+
+    private func buildAudioClips() -> [NSView] {
+        addAudioButton.toolTip = "Add a sound file (a voiceover, music) at the playhead"
+        addAudioButton.target = self; addAudioButton.action = #selector(addAudio)
+        splitClipButton.toolTip = "Cut the selected audio in two at the playhead"
+        splitClipButton.target = self; splitClipButton.action = #selector(splitClip)
+        removeClipButton.toolTip = "Remove the selected audio"
+        removeClipButton.target = self; removeClipButton.action = #selector(removeClip)
+        clipVolumeSlider.controlSize = .small
+        clipVolumeSlider.isContinuous = true
+        clipVolumeSlider.toolTip = "The selected audio's volume"
+        clipVolumeSlider.setAccessibilityLabel("Added audio volume")
+        clipVolumeSlider.target = self; clipVolumeSlider.action = #selector(clipVolumeChanged)
+        clipVolumeSlider.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        clipVolumeLabel.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        clipCleanupSwitch.setAccessibilityLabel("Clean up like the voice")
+        clipCleanupSwitch.toolTip = "Give the selected audio the voice preset and noise removal, like the recorded microphone (off for music)"
+        clipCleanupSwitch.target = self; clipCleanupSwitch.action = #selector(clipCleanupToggled)
+        clipHint.preferredMaxLayoutWidth = 290
+        clipRows = [
+            row("Volume", [clipVolumeSlider, clipVolumeLabel]),
+            row("Clean up", [clipCleanupSwitch]),
+            row("", [splitClipButton, removeClipButton]),
+        ]
+        return [row("Add", [addAudioButton])] + clipRows + [clipHint]
+    }
+
+    private func setUpAudioClipTrack() {
+        audioClipTrack.translatesAutoresizingMaskIntoConstraints = false
+        let height = audioClipTrack.heightAnchor.constraint(equalToConstant: 0)
+        height.isActive = true
+        audioClipTrackHeight = height
+        audioClipTrack.isHidden = true
+        audioClipTrack.onSelect = { [weak self] id in self?.selectClip(id) }
+        audioClipTrack.onDragBegan = { [weak self] _ in
+            guard let self else { return }
+            self.clipDrag = (self.settings.audio.clips, "Move Audio")
+        }
+        audioClipTrack.onDrag = { [weak self] id, kind, t in self?.dragClip(id, kind, to: t) }
+        audioClipTrack.onDragEnded = { [weak self] in self?.endClipDrag() }
+        audioClipTrack.onDelete = { [weak self] in self?.removeClip() }
+    }
+
+    private var selectedClipIndex: Int? { settings.audio.clips.firstIndex { $0.id == selectedClip } }
+
+    private func refreshClipControls() {
+        let clips = settings.audio.clips
+        if selectedClip != nil, selectedClipIndex == nil { selectedClip = nil }
+        let exporting = exportTask != nil
+        audioClipTrack.clips = clips
+        audioClipTrack.selected = selectedClip
+        audioClipTrack.isEnabled = !exporting
+        audioClipTrack.isHidden = clips.isEmpty
+        audioClipTrackHeight?.constant = clips.isEmpty ? 0 : 26
+        addAudioButton.isEnabled = !exporting && duration > 0
+        let selected = selectedClipIndex.map { clips[$0] }
+        clipRows.forEach { $0.isHidden = selected == nil }
+        let controls: [NSControl] = [clipVolumeSlider, clipCleanupSwitch, removeClipButton]
+        controls.forEach { $0.isEnabled = !exporting && selected != nil }
+        splitClipButton.isEnabled = !exporting && selected.map { AudioClips.split($0, at: time) != nil } == true
+        if let c = selected {
+            clipVolumeSlider.doubleValue = c.volume
+            clipVolumeLabel.stringValue = AudioSettings.percent(c.volume)
+            clipCleanupSwitch.state = c.cleanup ? .on : .off
+            clipHint.stringValue = "\(c.name): \(StudioLayout.timecode(c.start))–\(StudioLayout.timecode(c.end)). "
+                + "Drag it on the audio track to move it, drag its ends to trim it, Split cuts it at the playhead. "
+                + "To use it instead of the recorded voice, turn Voice down to 0%."
+        } else if clips.isEmpty {
+            clipHint.stringValue = "Add a voiceover or music recorded separately. It starts at the playhead and can be moved, trimmed and split."
+        } else {
+            clipHint.stringValue = "Click a bar on the audio track to change it."
+        }
+    }
+
+    private func selectClip(_ id: UUID?) {
+        selectedClip = id
+        refreshClipControls()
+    }
+
+    /// Changes the clips as one step for Undo.
+    private func setClips(_ clips: [AudioClip], name: String) {
+        let before = settings.audio.clips
+        let tidy = AudioClips.tidy(clips)
+        guard tidy != before else { return }
+        settings.audio.clips = tidy
+        registerClipUndo(before, name: name)
+    }
+
+    private func registerClipUndo(_ before: [AudioClip], name: String) {
+        guard before != settings.audio.clips, let undo = window.undoManager else { return }
+        undo.registerUndo(withTarget: self, selector: #selector(restoreClips(_:)), object: AudioClipUndoStep(before, name: name))
+        undo.setActionName(name)
+    }
+
+    @objc private func restoreClips(_ step: AudioClipUndoStep) {
+        let current = settings.audio.clips
+        if let undo = window.undoManager {
+            undo.registerUndo(withTarget: self, selector: #selector(restoreClips(_:)), object: AudioClipUndoStep(current, name: step.name))
+            undo.setActionName(step.name)
+        }
+        settings.audio.clips = step.clips
+        refreshClipControls()
+    }
+
+    @objc private func addAudio() {
+        guard exportTask == nil, duration > 0 else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = AudioClips.types
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a sound file to add at the playhead, such as a voiceover or music."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let at = min(time, max(0, duration - 0.1))
+        let folder = folder
+        Task { [weak self] in
+            do {
+                let clip = try await AudioClips.add(url, to: folder, at: at)
+                guard let self else { return }
+                self.setClips(self.settings.audio.clips + [clip], name: "Add Audio")
+                self.selectClip(clip.id)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't add \(url.lastPathComponent)"
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc private func splitClip() {
+        guard exportTask == nil, let i = selectedClipIndex,
+              let parts = AudioClips.split(settings.audio.clips[i], at: time) else { NSSound.beep(); return }
+        var clips = settings.audio.clips
+        clips[i] = parts.0
+        clips.append(parts.1)
+        setClips(clips, name: "Split Audio")
+        selectClip(parts.1.id)
+    }
+
+    @objc private func removeClip() {
+        guard exportTask == nil, let i = selectedClipIndex else { return }
+        var clips = settings.audio.clips
+        clips.remove(at: i)
+        selectedClip = nil
+        setClips(clips, name: "Remove Audio")
+    }
+
+    @objc private func clipVolumeChanged() {
+        guard let i = selectedClipIndex else { return }
+        // As the recorded tracks' volumes: no Undo step for every move of the slider.
+        settings.audio.clips[i].volume = AudioSettings.clamped((clipVolumeSlider.doubleValue * 20).rounded() / 20)
+    }
+
+    @objc private func clipCleanupToggled() {
+        guard let i = selectedClipIndex else { return }
+        var clips = settings.audio.clips
+        clips[i].cleanup = clipCleanupSwitch.state == .on
+        setClips(clips, name: clips[i].cleanup ? "Clean Up Audio" : "Don't Clean Up Audio")
+    }
+
+    private func dragClip(_ id: UUID, _ kind: AudioClipTrackView.Drag, to t: Double) {
+        guard let drag = clipDrag, let i = drag.before.firstIndex(where: { $0.id == id }) else { return }
+        var clips = drag.before
+        switch kind {
+        case .move: clips[i] = AudioClips.moved(clips[i], to: t, duration: duration)
+        case .trim(let start):
+            clipDrag?.name = "Trim Audio"
+            clips[i] = AudioClips.trimmed(clips[i], start: start, to: t)
+        }
+        settings.audio.clips = clips
+    }
+
+    private func endClipDrag() {
+        guard let drag = clipDrag else { return }
+        clipDrag = nil
+        settings.audio.clips = AudioClips.tidy(settings.audio.clips)
+        registerClipUndo(drag.before, name: drag.name)
+        updatePreviewMix()
+    }
+
+    /// Plays the added audio in the preview: the player's item becomes a composition of the recording and the clips,
+    /// laid out where they are. Made again when they move (not while one is dragged), not for a volume change.
+    private func rebuildPreviewItem() {
+        let clips = settings.audio.clips.map { c -> AudioClip in var c = c; c.volume = 1; c.cleanup = true; return c }
+        guard clips != previewedClips, clipDrag == nil else { return }
+        previewedClips = clips
+        let recording = generator.asset, folder = folder, total = duration
+        Task { [weak self] in
+            var made: (item: AVPlayerItem, recorded: [AVAssetTrack], clips: [(id: UUID, track: AVAssetTrack)])?
+            if !clips.isEmpty {
+                made = try? await Self.previewComposition(recording: recording, clips: clips, folder: folder, duration: total)
+            }
+            guard let self, self.previewedClips == clips else { return }
+            let item = made?.item ?? AVPlayerItem(asset: recording)
+            self.player.currentItem?.remove(self.videoOutput)
+            item.add(self.videoOutput)
+            let rate = self.player.rate
+            self.player.replaceCurrentItem(with: item)
+            self.previewMixTracks = made.map { ($0.recorded, $0.clips) }
+            self.updatePreviewMix()
+            await self.player.seek(to: CMTime(seconds: self.time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            if rate != 0 { self.player.rate = rate }
+        }
+    }
+
+    private static func previewComposition(recording: AVAsset, clips: [AudioClip], folder: URL, duration: Double) async throws
+        -> (item: AVPlayerItem, recorded: [AVAssetTrack], clips: [(id: UUID, track: AVAssetTrack)]) {
+        let composition = AVMutableComposition()
+        let whole = CMTimeRange(start: .zero, duration: try await recording.load(.duration))
+        for track in try await recording.loadTracks(withMediaType: .video) {
+            let t = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+            try t?.insertTimeRange(whole, of: track, at: .zero)
+            t?.preferredTransform = try await track.load(.preferredTransform)
+        }
+        var recorded: [AVAssetTrack] = []
+        for track in try await recording.loadTracks(withMediaType: .audio) {
+            guard let t = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
+            try t.insertTimeRange(try await track.load(.timeRange), of: track, at: try await track.load(.timeRange).start)
+            recorded.append(t)
+        }
+        var added: [(id: UUID, track: AVAssetTrack)] = []
+        for c in clips {
+            let asset = AVURLAsset(url: AudioClips.url(of: c, in: folder))
+            guard let source = try await asset.loadTracks(withMediaType: .audio).first, c.start < duration,
+                  let t = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+            else { continue }
+            // Cut off at the end of the recording, like the export.
+            let length = min(c.length, duration - c.start)
+            let range = CMTimeRange(start: CMTime(seconds: c.offset, preferredTimescale: 48_000),
+                                    duration: CMTime(seconds: length, preferredTimescale: 48_000))
+            try t.insertTimeRange(range, of: source, at: CMTime(seconds: c.start, preferredTimescale: 48_000))
+            added.append((c.id, t))
+        }
+        return (AVPlayerItem(asset: composition), recorded, added)
     }
 
     /// The fine-tune controls: each changes one part of what the preset does, and Listen plays a sample of the result.
@@ -1739,6 +1999,7 @@ import SkreenerCore
     }
 
     private func refreshAudioControls() {
+        refreshClipControls()
         let exporting = exportTask != nil
         let a = settings.audio
         presetPopup.selectItem(withTag: AudioPreset.allCases.firstIndex(of: a.preset) ?? 0)
@@ -1805,14 +2066,23 @@ import SkreenerCore
 
     /// The preview plays each track at its volume (presets and noise removal are applied at export).
     private func updatePreviewMix() {
-        guard let item = player.currentItem, !previewAudioTracks.isEmpty else { return }
+        rebuildPreviewItem()
+        guard let item = player.currentItem else { return }
         let a = settings.audio
         let mix = AVMutableAudioMix()
-        mix.inputParameters = zip(previewAudioTracks, audioSources).map { track, source in
+        let recorded = previewMixTracks?.recorded ?? previewAudioTracks
+        var parameters = zip(recorded, audioSources).map { track, source in
             let p = AVMutableAudioMixInputParameters(track: track)
             p.setVolume(Float(source == .system ? a.systemVolume : a.micVolume), at: .zero)
             return p
         }
+        for (id, track) in previewMixTracks?.clips ?? [] {
+            let p = AVMutableAudioMixInputParameters(track: track)
+            p.setVolume(Float(a.clips.first { $0.id == id }?.volume ?? 1), at: .zero)
+            parameters.append(p)
+        }
+        guard !parameters.isEmpty else { return }
+        mix.inputParameters = parameters
         item.audioMix = mix
     }
 
@@ -2142,7 +2412,7 @@ import SkreenerCore
 
     /// ⌘Z and ⇧⌘Z (not while exporting).
     private func undoKey(redo: Bool) {
-        guard exportTask == nil, zoomDrag == nil, calloutDrag == nil, let undo = window.undoManager else { return }
+        guard exportTask == nil, zoomDrag == nil, calloutDrag == nil, clipDrag == nil, let undo = window.undoManager else { return }
         if redo {
             if undo.canRedo { undo.redo() } else { NSSound.beep() }
         } else {
@@ -2272,6 +2542,10 @@ import SkreenerCore
         zoomTrack.time = time
         editTrack.time = time
         calloutTrack.time = time
+        audioClipTrack.time = time
+        if let i = selectedClipIndex {
+            splitClipButton.isEnabled = exportTask == nil && AudioClips.split(settings.audio.clips[i], at: time) != nil
+        }
         refreshCaptionControls()
     }
 
@@ -2400,7 +2674,8 @@ import SkreenerCore
                 box.set(0.9)
                 if preset != .gif {
                     // The voice cleaned up, the volumes set and the tracks mixed into one (#385). A GIF has no sound.
-                    outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits)
+                    outcome = try await AudioFinisher.finish(made, sources: sources, settings: settings.audio, edits: edits,
+                                                                 folder: folder)
                     try Task.checkCancellation()
                 }
                 // Joined with the rest of the sequence (#384).
@@ -2566,6 +2841,7 @@ import SkreenerCore
         exportTask?.cancel()
         captionTask?.cancel()
         calloutDrag = nil
+        clipDrag = nil
         stopVoicePreview()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -2632,6 +2908,15 @@ private final class SequenceUndoStep: NSObject {
     let name: String
     init(_ sequence: [SequenceClip], name: String) {
         self.sequence = sequence
+        self.name = name
+    }
+}
+
+private final class AudioClipUndoStep: NSObject {
+    let clips: [AudioClip]
+    let name: String
+    init(_ clips: [AudioClip], name: String) {
+        self.clips = clips
         self.name = name
     }
 }
