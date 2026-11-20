@@ -26,21 +26,28 @@ enum AudioFinisher {
 
     /// Rewrites `url` with its audio cleaned up as `settings` say. `sources` says what each audio track holds. With
     /// `edits` (#381) the audio, still on the source timeline, is laid out on the edited one first (cuts left out,
-    /// sped-up ranges silent).
+    /// sped-up ranges silent). The added audio files (`settings.clips`) are read from the project `folder`; without
+    /// one they are left out.
     @discardableResult
     static func finish(_ url: URL, sources known: [AudioSource]?, settings: AudioSettings,
-                       edits: EditTimeline? = nil) async throws -> Outcome {
+                       edits: EditTimeline? = nil, folder: URL? = nil) async throws -> Outcome {
         let timeline = edits.flatMap { $0.isEmpty ? nil : $0 }
         let asset = AVURLAsset(url: url)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-        guard !audioTracks.isEmpty else { return Outcome() }
+        var settings = settings
+        if folder == nil { settings.clips = [] }
+        guard !audioTracks.isEmpty || !settings.clips.isEmpty else { return Outcome() }
         guard !settings.isNeutral || timeline != nil else {
             try await AudioMixer.mixAudioTracks(of: url)
             return Outcome()
         }
         let kinds = Self.sources(known, trackCount: audioTracks.count)
         let duration = try await asset.load(.duration)
-        let sourceFrames = max(0, Int((duration.seconds * sampleRate).rounded(.up)))
+        var sourceFrames = max(0, Int((duration.seconds * sampleRate).rounded(.up)))
+        if let timeline {
+            // The video is already on the edited timeline; the sound is still as long as the recording.
+            sourceFrames = max(sourceFrames, Int((timeline.duration * sampleRate).rounded(.up)))
+        }
         let frames = timeline.map { Int(($0.outputDuration * sampleRate).rounded()) } ?? sourceFrames
         guard sourceFrames > 0, frames > 0 else { return Outcome() }
         func laidOut(_ x: [Float]) -> [Float] { timeline?.remap(x, sampleRate: sampleRate) ?? x }
@@ -68,6 +75,32 @@ enum AudioFinisher {
                 try Task.checkCancellation()
                 chain.process(&voice, sampleRate: sampleRate)
                 mono.append((voice, Float(settings.micVolume)))
+            }
+        }
+        if let folder {
+            for clip in settings.clips {
+                try Task.checkCancellation()
+                let file = AVURLAsset(url: AudioClips.url(of: clip, in: folder))
+                guard let track = try await file.loadTracks(withMediaType: .audio).first else { continue }
+                let range = CMTimeRange(start: CMTime(seconds: clip.offset, preferredTimescale: 48_000),
+                                        duration: CMTime(seconds: clip.length, preferredTimescale: 48_000))
+                let frames = max(1, Int((clip.length * sampleRate).rounded(.up)))
+                let channels = try decode(track, of: file, frames: frames, range: range)
+                if clip.cleanup {
+                    var voice = [Float](repeating: 0, count: frames)
+                    for i in 0..<frames { voice[i] = (channels[0][i] + channels[1][i]) / 2 }
+                    if settings.noiseRemoval == .high {
+                        do { voice = try VoiceIsolation.process(voice, sampleRate: sampleRate) } catch {
+                            outcome.isolationUnavailable = true
+                        }
+                    }
+                    chain.process(&voice, sampleRate: sampleRate)
+                    let placed = AudioClips.placed(voice, at: clip.start, frames: sourceFrames, sampleRate: sampleRate)
+                    mono.append((laidOut(placed), Float(clip.volume)))
+                } else {
+                    let placed = channels.map { AudioClips.placed($0, at: clip.start, frames: sourceFrames, sampleRate: sampleRate) }
+                    stereo.append((placed.map(laidOut), Float(clip.volume)))
+                }
             }
         }
         try Task.checkCancellation()

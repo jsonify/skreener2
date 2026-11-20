@@ -188,13 +188,17 @@ struct AudioSettings: Codable, Equatable {
     /// Linear gain, 0…2 (1 is as recorded).
     var micVolume: Double = 1
     var systemVolume: Double = 1
+    /// Audio files added in the editor (a voiceover, music), mixed in at export.
+    var clips: [AudioClip] = []
 
     static let maxVolume = 2.0
 
     init() {}
 
     /// Nothing to do but mix the tracks.
-    var isNeutral: Bool { effectiveTuning == VoiceTuning() && noiseRemoval == .off && micVolume == 1 && systemVolume == 1 }
+    var isNeutral: Bool {
+        effectiveTuning == VoiceTuning() && noiseRemoval == .off && micVolume == 1 && systemVolume == 1 && clips.isEmpty
+    }
 
     /// What is done to the voice: the fine-tuning, or the preset's.
     var effectiveTuning: VoiceTuning { tuning ?? VoiceTuning(preset: preset, noiseRemoval: noiseRemoval) }
@@ -207,6 +211,7 @@ struct AudioSettings: Codable, Equatable {
         tuning = (try? c.decodeIfPresent(VoiceTuning.self, forKey: .tuning))?.clamped
         micVolume = Self.clamped(try c.decodeIfPresent(Double.self, forKey: .micVolume) ?? 1)
         systemVolume = Self.clamped(try c.decodeIfPresent(Double.self, forKey: .systemVolume) ?? 1)
+        clips = AudioClips.tidy(try c.decodeIfPresent([AudioClip].self, forKey: .clips) ?? [])
     }
 
     static func clamped(_ volume: Double) -> Double { volume.isFinite ? min(max(volume, 0), maxVolume) : 1 }
