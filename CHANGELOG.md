@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.0](https://github.com/jsonify/skreener2/compare/v1.23.0...v1.24.0) (2026-11-20)
+
+
+### Features
+
+* **editor:** add, trim, split and move audio files in the recording editor ([#484](https://github.com/jsonify/skreener2/issues/484)) ([108b17a](https://github.com/jsonify/skreener2/commit/108b17abd4b78453d70e77f31c40fe5de2f6eb08))
+
 ## [1.23.0](https://github.com/jsonify/skreener2/compare/v1.22.0...v1.23.0) (2026-11-19)
 
 
